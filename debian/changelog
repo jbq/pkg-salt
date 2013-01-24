@@ -1,0 +1,133 @@
+salt (0.12.1-1~bpo60+1~madduck.2) squeeze-backports; urgency=low
+
+  * Add recommendation to python-mako, but conflict with versions before
+    0.7.0, since Salt won't work with the version in squeeze, but needs the
+    backport instead.
+
+ -- martin f. krafft <madduck@debian.org>  Thu, 24 Jan 2013 20:17:21 +1300
+
+salt (0.12.1-1~bpo60+1~madduck.1) squeeze-backports; urgency=low
+
+  * RebuilD for squeeze-backports.
+
+ -- martin f. krafft <madduck@debian.org>  Thu, 24 Jan 2013 16:45:13 +1300
+
+salt (0.12.1-1) unstable; urgency=low
+
+  * [2f34fe9] New upstream version 0.12.1
+  * [f25519b] Refresh version fix
+
+ -- Ulrich Dangel <uli@debian.org>  Tue, 22 Jan 2013 22:05:26 +0000
+
+salt (0.12.0-1) unstable; urgency=low
+
+  * [b6c675e] New upstream version 0.12.0
+  * [bd89271] Import patch to fix version.py
+
+ -- Ulrich Dangel <uli@debian.org>  Sat, 19 Jan 2013 11:26:17 +0000
+
+salt (0.11.1+ds-1) unstable; urgency=low
+
+  * Team upload.
+  * Re-roll a new orig.tar.gz for 0.11.1 that includes all the files with
+    "debian" in their name. Closes: #697747
+  * Update debian/watch to drop the (temporary) +ds suffix
+
+ -- Raphaël Hertzog <hertzog@debian.org>  Wed, 09 Jan 2013 10:41:47 +0100
+
+salt (0.11.1-1) unstable; urgency=low
+
+  * [9dfcb21] Update watch uri as github no longer offers download page
+  * [2aedacf] Don't filter pyc files
+  * [3adc2cf] New upstream version 0.11.1
+  * [281093f] Use default config file from conf directory
+  * [88e0f24] Mention new default file locations
+  * [7ddd3fc] Add bash completion
+
+ -- Ulrich Dangel <uli@debian.org>  Fri, 04 Jan 2013 04:35:59 +0000
+
+salt (0.10.5-1) unstable; urgency=low
+
+  * [f735ab9] Filter pyc files
+  * [62462dd] New upstream version 0.10.5 (Closes: #690481)
+  * [9726d8b] Install empty include dirs for salt-master and salt-minion.
+  * [8705c6e] Build-depend on msgpack-python
+  * [6832d36] Update config file templates
+
+ -- Ulrich Dangel <uli@debian.org>  Mon, 19 Nov 2012 08:34:09 +0000
+
+salt (0.10.4-1) unstable; urgency=low
+
+  * [5431ef2] Imported Upstream version 0.10.4
+  * [bcd48a0] Remove patch 'add_hacking_rst', applied upstream.
+  * [3135d52] Fix salt-master restart (Patch by martin f. krafft)
+    (Closes: #692064)
+  * [15abbbb] Recommend lsb-release. With new upstream code this
+    provides lsb* grains. (Closes: #690700)
+
+ -- Christian Hofstaedtler <christian@hofstaedtler.name>  Sat, 10 Nov 2012 17:57:52 +0100
+
+salt (0.10.2-1~experimental+1) experimental; urgency=low
+
+  * [cf57587] Import upstream version 0.10.2
+  * [1ff7a9f] Add patch to create HACKING.rst
+
+ -- Ulrich Dangel <uli@debian.org>  Sat, 04 Aug 2012 02:57:52 +0200
+
+salt (0.10.1-3) unstable; urgency=low
+
+  * [efbd4a8] Change uploaders email address for Ulrich Dangel
+  * [442ead1] Recommends dmidecode instead of Depend to support non-x86 systems.
+
+ -- Ulrich Dangel <uli@debian.org>  Mon, 30 Jul 2012 12:40:53 +0200
+
+salt (0.10.1-2) unstable; urgency=low
+
+  * [bda6011] Add dmidecode to depends for salt-minion. (Closes: #680410)
+  * [ad4786e] Depend on the same salt version
+  * [671c2c3] Depend on debhelper version fixing #577040
+
+ -- Ulrich Dangel <uli@debian.org>  Mon, 09 Jul 2012 23:15:27 +0200
+
+salt (0.10.1-1) unstable; urgency=low
+
+  [ Ulrich Dangel ]
+  * [f1d627c] Always recreate orig.tar.gz with git-buildpackage
+
+  [ Michael Prokop ]
+  * Merge new upstream release
+  * [ee1806a] Add python-augeas to suggests of salt-minion
+
+ -- Michael Prokop <mika@debian.org>  Fri, 22 Jun 2012 18:56:02 +0200
+
+salt (0.10.0-1) unstable; urgency=low
+
+  [ Ulrich Dangel ]
+  * Merge new upstream release
+  * [bd10385] Change debian/source/format to quilt
+  * [ba60137] Add ignore options
+  * [54e70de] Copy service files from rpm package
+  * [1d21548] Update install files
+  * [c2737c9] Update pyversions file to use 2.6
+  * [573b27a] Update salt-common.install to install complete python
+    package
+  * [9b739f5] Update debian/rules to use python support and update
+    build dependencies
+  * [bf51e1c] Provide pydists-overrides for msgpack-python
+  * [4bbd2bf] Add dependency to python-pkg-resources for
+    salt-{minion,master,syndic}
+  * [ad8f712] Update config files to latest version
+
+  [ Jeroen Dekkers ]
+  * [9ae1aa5] Unapply patches from source
+  * [933c1ee] Add debian/gbp.conf
+  * [be9529b] Add >= 1.0 to python-sphinx build-depend
+
+ -- Michael Prokop <mika@debian.org>  Wed, 20 Jun 2012 22:39:40 +0200
+
+salt (0.9.9-1) unstable; urgency=low
+
+  * Initial release. [Closes: #643789]
+
+ -- Michael Prokop <mika@debian.org>  Thu, 14 Jun 2012 18:39:17 +0200
+
