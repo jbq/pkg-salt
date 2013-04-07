@@ -1,0 +1,7 @@
+*.pyc
+*.substvars
+*.debhelper
+*.debhelper.log
+debian/files
+debian/tmp
+doc/_build
