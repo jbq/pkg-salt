@@ -18,12 +18,14 @@ Full list of builtin state modules
     file
     gem
     git
+    grains
     group
     hg
     host
     keyboard
     kmod
     layman
+    libvirt
     locale
     makeconf
     module
@@ -41,6 +43,7 @@ Full list of builtin state modules
     pkgrepo
     postgres_database
     postgres_user
+    postgres_group
     rabbitmq_user
     rabbitmq_vhost
     rvm

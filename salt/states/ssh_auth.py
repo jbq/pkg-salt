@@ -107,7 +107,7 @@ def present(
         The user who owns the ssh authorized keys file to modify
 
     enc
-        Defines what type of key is being used, can be ssh-rsa or ssh-dss
+        Defines what type of key is being used, can be ecdsa ssh-rsa, ssh-dss
 
     comment
         The comment to be placed with the ssh public key
@@ -150,7 +150,7 @@ def present(
                 kwargs.get('__env__', 'base'))
     else:
         # check if this is of form {options} {enc} {key} {comment}
-        sshre = re.compile(r'^(.*?)\s?((?:ssh\-|ecds).+)$')
+        sshre = re.compile(r'^(.*?)\s?((?:ssh\-|ecds)[\w-]+\s.+)$')
         fullkey = sshre.search(name)
         # if it is {key} [comment]
         if not fullkey:

@@ -80,7 +80,7 @@ def zmq_version():
         if is_console_configured():
             log.critical(msg)
         else:
-            sys.stderr.write("CRITICAL {0}\n".format(msg))
+            sys.stderr.write('CRITICAL {0}\n'.format(msg))
     return False
 
 
@@ -98,13 +98,16 @@ def verify_socket(interface, pub_port, ret_port):
         retsock.bind((interface, int(ret_port)))
         retsock.close()
         result = True
-    except Exception:
-        msg = ("Unable to bind socket, this might not be a problem."
-               " Is there another salt-master running?")
+    except Exception as exc:
+        if exc.args:
+            msg = ('Unable to bind socket, error: {0}'.format(str(exc)))
+        else:
+            msg = ('Unable to bind socket, this might not be a problem.'
+                   ' Is there another salt-master running?')
         if is_console_configured():
             log.warn(msg)
         else:
-            sys.stderr.write("WARNING: {0}\n".format(msg))
+            sys.stderr.write('WARNING: {0}\n'.format(msg))
         result = False
     finally:
         pubsock.close()
@@ -121,12 +124,9 @@ def verify_files(files, user):
         if os.environ['os'].startswith('Windows'):
             return True
     import pwd  # after confirming not running Windows
-    import grp
     try:
         pwnam = pwd.getpwnam(user)
         uid = pwnam[2]
-        gid = pwnam[3]
-        groups = [g.gr_gid for g in grp.getgrall() if user in g.gr_mem]
 
     except KeyError:
         err = ('Failed to prepare the Salt environment for user '

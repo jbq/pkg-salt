@@ -21,6 +21,8 @@ GRAINMAP = {
            'CloudLinux': '/etc/init.d',
            'Amazon': '/etc/init.d',
            'SunOS': '/etc/init.d',
+           'SUSE  Enterprise Server': '/etc/init.d',
+           'OEL': '/etc/init.d',
           }
 
 def __virtual__():
@@ -40,6 +42,7 @@ def __virtual__():
                'Debian',
                'Arch',
                'ALT',
+               'OEL',
               ]
     if __grains__['os'] in disable:
         return False
@@ -75,7 +78,7 @@ def stop(name):
     return not __salt__['cmd.retcode'](cmd)
 
 
-def restart(name):
+def restart(name, **kwargs):
     '''
     Restart the named service
 
@@ -83,8 +86,6 @@ def restart(name):
 
         salt '*' service.restart <service name>
     '''
-    if name == 'salt-minion':
-        salt.utils.daemonize_if(__opts__)
     cmd = os.path.join(GRAINMAP[__grains__['os']],
             name + ' restart')
     return not __salt__['cmd.retcode'](cmd)
@@ -114,3 +115,27 @@ def reload(name):
     cmd = os.path.join(GRAINMAP[__grains__['os']],
             name + ' reload')
     return not __salt__['cmd.retcode'](cmd)
+
+
+def get_all(name):
+    '''
+    Return a list of all available services
+
+    CLI Example::
+
+        salt '*' service.get_al
+    '''
+    if not os.path.isdir(GRAINMAP[__grains__['os']]):
+        return []
+    return sorted(os.listdir(GRAINMAP[__grains__['os']]))
+
+
+def available(name):
+    '''
+    Return if the names service is available
+
+    CLI Example::
+
+        salt '*' service.available
+    '''
+    return name in get_all()

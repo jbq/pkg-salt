@@ -29,7 +29,7 @@ class FileTest(integration.ModuleCase, integration.SaltReturnAssertsMixIn):
         '''
         file.symlink test interface
         '''
-        name = os.path.join(integration.TMP, 'symlink')
+        name = os.path.join(integration.TMP, 'symlink2')
         tgt = os.path.join(integration.TMP, 'target')
         ret = self.run_state('file.symlink', test=True, name=name, target=tgt)
         self.assertSaltNoneReturn(ret)
@@ -108,12 +108,27 @@ class FileTest(integration.ModuleCase, integration.SaltReturnAssertsMixIn):
         '''
         file.managed test interface
         '''
-        name = os.path.join(integration.TMP, 'grail_not_scene33')
+        name = os.path.join(integration.TMP, 'grail_not_not_scene33')
         ret = self.run_state(
             'file.managed', test=True, name=name, source='salt://grail/scene33'
         )
         self.assertSaltNoneReturn(ret)
         self.assertFalse(os.path.isfile(name))
+
+    def test_managed_show_diff_false(self):
+        '''
+        file.managed test interface
+        '''
+        name = os.path.join(integration.TMP, 'grail_not_scene33')
+        with open(name, 'wb') as fp_:
+            fp_.write('test_managed_show_diff_false\n')
+
+        ret = self.run_state(
+            'file.managed', name=name, source='salt://grail/scene33', show_diff=False
+        )
+
+        changes = ret.values()[0]['changes']
+        self.assertEquals('<show_diff=False>', changes['diff'])
 
     def test_directory(self):
         '''

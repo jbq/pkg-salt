@@ -34,7 +34,8 @@ def _get_gecos(name):
         return {}
     else:
         # Assign empty strings for any unspecified trailing GECOS fields
-        while len(gecos_field) < 4: gecos_field.append('')
+        while len(gecos_field) < 4:
+            gecos_field.append('')
         return {'fullname': str(gecos_field[0]),
                 'roomnumber': str(gecos_field[1]),
                 'workphone': str(gecos_field[2]),
@@ -46,10 +47,10 @@ def _build_gecos(gecos_dict):
     Accepts a dictionary entry containing GECOS field names and their values,
     and returns a full GECOS comment string, to be used with pw usermod.
     '''
-    return '{0},{1},{2},{3}'.format(gecos_dict.get('fullname',''),
-                                    gecos_dict.get('roomnumber',''),
-                                    gecos_dict.get('workphone',''),
-                                    gecos_dict.get('homephone',''))
+    return '{0},{1},{2},{3}'.format(gecos_dict.get('fullname', ''),
+                                    gecos_dict.get('roomnumber', ''),
+                                    gecos_dict.get('workphone', ''),
+                                    gecos_dict.get('homephone', ''))
 
 
 def add(name,
@@ -117,7 +118,7 @@ def delete(name, remove=False, force=False):
     return not ret['retcode']
 
 
-def getent():
+def getent(user=None):
     '''
     Return the list of all info for all users
 
@@ -128,6 +129,11 @@ def getent():
     ret = []
     for data in pwd.getpwall():
         ret.append(info(data.pw_name))
+    if user:
+        try:
+            return [x for x in ret if x.get('name', '') == user][0]
+        except IndexError:
+            return {}
     return ret
 
 
@@ -142,7 +148,7 @@ def chuid(name, uid):
     pre_info = info(name)
     if uid == pre_info['uid']:
         return True
-    cmd = 'pw usermod -u {0} {1}'.format(uid, name)
+    cmd = 'pw usermod -u {0} -n {1}'.format(uid, name)
     __salt__['cmd.run'](cmd)
     post_info = info(name)
     if post_info['uid'] != pre_info['uid']:
@@ -161,7 +167,7 @@ def chgid(name, gid):
     pre_info = info(name)
     if gid == pre_info['gid']:
         return True
-    cmd = 'pw usermod -g {0} {1}'.format(gid, name)
+    cmd = 'pw usermod -g {0} -n {1}'.format(gid, name)
     __salt__['cmd.run'](cmd)
     post_info = info(name)
     if post_info['gid'] != pre_info['gid']:
@@ -241,7 +247,8 @@ def chfullname(name, fullname):
     '''
     fullname = str(fullname)
     pre_info = _get_gecos(name)
-    if not pre_info: return False
+    if not pre_info:
+        return False
     if fullname == pre_info['fullname']:
         return True
     gecos_field = deepcopy(pre_info)
@@ -264,7 +271,8 @@ def chroomnumber(name, roomnumber):
     '''
     roomnumber = str(roomnumber)
     pre_info = _get_gecos(name)
-    if not pre_info: return False
+    if not pre_info:
+        return False
     if roomnumber == pre_info['roomnumber']:
         return True
     gecos_field = deepcopy(pre_info)
@@ -287,7 +295,8 @@ def chworkphone(name, workphone):
     '''
     workphone = str(workphone)
     pre_info = _get_gecos(name)
-    if not pre_info: return False
+    if not pre_info:
+        return False
     if workphone == pre_info['workphone']:
         return True
     gecos_field = deepcopy(pre_info)
@@ -310,7 +319,8 @@ def chhomephone(name, homephone):
     '''
     homephone = str(homephone)
     pre_info = _get_gecos(name)
-    if not pre_info: return False
+    if not pre_info:
+        return False
     if homephone == pre_info['homephone']:
         return True
     gecos_field = deepcopy(pre_info)
@@ -344,7 +354,8 @@ def info(name):
         # Put GECOS info into a list
         gecos_field = data.pw_gecos.split(',', 3)
         # Assign empty strings for any unspecified GECOS fields
-        while len(gecos_field) < 4: gecos_field.append('')
+        while len(gecos_field) < 4:
+            gecos_field.append('')
         ret['fullname'] = gecos_field[0]
         ret['roomnumber'] = gecos_field[1]
         ret['workphone'] = gecos_field[2]
@@ -374,7 +385,12 @@ def list_groups(name):
     '''
     ugrp = set()
     # Add the primary user's group
-    ugrp.add(grp.getgrgid(pwd.getpwnam(name).pw_gid).gr_name)
+    try:
+        ugrp.add(grp.getgrgid(pwd.getpwnam(name).pw_gid).gr_name)
+    except KeyError:
+        # The user's applied default group is undefined on the system, so
+        # it does not exist
+        pass
     # Now, all other groups the user belongs to
     for group in grp.getgrall():
         if name in group.gr_mem:

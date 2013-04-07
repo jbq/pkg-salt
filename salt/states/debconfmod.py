@@ -31,7 +31,6 @@ set_file
             'ferm/enable': {'type': 'boolean', 'value': True}
 '''
 
-from salt._compat import string_types
 
 def __virtual__():
     '''
@@ -52,6 +51,10 @@ def set_file(name, source):
           debconf.set_file:
             - source: salt://pathto/pkg.selections
 
+        <state_id>:
+          debconf.set_file:
+            - source: salt://pathto/pkg.selections?env=myenvironment
+
     source:
         The location of the file containing the package selections
     '''
@@ -62,10 +65,10 @@ def set_file(name, source):
 
     if __opts__['test']:
         ret['result'] = None
-        ret['comment'] = 'Debconf selections were set.'
+        ret['comment'] = 'Debconf selections would have been set.'
         return ret
 
-    if __salt__['debconfmod.set_file'](source):
+    if __salt__['debconf.set_file'](source):
         ret['comment'] = 'Debconf selections were set.'
     else:
         ret['result'] = False

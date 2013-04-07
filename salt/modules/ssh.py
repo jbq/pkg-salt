@@ -34,10 +34,10 @@ def _refine_enc(enc):
     if using higher enc. If the type is not found, return ssh-rsa, the ssh
     default.
     '''
-    rsa   = ['r', 'rsa', 'ssh-rsa']
-    dss   = ['d', 'dsa', 'dss', 'ssh-dss']
+    rsa = ['r', 'rsa', 'ssh-rsa']
+    dss = ['d', 'dsa', 'dss', 'ssh-dss']
     ecdsa = ['e', 'ecdsa', 'ecdsa-sha2-nistp521', 'ecdsa-sha2-nistp384',
-            'ecdsa-sha2-nistp256']
+             'ecdsa-sha2-nistp256']
 
     if enc in rsa:
         return 'ssh-rsa'
@@ -53,11 +53,7 @@ def _refine_enc(enc):
         return 'ssh-rsa'
 
 
-def _format_auth_line(
-        key,
-        enc,
-        comment,
-        options):
+def _format_auth_line(key, enc, comment, options):
     '''
     Properly format user input.
     '''
@@ -78,11 +74,7 @@ def _replace_auth_key(
     '''
     Replace an existing key
     '''
-    auth_line = _format_auth_line(
-                key,
-                enc,
-                comment,
-                options or [])
+    auth_line = _format_auth_line(key, enc, comment, options or [])
 
     lines = []
     uinfo = __salt__['user.info'](user)
@@ -122,7 +114,7 @@ def _validate_keys(key_file):
     Return a dict containing validated keys in the passed file
     '''
     ret = {}
-    linere = re.compile(r'^(.*?)\s?((?:ssh\-|ecds).+)$')
+    linere = re.compile(r'^(.*?)\s?((?:ssh\-|ecds)[\w-]+\s.+)$')
 
     try:
         with salt.utils.fopen(key_file, 'r') as _fh:
@@ -169,20 +161,20 @@ def _validate_keys(key_file):
 
 
 def _fingerprint(public_key):
-    """
+    '''
     Return a public key fingerprint based on its base64-encoded representation
 
     The fingerprint string is formatted according to RFC 4716 (ch.4), that is,
     in the form "xx:xx:...:xx"
 
     If the key is invalid (incorrect base64 string), return None
-    """
+    '''
     try:
         raw_key = public_key.decode('base64')
     except binascii.Error:
         return None
     ret = hashlib.md5(raw_key).hexdigest()
-    chunks = [ret[i:i+2] for i in range(0, len(ret), 2)]
+    chunks = [ret[i:i + 2] for i in range(0, len(ret), 2)]
     return ':'.join(chunks)
 
 
@@ -238,6 +230,10 @@ def check_key_file(user, keysource, config='.ssh/authorized_keys', env='base'):
     '''
     Check a keyfile from a source destination against the local keys and
     return the keys to change
+
+    CLI Example::
+
+        salt '*' root salt://ssh/keyfile
     '''
     ret = {}
     keyfile = __salt__['cp.cache_file'](keysource, env)
@@ -246,12 +242,12 @@ def check_key_file(user, keysource, config='.ssh/authorized_keys', env='base'):
     s_keys = _validate_keys(keyfile)
     for key in s_keys:
         ret[key] = check_key(
-                user,
-                key,
-                s_keys[key]['enc'],
-                s_keys[key]['comment'],
-                s_keys[key]['options'],
-                config)
+            user,
+            key,
+            s_keys[key]['enc'],
+            s_keys[key]['comment'],
+            s_keys[key]['options'],
+            config)
     return ret
 
 
@@ -266,11 +262,10 @@ def check_key(user, key, enc, comment, options, config='.ssh/authorized_keys'):
     current = auth_keys(user, config)
     nline = _format_auth_line(key, enc, comment, options)
     if key in current:
-        cline = _format_auth_line(
-                key,
-                current[key]['enc'],
-                current[key]['comment'],
-                current[key]['options'])
+        cline = _format_auth_line(key,
+                                  current[key]['enc'],
+                                  current[key]['comment'],
+                                  current[key]['options'])
         if cline != nline:
             return 'update'
     else:
@@ -287,7 +282,7 @@ def rm_auth_key(user, key, config='.ssh/authorized_keys'):
         salt '*' ssh.rm_auth_key <user> <key>
     '''
     current = auth_keys(user, config)
-    linere = re.compile(r'^(.*?)\s?((?:ssh\-|ecds).+)$')
+    linere = re.compile(r'^(.*?)\s?((?:ssh\-|ecds)[\w-]+\s.+)$')
     if key in current:
         # Remove the key
         uinfo = __salt__['user.info'](user)
@@ -365,13 +360,13 @@ def set_auth_key_from_file(
     newkey = _validate_keys(lfile)
     for k in newkey:
         rval += set_auth_key(
-                user,
-                k,
-                newkey[k]['enc'],
-                newkey[k]['comment'],
-                newkey[k]['options'],
-                config
-                )
+            user,
+            k,
+            newkey[k]['enc'],
+            newkey[k]['comment'],
+            newkey[k]['options'],
+            config
+        )
     # Due to the ability for a single file to have multiple keys, it's
     # possible for a single call to this function to have both "replace" and
     # "new" as possible valid returns. I ordered the following as I thought
@@ -410,22 +405,12 @@ def set_auth_key(
     uinfo = __salt__['user.info'](user)
     status = check_key(user, key, enc, comment, options, config)
     if status == 'update':
-        _replace_auth_key(
-                user,
-                key,
-                enc,
-                comment,
-                options or [],
-                config)
+        _replace_auth_key(user, key, enc, comment, options or [], config)
         return 'replace'
     elif status == 'exists':
         return 'no change'
     else:
-        auth_line = _format_auth_line(
-                    key,
-                    enc,
-                    comment,
-                    options)
+        auth_line = _format_auth_line(key, enc, comment, options)
         if not os.path.isdir(uinfo['home']):
             return 'fail'
         fconfig = os.path.join(uinfo['home'], config)
@@ -516,7 +501,7 @@ def recv_known_host(user, hostname, enc=None, port=None, hash_hostname=False):
 
 
 def check_known_host(user, hostname, key=None, fingerprint=None,
-                                               config='.ssh/known_hosts'):
+                     config='.ssh/known_hosts'):
     '''
     Check the record in known_hosts file, either by its value or by fingerprint
     (it's enough to set up either key or fingerprint, you don't need to set up
@@ -563,11 +548,11 @@ def rm_known_host(user, hostname, config='.ssh/known_hosts'):
 
 
 def set_known_host(user, hostname,
-        fingerprint=None,
-        port=None,
-        enc=None,
-        hash_hostname=True,
-        config='.ssh/known_hosts'):
+                   fingerprint=None,
+                   port=None,
+                   enc=None,
+                   hash_hostname=True,
+                   config='.ssh/known_hosts'):
     '''
     Download SSH public key from remote host "hostname", optionally validate
     its fingerprint against "fingerprint" variable and save the record in the
@@ -610,6 +595,24 @@ def set_known_host(user, hostname,
     full = os.path.join(uinfo['home'], config)
     line = '{hostname} {enc} {key}\n'.format(**remote_host)
 
+    # ensure ~/.ssh exists
+    ssh_dir = os.path.dirname(full)
+    try:
+        log.debug('Ensuring ssh config dir "{0}" exists'.format(ssh_dir))
+        os.makedirs(ssh_dir)
+    except OSError as exc:
+        if exc[1] == 'Permission denied':
+            log.error('Unable to create directory {0}: '
+                      '{1}'.format(ssh_dir, e[1]))
+        elif exc[1] == 'File exists':
+            log.debug('{0} already exists, no need to create '
+                      'it'.format(ssh_dir))
+    else:
+        # set proper ownership/permissions
+        os.chown(ssh_dir, uinfo['uid'], uinfo['gid'])
+        os.chmod(ssh_dir, 0700)
+
+    # write line to known_hosts file
     try:
         with salt.utils.fopen(full, 'a') as ofile:
             ofile.write(line)

@@ -13,6 +13,7 @@ __grains__ = {}
 # Change the default outputter to make it more readable
 __outputter__ = {
     'items': 'grains',
+    'item': 'grains',
     'setval': 'grains',
 }
 
@@ -42,6 +43,28 @@ _SANITIZERS = {
 }
 
 
+def get(key, default=''):
+    '''
+    Attempt to retrive the named value from grains, if the named value is not
+    available return the passed default. The default return is an empty string.
+
+    The value can also represent a value in a nested dict using a ":" delimiter
+    for the dict. This means that if a dict in grains looks like this:
+
+    {'pkg': {'apache': 'httpd'}}
+
+    To retrive the value associated with the apache key in the pkg dict this
+    key can be passed:
+
+    pkg:apache
+
+    CLI Example::
+
+        salt '*' grains.get pkg:apache
+    '''
+    return salt.utils.traverse_dict(__grains__, key, default)
+
+
 def items(sanitize=False):
     '''
     Return the grains data
@@ -64,22 +87,35 @@ def items(sanitize=False):
         return __grains__
 
 
-def item(key=None, sanitize=False):
+def item(*args, **kargs):
     '''
-    Return a singe component of the grains data
+    Return a single component of the grains data
 
     CLI Example::
 
         salt '*' grains.item os
+        
+    Return multiple components of the grains data
 
-    Sanitized CLI output::
+    CLI Example::
 
-        salt '*' grains.items serialnumber sanitize=True
+        salt '*' grains.item os osrelease oscodename
+        
+    Sanitized CLI Example::
+
+        salt '*' grains.item host sanitize=True
     '''
-    if sanitize and key in _SANITIZERS:
-        return _SANITIZERS[key](__grains__.get(key, ''))
+    ret = {}
+    for k in args:
+        if k in __grains__:
+            ret[k] = __grains__[k]
+    if 'sanitize' in kargs:
+        for k, func in _SANITIZERS.items():
+            if k in ret:
+                ret[k] = func(ret[k])
+        return ret
     else:
-        return __grains__.get(key, '')
+        return ret
 
 
 def setval(key, val):
@@ -107,6 +143,8 @@ def setval(key, val):
                 grains = yaml.safe_load(fp_.read())
             except Exception, e:
                 return 'Unable to read existing grains file: %s' %e
+        if not isinstance(grains, dict):
+            grains = {}
     grains[key] = val
     cstr = yaml.safe_dump(grains, default_flow_style=False)
     with open(gfn, 'w+') as fp_:

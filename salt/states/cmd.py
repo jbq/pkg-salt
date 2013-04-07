@@ -8,7 +8,7 @@ state can tell a command to run under certain circumstances.
 Available Functions
 -------------------
 
-The cmd state only has a single function, the ``run`` function
+The ``run`` function
 
 run
     Execute a command given certain conditions
@@ -21,7 +21,7 @@ run
         cmd:
             - run
 
-Only run if another execution returns successfully, in this case truncate
+Only run if another execution failed, in this case truncate
 syslog if there is no disk space:
 
 .. code-block:: yaml
@@ -72,7 +72,7 @@ a simple protocol described below:
 
       # writing the state line
       echo  # an empty line here so the next line will be the last.
-      echo "changed=yes comment=\"something's changed!\" whatever=123"
+      echo "changed=yes comment='something has changed' whatever=123"
 
 
     And an example salt file using this module::
@@ -114,13 +114,18 @@ it can also watch a git state for changes
 '''
 
 # Import python libs
-import grp
+# Windows platform has no 'grp' module
+HAS_GRP = False
+try:
+    import grp
+    HAS_GRP = True
+except ImportError:
+    pass
 import os
 import copy
 import json
 import shlex
 import logging
-import sys
 
 # Import salt libs
 from salt.exceptions import CommandExecutionError
@@ -204,7 +209,7 @@ def _run_check(cmd_kwargs, onlyif, unless, cwd, user, group, shell):
     '''
     ret = {}
 
-    if group:
+    if group and HAS_GRP:
         try:
             egid = grp.getgrnam(group).gr_gid
             if not __opts__['test']:
@@ -232,11 +237,12 @@ def _run_check(cmd_kwargs, onlyif, unless, cwd, user, group, shell):
 def wait(name,
         onlyif=None,
         unless=None,
-        cwd='/root',
+        cwd=None,
         user=None,
         group=None,
         shell=None,
         stateful=False,
+        umask=None,
         **kwargs):
     '''
     Run the given command only if the watch statement calls it
@@ -266,6 +272,9 @@ def wait(name,
     shell
         The shell to use for execution, defaults to /bin/sh
 
+    umask
+         The umask (in octal) to use when running the command.
+
     stateful
         The command being executed is expected to return data about executing
         a state
@@ -281,12 +290,13 @@ def wait_script(name,
         template=None,
         onlyif=None,
         unless=None,
-        cwd='/root',
+        cwd=None,
         user=None,
         group=None,
         shell=None,
         env=None,
         stateful=False,
+        umask=None,
         **kwargs):
     '''
     Download a script from a remote source and execute it only if a watch
@@ -332,6 +342,9 @@ def wait_script(name,
         The root directory of the environment for the referencing script. The
         environments are defined in the master config file.
 
+    umask
+         The umask (in octal) to use when running the command.
+
     stateful
         The command being executed is expected to return data about executing
         a state
@@ -345,12 +358,13 @@ def wait_script(name,
 def run(name,
         onlyif=None,
         unless=None,
-        cwd='/root',
+        cwd=None,
         user=None,
         group=None,
         shell=None,
         env=(),
         stateful=False,
+        umask=None,
         **kwargs):
     '''
     Run a command if certain circumstances are met
@@ -384,6 +398,9 @@ def run(name,
         The root directory of the environment for the referencing script. The
         environments are defined in the master config file.
 
+    umask
+         The umask (in octal) to use when running the command.
+
     stateful
         The command being executed is expected to return data about executing
         a state
@@ -393,7 +410,7 @@ def run(name,
            'result': False,
            'comment': ''}
 
-    if not os.path.isdir(cwd):
+    if cwd and not os.path.isdir(cwd):
         ret['comment'] = 'Desired working directory is not available'
         return ret
 
@@ -408,12 +425,14 @@ def run(name,
                 return ret
         env = _env
 
-    pgid = os.getegid()
+    if HAS_GRP:
+        pgid = os.getegid()
 
     cmd_kwargs = {'cwd': cwd,
                   'runas': user,
                   'shell': shell or __grains__['shell'],
-                  'env': env}
+                  'env': env,
+                  'umask': umask}
 
     try:
         cret = _run_check(cmd_kwargs, onlyif, unless, cwd, user, group, shell)
@@ -438,7 +457,8 @@ def run(name,
         return _reinterpreted_state(ret) if stateful else ret
 
     finally:
-        os.setegid(pgid)
+        if HAS_GRP:
+            os.setegid(pgid)
 
 
 def script(name,
@@ -446,12 +466,13 @@ def script(name,
         template=None,
         onlyif=None,
         unless=None,
-        cwd='/root',
+        cwd=None,
         user=None,
         group=None,
         shell=None,
         env=None,
         stateful=False,
+        umask=None,
         **kwargs):
     '''
     Download a script from a remote source and execute it. The name can be the
@@ -497,6 +518,9 @@ def script(name,
         The root directory of the environment for the referencing script. The
         environments are defined in the master config file.
 
+    umask
+         The umask (in octal) to use when running the command.
+
     stateful
         The command being executed is expected to return data about executing
         a state
@@ -506,14 +530,15 @@ def script(name,
            'name': name,
            'result': False}
 
-    if not os.path.isdir(cwd):
+    if cwd and not os.path.isdir(cwd):
         ret['comment'] = 'Desired working directory is not available'
         return ret
 
     if env is None:
         env = kwargs.get('__env__', 'base')
 
-    pgid = os.getegid()
+    if HAS_GRP:
+        pgid = os.getegid()
 
     cmd_kwargs = copy.deepcopy(kwargs)
     cmd_kwargs.update({
@@ -525,7 +550,8 @@ def script(name,
                   'user': user,
                   'group': group,
                   'cwd': cwd,
-                  'template': template})
+                  'template': template,
+                  'umask': umask})
 
     run_check_cmd_kwargs = {'cwd': cwd,
                   'runas': user,
@@ -563,15 +589,41 @@ def script(name,
         return _reinterpreted_state(ret) if stateful else ret
 
     finally:
-        os.setegid(pgid)
+        if HAS_GRP:
+            os.setegid(pgid)
 
 
 def call(name, func, args=(), kws=None,
          onlyif=None,
          unless=None,
-         stateful=False,
          **kwargs):
     '''
+    Invoke a pre-defined Python function with arguments specified in the state
+    declaration. This function is mainly used by the :mod:`salt.renderers.pydsl`
+    renderer.
+
+    The intepretation of `onlyif` and `unless` arguments are identical to those
+    of :func:`salt.states.cmd.run`, and all other arguments(`cwd`, `runas`, ...)
+    allowed by `cmd.run` are allowed here, except that their effects apply only
+    to the commands specified in `onlyif` and `unless` rather than to the function
+    to be invoked.
+
+    In addition the `stateful` argument has no effects here.
+
+    The return value of the invoked function will be interpreted as follows.
+
+    If it's a dictionary then it will be passed through to the state system, which
+    expects it to have the usual structure returned by any salt state function.
+
+    Otherwise, the return value(denoted as ``result`` in the code below) is
+    expected to be a JSON serializable object, and this dictionary is returned:
+
+    .. code-block:: python
+
+        { 'changes': { 'retval': result },
+          'result': True if result is None else bool(result),
+          'comment': result if isinstance(result, basestring) else ''
+        }
     '''
     ret = {'name': name,
            'changes': {},
@@ -581,23 +633,25 @@ def call(name, func, args=(), kws=None,
     cmd_kwargs = {'cwd': kwargs.get('cwd'),
                   'runas': kwargs.get('user'),
                   'shell': kwargs.get('shell') or __grains__['shell'],
-                  'env': kwargs.get('env')}
-    pgid = os.getegid()
+                  'env': kwargs.get('env'),
+                  'umask': kwargs.get('umask'),
+                  }
+    if HAS_GRP:
+        pgid = os.getegid()
     try:
         cret = _run_check(cmd_kwargs, onlyif, unless, None, None, None, None)
         if isinstance(cret, dict):
             ret.update(cret)
             return ret
     finally:
-        os.setegid(pgid)
+        if HAS_GRP:
+            os.setegid(pgid)
     if not kws:
         kws = {}
     result = func(*args, **kws)
     if isinstance(result, dict):
         ret.update(result)
         return ret
-    elif isinstance(result, basestring) and stateful:
-        return _reinterpreted_state(result)
     else:
         # result must be json serializable else we get an error
         ret['changes'] = {'retval': result}
@@ -605,8 +659,16 @@ def call(name, func, args=(), kws=None,
         if isinstance(result, basestring):
             ret['comment'] = result
         return ret
-            
 
+def wait_call(name, func, args=(), kws=None,
+              onlyif=None,
+              unless=None,
+              stateful=False,
+              **kwargs):
+    return {'name': name,
+            'changes': {},
+            'result': True,
+            'comment': ''}
 
 def mod_watch(name, **kwargs):
     '''
@@ -623,6 +685,10 @@ def mod_watch(name, **kwargs):
             kwargs.pop('stateful')
             return _reinterpreted_state(script(name, **kwargs))
         return script(name, **kwargs)
+
+    elif kwargs['sfun'] == 'wait_call' or kwargs['sfun'] == 'call':
+        return call(name, **kwargs)
+
 
     return {'name': name,
             'changes': {},

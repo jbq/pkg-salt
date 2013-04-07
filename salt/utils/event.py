@@ -24,13 +24,14 @@ from multiprocessing import Process
 
 # Import third party libs
 import zmq
+import yaml
 
 # Import salt libs
 import salt.payload
 import salt.loader
 import salt.state
+import salt.utils
 from salt._compat import string_types
-from salt.exceptions import SaltSystemExit
 log = logging.getLogger(__name__)
 
 
@@ -57,10 +58,12 @@ class SaltEvent(object):
                     sock_dir,
                     'master_event_pub.ipc'
                     ))
+            salt.utils.check_ipc_path_max_len(puburi)
             pulluri = 'ipc://{0}'.format(os.path.join(
                     sock_dir,
                     'master_event_pull.ipc'
                     ))
+            salt.utils.check_ipc_path_max_len(pulluri)
         else:
             if kwargs.get('ipc_mode', '') == 'tcp':
                 puburi = 'tcp://127.0.0.1:{0}'.format(
@@ -74,29 +77,12 @@ class SaltEvent(object):
                         sock_dir,
                         'minion_event_{0}_pub.ipc'.format(id_hash)
                         ))
+                salt.utils.check_ipc_path_max_len(puburi)
                 pulluri = 'ipc://{0}'.format(os.path.join(
                         sock_dir,
                         'minion_event_{0}_pull.ipc'.format(id_hash)
                         ))
-        for uri in (puburi, pulluri):
-            if uri.startswith('tcp://'):
-                # This check only applies to IPC sockets
-                continue
-            # The socket path is limited to 107 characters on Solaris and
-            # Linux, and 103 characters on BSD-based systems.
-            # Let's fail at the lower level so no system checks are
-            # required.
-            if len(uri) > 103:
-                raise SaltSystemExit(
-                    'The socket path length is more that what ZMQ allows. '
-                    'The length of {0!r} is more than 103 characters. '
-                    'Either try to reduce the length of this setting\'s '
-                    'path or switch to TCP; In the configuration file set '
-                    '"ipc_mode: tcp"'.format(
-                        uri
-                    )
-                )
-
+                salt.utils.check_ipc_path_max_len(pulluri)
         log.debug(
             '{0} PUB socket URI: {1}'.format(self.__class__.__name__, puburi)
         )
@@ -104,7 +90,6 @@ class SaltEvent(object):
             '{0} PULL socket URI: {1}'.format(self.__class__.__name__, pulluri)
         )
         return puburi, pulluri
-
 
     def subscribe(self, tag):
         '''
@@ -152,7 +137,7 @@ class SaltEvent(object):
             if self.sub in socks and socks[self.sub] == zmq.POLLIN:
                 raw = self.sub.recv()
                 # Double check the tag
-                if tag != raw[:20].rstrip('|'):
+                if not raw[:20].rstrip('|').startswith(tag):
                     continue
                 data = self.serial.loads(raw[20:])
                 if full:
@@ -166,14 +151,11 @@ class SaltEvent(object):
         '''
         Creates a generator that continuously listens for events
         '''
-        try:
-            while True:
-                data = self.get_event(tag=tag, full=full)
-                if data is None:
-                    continue
-                yield data
-        finally:
-            self.destroy()
+        while True:
+            data = self.get_event(tag=tag, full=full)
+            if data is None:
+                continue
+            yield data
 
     def fire_event(self, data, tag=''):
         '''
@@ -297,7 +279,6 @@ class EventPublisher(Process):
             if self.epull_sock.closed is False:
                 self.epull_sock.setsockopt(zmq.LINGER, 1)
                 self.epull_sock.close()
-        finally:
             if self.context.closed is False:
                 self.context.term()
 
@@ -312,7 +293,6 @@ class Reactor(multiprocessing.Process, salt.state.Compiler):
     def __init__(self, opts):
         multiprocessing.Process.__init__(self)
         salt.state.Compiler.__init__(self, opts)
-        self.event = SaltEvent('master', self.opts['sock_dir'])
         self.wrap = ReactWrap(self.opts)
 
     def render_reaction(self, glob_ref, tag, data):
@@ -335,7 +315,25 @@ class Reactor(multiprocessing.Process, salt.state.Compiler):
         '''
         log.debug('Gathering rections for tag {0}'.format(tag))
         reactors = []
-        for ropt in self.opts['reactor']:
+        if isinstance(self.opts['reactor'], basestring):
+            try:
+                with open(self.opts['reactor']) as fp_:
+                    react_map = yaml.safe_load(fp_.read())
+            except (OSError, IOError):
+                log.error(
+                    'Failed to read reactor map: "{0}"'.format(
+                        self.opts['reactor']
+                        )
+                    )
+            except Exception:
+                log.error(
+                    'Failed to parse yaml in reactor map: "{0}"'.format(
+                        self.opts['reactor']
+                        )
+                    )
+        else:
+            react_map = self.opts['reactor']
+        for ropt in react_map:
             if not isinstance(ropt, dict):
                 continue
             if not len(ropt) == 1:
@@ -376,6 +374,7 @@ class Reactor(multiprocessing.Process, salt.state.Compiler):
         '''
         Enter into the server loop
         '''
+        self.event = SaltEvent('master', self.opts['sock_dir'])
         for data in self.event.iter_events(full=True):
             reactors = self.list_reactors(data['tag'])
             if not reactors:
@@ -423,7 +422,7 @@ class ReactWrap(object):
         '''
         kwargs['fun'] = fun
         wheel = salt.wheel.Wheel(self.opts)
-        return wheel.master_call(**kwargs)
+        return wheel.call_func(**kwargs)
 
 
 class StateFire(object):

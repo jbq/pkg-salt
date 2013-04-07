@@ -6,7 +6,13 @@ Pillar is an interface for Salt designed to offer global values that can be
 distributed to all minions. Pillar data is managed in a similar way to
 the Salt State Tree.
 
-Pillar was added to Salt in version 0.9.8 as an experimental add on.
+Pillar was added to Salt in version 0.9.8
+
+.. note:: Storing sensitive data
+
+    Unlike state tree, pillar data is only available for the targetted
+    minion specified by the matcher type.  This makes it useful for
+    storing sensitive data specific to a particular minion.
 
 Declaring the Master Pillar
 ===========================
@@ -29,8 +35,8 @@ behavior and function as the ``file_roots`` configuration:
         - /srv/pillar
 
 This example configuration declares that the base environment will be located
-in the ``/srv/pillar`` directory. The top file used matches the name of the top file
-used for States, and has the same structure:
+in the ``/srv/pillar`` directory. The top file used matches the name of the top
+file used for States, and has the same structure:
 
 ``/srv/pillar/top.sls``
 
@@ -40,9 +46,16 @@ used for States, and has the same structure:
       '*':
         - packages
 
-This further example shows how to enable pcre matching in the salt pillar file. 
-The flexibility enabled by pcre matching is particularly useful in salt pillar
-files.
+This further example shows how to use other standard top matching types (grain
+matching is used in this example) to deliver specific salt pillar data to minions
+with different 'os' grains:
+
+.. code-block:: yaml
+
+    dev:
+      'os:Debian':
+        - match: grain  
+        - servers
 
 ``/srv/pillar/packages.sls``
 
@@ -79,11 +92,15 @@ Viewing Minion Pillar
 =====================
 
 Once the pillar is set up the data can be viewed on the minion via the
-``pillar.data`` module:
+``pillar`` module, the pillar module comes with two functions, ``pillar.data``
+and ``pillar.raw``. ``pillar.data`` will return a freshly reloaded pillar and
+``pillar.raw`` wil return the current pillar without a refresh:
 
 .. code-block:: bash
 
     # salt '*' pillar.data
+
+
 
 Footnotes
 ---------
@@ -99,6 +116,9 @@ locally. This is done with the ``saltutil.refresh_pillar`` function.
 .. code-block:: yaml
 
     salt '*' saltutil.refresh_pillar
+
+This function triggers the minion to refresh the pillar and will always return
+``True``
 
 Targeting with Pillar
 =====================

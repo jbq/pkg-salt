@@ -5,11 +5,18 @@ How Do I Use Salt States?
 Simplicity, Simplicity, Simplicity
 
 Many of the most powerful and useful engineering solutions are founded on
-simple principals, the Salt SLS system strives to do just that. K.I.S.S.
+simple principles. The Salt SLS system strives to do just that. K.I.S.S.
 
 The core of the Salt State system is the SLS, or the SaLt State file. The SLS
 is a representation of the state in which a system should be in, and is set up
 to contain this data simply. This is often called configuration management.
+
+.. note::
+
+    This is just the beginning of using states, make sure to read up on pillar
+    next:
+
+        :doc:`Pillar Walkthrough </topics/tutorials/pillar>`
 
 It is All Just Data
 ===================
@@ -283,7 +290,7 @@ to configure the banner.
 In the new mod_python SLS the mod_python package is added, but more importantly
 the apache service was extended to also watch the mod_python package.
 
-.. include:: extend_with_require_watch.rst
+.. include:: /_incl/extend_with_require_watch.rst
 
 Understanding the Render System
 ===============================
@@ -300,9 +307,12 @@ full programming constructs are available when creating SLS files.
 
 Other renderers available are ``yaml_mako`` and ``yaml_wempy`` which each use
 the `Mako`_ or `Wempy`_ templating system respectively rather than the jinja
-templating system, and more notably, the pure Python or ``py`` renderer.
+templating system, and more notably, the pure Python or ``py`` and ``pydsl``
+renderers.
 The ``py`` renderer allows for SLS files to be written in pure Python, allowing
-for the utmost level of flexibility and power when preparing SLS data.
+for the utmost level of flexibility and power when preparing SLS data; while the
+:doc:`pydsl</ref/renderers/all/salt.renderers.pydsl>` renderer provides a flexible,
+domain-specific language for authoring SLS data in Python.
 
 .. _`Jinja2`: http://jinja.pocoo.org/
 .. _`Mako`: http://www.makotemplates.org/
@@ -426,8 +436,8 @@ Multiple for loops are used to dynamically detect available hard drives
 and set them up to be mounted, and the ``salt`` object is used multiple
 times to call shell commands to gather data.
 
-Introducing the Python Renderer
--------------------------------
+Introducing the Python and the PyDSL Renderers
+----------------------------------------------
 
 Sometimes the chosen default renderer might not have enough logical power to
 accomplish the needed task. When this happens, the Python renderer can be
@@ -456,7 +466,21 @@ Then the run function is defined, the return value from the run function
 must be a Salt friendly data structure, or better known as a Salt
 :doc:`HighState data structure</ref/states/highstate>`.
 
-This Python example would look like this if it were written in YAML:
+Alternatively, using the :doc:`pydsl</ref/renderers/all/salt.renderers.pydsl>`
+renderer, the above example can be written more succinctly as:
+
+``python/django.sls:``
+
+.. code-block:: python
+   :linenos:
+
+    #!pydsl
+
+    include('python', delayed=True)
+    state('django').pkg.installed()
+
+
+This Python examples would look like this if they were written in YAML:
 
 .. code-block:: yaml
    :linenos:
@@ -484,5 +508,10 @@ and examine the output for errors. This should help troubleshoot the issue.
 The minions can also be started in the foreground in debug mode. Start the
 minion in debug mode with: ``salt-minion -l debug``.
 
+Next Reading
+============
 
-Now onto the :doc:`States tutorial, part 1</topics/tutorials/states_pt1>`.
+With an understanding of states, it is recommended to become more familiar
+with Salt's pillar interface:
+
+    :doc:`Pillar Walkthrough </topics/tutorials/pillar>`

@@ -5,7 +5,7 @@ Module to provide MongoDB functionality to Salt
     parameters as well as configuration settings::
 
         mongodb.host: 'localhost'
-        mongodb.port: '27017'
+        mongodb.port: 27017
         mongodb.user: ''
         mongodb.password: ''
 
@@ -124,7 +124,7 @@ def user_list(user=None, password=None, host=None, port=None, database='admin'):
         for user in mdb.system.users.find():
             output.append([
                 ('user', user['user']),
-                ('readOnly', user['readOnly'])
+                ('readOnly', user.get('readOnly', 'None'))
             ])
         return output
 

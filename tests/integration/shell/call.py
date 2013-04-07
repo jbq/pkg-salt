@@ -14,9 +14,6 @@ import sys
 import yaml
 from datetime import datetime
 
-# Import salt libs
-from salt import version
-
 # Import salt test libs
 import integration
 from saltunittest import (
@@ -34,9 +31,11 @@ class CallTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
         out = self.run_call('-l quiet test.fib 3')
 
         expect = ['local:',
-                  '    - 0',
-                  '    - 1',
-                  '    - 1']
+                  '    |_',
+                  '      - 0',
+                  '      - 1',
+                  '      - 1',
+                  '      - 2']
         self.assertEqual(expect, out[:-1])
 
     def test_text_output(self):

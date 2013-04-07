@@ -55,6 +55,7 @@ def listen(sock_dir, node):
             node,
             sock_dir,
             )
+    print event.puburi
     while True:
         ret = event.get_event(full=True)
         if ret is None:

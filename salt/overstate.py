@@ -41,7 +41,7 @@ class OverState(object):
             with salt.utils.fopen(overstate) as fp_:
                 try:
                     # TODO Use render system
-                    return self.__sort_stages(yaml.load(fp_))
+                    return self.__sort_stages(yaml.safe_load(fp_))
                 except Exception:
                     return {}
         if self.env not in self.opts['file_roots']:
@@ -56,7 +56,7 @@ class OverState(object):
             with salt.utils.fopen(fn_) as fp_:
                 try:
                     # TODO Use render system
-                    return self.__sort_stages(yaml.load(fp_))
+                    return self.__sort_stages(yaml.safe_load(fp_))
                 except Exception:
                     return {}
         return {}
@@ -78,25 +78,6 @@ class OverState(object):
             match = ' or '.join(match)
         raw = self.local.cmd(match, 'test.ping', expr_form='compound')
         return raw.keys()
-
-    def _check_result(self, running):
-        '''
-        Check the total return value of the run and determine if the running
-        dict has any issues
-        '''
-        if not isinstance(running, dict):
-            return False
-        if not running:
-            return False
-        for host in running:
-            if not isinstance(running[host], dict):
-                return False
-            for tag, ret in running[host].items():
-                if not 'result' in ret:
-                    return False
-                if ret['result'] is False:
-                    return False
-        return True
 
     def _names(self):
         '''
@@ -140,7 +121,7 @@ class OverState(object):
             for req in stage['require']:
                 if req in self.over_run:
                     # The req has been called, check it
-                    if self._check_result(self.over_run[req]):
+                    if salt.utils.check_state_result(self.over_run[req]):
                         # This req is good, check the next
                         continue
                     else:
