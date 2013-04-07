@@ -26,6 +26,7 @@ import salt.config
 import salt.master
 import salt.minion
 import salt.runner
+import salt.output
 from salt.utils import fopen, get_colors
 from salt.utils.verify import verify_env
 from saltunittest import TestCase, RedirectStdStreams
@@ -272,7 +273,7 @@ class TestDaemon(object):
             print_header(
                 '~~~~~~~ Minion Grains Information ', inline=True,
             )
-            grains = self.client.cmd('minion', 'grains.items')
+
 
         print_header('', sep='=', inline=True)
 
@@ -378,9 +379,9 @@ class TestDaemon(object):
         return True
 
     def post_setup_minions(self):
-        """
+        '''
         Subclass this method to execute code after the minions have been setup
-        """
+        '''
 
     def _enter_mockbin(self):
         path = os.environ.get('PATH', '')

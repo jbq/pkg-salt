@@ -21,7 +21,7 @@ Many popular distributions will be able to install the salt minion by executing 
 
 The script should also make it simple to install a salt master, if desired.
 
-Currently the install script supports:
+Currently the install script has been tested to work on:
 
 * Ubuntu 10.x/11.x/12.x
 * Debian 6.x
@@ -45,12 +45,14 @@ These guides go into detail how to install salt on a given platform.
 
     arch
     debian
-    ubuntu
     fedora
     freebsd
     gentoo
-    windows
+    osx
+    rhel
     solaris
+    ubuntu
+    windows
 
 
 Dependencies
@@ -64,11 +66,12 @@ Salt should run on any Unix-like platform so long as the dependencies are met.
 * `PyCrypto`_ - The Python cryptography toolkit
 * `msgpack-python`_ - High-performance message interchange format
 * `YAML`_ - Python YAML bindings
+* `Jinja2`_ - parsing Salt States (configurable in the master settings)
 
 Optional Dependencies
 ---------------------
 
-* `Jinja2`_ - parsing Salt States (configurable in the master settings)
+* `mako`_ - an optional parser for Salt States (configurable in the master settings)
 * gcc - dynamic `Cython`_ module compiling
 
 .. _`Python 2.6`: http://python.org/download/
@@ -77,6 +80,8 @@ Optional Dependencies
 .. _`msgpack-python`:  http://pypi.python.org/pypi/msgpack-python/0.1.12
 .. _`YAML`: http://pyyaml.org/
 .. _`PyCrypto`: http://www.dlitz.net/software/pycrypto/
+.. _`M2Crypto`: http://chandlerproject.org/Projects/MeTooCrypto
 .. _`Cython`: http://cython.org/
 .. _`Jinja2`: http://jinja.pocoo.org/
+.. _`mako`: http://www.makotemplates.org/
 

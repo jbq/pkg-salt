@@ -10,6 +10,7 @@ The postgres_users module is used to create and manage Postgres users.
       postgres_user.present
 '''
 
+
 def present(name,
             createdb=False,
             createuser=False,
@@ -17,6 +18,7 @@ def present(name,
             superuser=False,
             replication=False,
             password=None,
+            groups=None,
             runas=None):
     '''
     Ensure that the named user is present with the specified privileges
@@ -42,6 +44,9 @@ def present(name,
     password
         The user's pasword
 
+    groups
+        A string of comma seperated groups the user should be in
+
     runas
         System user all operation should be preformed on behalf of
     '''
@@ -65,7 +70,8 @@ def present(name,
                                         encrypted=encrypted,
                                         superuser=superuser,
                                         replication=replication,
-                                        password=password,
+                                        rolepassword=password,
+                                        groups=groups,
                                         runas=runas):
         ret['comment'] = 'The user {0} has been created'.format(name)
         ret['changes'][name] = 'Present'
@@ -102,6 +108,7 @@ def absent(name, runas=None):
             ret['changes'][name] = 'Absent'
             return ret
     else:
-        ret['comment'] = 'User {0} is not present, so it cannot be removed'.format(name)
+        ret['comment'] = 'User {0} is not present, so it cannot ' \
+                         'be removed'.format(name)
 
     return ret

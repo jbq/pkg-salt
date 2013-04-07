@@ -7,7 +7,7 @@ data
 # some time in the future
 
 # Import python libs
-from contextlib import nested  # For < 2.7 compat
+import contextlib  # For < 2.7 compat
 import os
 import re
 import time
@@ -20,6 +20,7 @@ import hashlib
 import difflib
 import fnmatch
 import errno
+import logging
 try:
     import grp
     import pwd
@@ -29,9 +30,11 @@ except ImportError:
 # Import salt libs
 import salt.utils
 import salt.utils.find
-from salt.utils.filebuffer import BufferedReader
+import salt.utils.filebuffer
 from salt.exceptions import CommandExecutionError, SaltInvocationError
-from salt._compat import string_types, urlparse
+import salt._compat
+
+log = logging.getLogger(__name__)
 
 
 def __virtual__():
@@ -302,6 +305,10 @@ def get_hash(path, form='md5', chunk_size=4096):
         - It does not return a string on error. The returned value of
             ``get_sum`` cannot really be trusted since it is vulnerable to
             collisions: ``get_sum(..., 'xyz') == 'Hash xyz not supported'``
+
+    CLI Example::
+
+        salt '*' file.get_hash /etc/shadow
     '''
     try:
         hash_type = getattr(hashlib, form)
@@ -328,6 +335,10 @@ def check_hash(path, hash):
     hash
         A string in the form <hash_type>=<hash_value>. For example:
         ``md5=e138491e9d5b97023cea823fe17bac22``
+
+    CLI Example::
+
+        salt '*' file.check_hash /etc/fstab md5=<md5sum>
     '''
     hash_parts = hash.split('=', 1)
     if len(hash_parts) != 2:
@@ -443,7 +454,7 @@ def _sed_esc(string, escape_all=False):
     '''
     special_chars = "^.[$()|*+?{"
     string = string.replace("'", "'\"'\"'").replace("/", "\/")
-    if escape_all:
+    if escape_all is True:
         for char in special_chars:
             string = string.replace(char, "\\" + char)
     return string
@@ -493,6 +504,7 @@ def sed(path, before, after, limit='', backup='.bak', options='-r -e',
     after = str(after)
     before = _sed_esc(before, escape_all)
     after = _sed_esc(after, escape_all)
+    limit = _sed_esc(limit, escape_all)
     if sys.platform == 'darwin':
         options = options.replace('-r', '-E')
 
@@ -508,6 +520,113 @@ def sed(path, before, after, limit='', backup='.bak', options='-r -e',
     return __salt__['cmd.run'](cmd)
 
 
+def psed(path, before, after, limit='', backup='.bak', flags='gMS',
+         escape_all=False, multi=False):
+    '''
+    Make a simple edit to a file (pure Python version)
+
+    Equivalent to::
+
+        sed <backup> <options> "/<limit>/ s/<before>/<after>/<flags> <file>"
+
+    path
+        The full path to the file to be edited
+    before
+        A pattern to find in order to replace with ``after``
+    after
+        Text that will replace ``before``
+    limit : ``''``
+        An initial pattern to search for before searching for ``before``
+    backup : ``.bak``
+        The file will be backed up before edit with this file extension;
+        **WARNING:** each time ``sed``/``comment``/``uncomment`` is called will
+        overwrite this backup
+    flags : ``gMS``
+        Flags to modify the search. Value values are :
+            ``g``: Replace all occurances of the pattern, not just the first.
+            ``I``: Ignore case.
+            ``L``: Make \w, \W, \b, \B, \s and \S dependent on the locale.
+            ``M``: Treat multple lines as a single line.
+            ``S``: Make `.` match all characters, including newlines.
+            ``U``: Make \w, \W, \b, \B, \d, \D, \s and \S dependent on Unicode.
+            ``X``: Verbose (whitespace is ignored).
+    multi: ``False``
+        If True, treat the entire file as a single line
+
+    Forward slashes and single quotes will be escaped automatically in the
+    ``before`` and ``after`` patterns.
+
+    CLI Example::
+
+        salt '*' file.sed /etc/httpd/httpd.conf 'LogLevel warn' 'LogLevel info'
+
+    .. versionadded:: 0.9.5
+    '''
+    # Largely inspired by Fabric's contrib.files.sed()
+    # XXX:dc: Do we really want to always force escaping?
+    #
+    # Mandate that before and after are strings
+    multi = bool(multi)
+
+    before = str(before)
+    after = str(after)
+    before = _sed_esc(before, escape_all)
+    # The pattern to replace with does not need to be escaped!!!
+    #after = _sed_esc(after, escape_all)
+    limit = _sed_esc(limit, escape_all)
+
+    shutil.copy2(path, '{0}{1}'.format(path, backup))
+
+    ofile = salt.utils.fopen(path, 'w')
+    with salt.utils.fopen('{0}{1}'.format(path, backup), 'r') as ifile:
+        if multi is True:
+            for line in ifile.readline():
+                ofile.write(_psed(line, before, after, limit, flags))
+        else:
+            ofile.write(_psed(ifile.read(), before, after, limit, flags))
+
+    ofile.close()
+
+
+def _psed(text, before, after, limit, flags):
+    '''
+    Does the actual work for file.psed, so that single lines can be passed in
+    '''
+    cmd = r"sed '{limit}s/{before}/{after}/{flags}'".format(
+            limit='/{0}/ '.format(limit) if limit else '',
+            before=before,
+            after=after,
+            flags=flags)
+
+    btext = ''
+    atext = text
+    if limit:
+        limit = re.compile(limit)
+        comps = text.split(limit)
+        btext = comps[0]
+        atext = ''.join(comps[1:])
+
+    count = 1
+    if 'g' in flags:
+        count = 0
+        flags = flags.replace('g', '')
+
+    aflags = 0
+    flag_table = {'I': 2,
+                  'L': 4,
+                  'M': 8,
+                  'S': 16,
+                  'U': 32,
+                  'X': 64}
+    for flag in flags:
+        aflags += flag_table[flag]
+
+    before = re.compile(before, flags=aflags)
+    text = re.sub(before, after, atext, count=count)
+
+    return text
+
+
 def uncomment(path, regex, char='#', backup='.bak'):
     '''
     Uncomment specified commented lines in a file
@@ -520,8 +639,7 @@ def uncomment(path, regex, char='#', backup='.bak'):
         character will be stripped for convenience (for easily switching
         between comment() and uncomment()).
     char : ``#``
-        The character to remove in order to uncomment a line; if a single
-        whitespace character follows the comment it will also be removed
+        The character to remove in order to uncomment a line
     backup : ``.bak``
         The file will be backed up before edit with this file extension;
         **WARNING:** each time ``sed``/``comment``/``uncomment`` is called will
@@ -536,7 +654,7 @@ def uncomment(path, regex, char='#', backup='.bak'):
     # Largely inspired by Fabric's contrib.files.uncomment()
 
     return __salt__['file.sed'](path,
-        before=r'^([[:space:]]*){0}[[:space:]]?'.format(char),
+        before=r'^([[:space:]]*){0}'.format(char),
         after=r'\1',
         limit=regex.lstrip('^'),
         backup=backup)
@@ -633,7 +751,7 @@ def contains(path, text):
 
     stripped_text = text.strip()
     try:
-        with BufferedReader(path) as breader:
+        with salt.utils.filebuffer.BufferedReader(path) as breader:
             for chunk in breader:
                 if stripped_text in chunk:
                     return True
@@ -644,21 +762,49 @@ def contains(path, text):
 
 def contains_regex(path, regex, lchar=''):
     '''
-    Return True if the given regular expression matches anything in the text
-    of a given file
+    Return True if the given regular expression matches on any line in the text
+    of a given file.
 
-    CLI Example::
+    If the lchar argument (leading char) is specified, it
+    will strip `lchar` from the left side of each line before trying to match
 
-        salt '*' /etc/crontab '^maint'
+    CLI Examples::
+
+        salt '*' file.contains_regex /etc/crontab
     '''
     if not os.path.exists(path):
         return False
 
     try:
-        with BufferedReader(path) as breader:
-            for chunk in breader:
+        with salt.utils.fopen(path, 'r') as target:
+            for line in target:
                 if lchar:
-                    chunk = chunk.lstrip(lchar)
+                    line = line.lstrip(lchar)
+                if re.search(regex, line):
+                    return True
+            return False
+    except (IOError, OSError):
+        return False
+
+
+def contains_regex_multiline(path, regex):
+    '''
+    Return True if the given regular expression matches anything in the text
+    of a given file
+
+    Traverses multiple lines at a time, via the salt BufferedReader (reads in
+    chunks)
+
+    CLI Example::
+
+        salt '*' file.contains_regex_multiline /etc/crontab '^maint'
+    '''
+    if not os.path.exists(path):
+        return False
+
+    try:
+        with salt.utils.filebuffer.BufferedReader(path) as breader:
+            for chunk in breader:
                 if re.search(regex, chunk, re.MULTILINE):
                     return True
             return False
@@ -672,13 +818,13 @@ def contains_glob(path, glob):
 
     CLI Example::
 
-        salt '*' /etc/foobar '*cheese*'
+        salt '*' file.contains_glob /etc/foobar '*cheese*'
     '''
     if not os.path.exists(path):
         return False
 
     try:
-        with BufferedReader(path) as breader:
+        with salt.utils.filebuffer.BufferedReader(path) as breader:
             for chunk in breader:
                 if fnmatch.fnmatch(chunk, glob):
                     return True
@@ -797,6 +943,13 @@ def stats(path, hash_type='md5', follow_symlink=False):
 
 
 def remove(path):
+    '''
+    Remove the named file
+
+    CLI Example::
+
+        salt '*' file.remove /tmp/foo
+    '''
     if not os.path.isabs(path):
         raise SaltInvocationError('File path must be absolute.')
 
@@ -842,7 +995,7 @@ def restorecon(path, recursive=False):
 
     CLI Example::
 
-         salt '*' selinux.restorecon /home/user/.ssh/authorized_keys
+         salt '*' file.restorecon /home/user/.ssh/authorized_keys
     '''
     if recursive:
         cmd = 'restorecon -FR {0}'.format(path)
@@ -857,7 +1010,7 @@ def get_selinux_context(path):
 
     CLI Example::
 
-        salt '*' selinux.get_context /etc/hosts
+        salt '*' file.get_selinux_context /etc/hosts
     '''
     out = __salt__['cmd.run']('ls -Z {0}'.format(path))
     return out.split(' ')[4]
@@ -869,7 +1022,7 @@ def set_selinux_context(path, user=None, role=None, type=None, range=None):
 
     CLI Example::
 
-        salt '*' selinux.chcon path <role> <type> <range>
+        salt '*' file.set_selinux_context path <role> <type> <range>
     '''
     if not user and not role and not type and not range:
         return False
@@ -895,6 +1048,9 @@ def set_selinux_context(path, user=None, role=None, type=None, range=None):
 def source_list(source, source_hash, env):
     '''
     Check the source list and return the source to use
+
+    CLI Example::
+        salt '*' file.source_list salt://http/httpd.conf '{hash_type: 'md5', 'hsum': <md5sum>}' base
     '''
     if isinstance(source, list):
         # get the master file list
@@ -908,7 +1064,7 @@ def source_list(source, source_hash, env):
                     continue
                 single_src = next(iter(single))
                 single_hash = single[single_src]
-                proto = urlparse(single_src).scheme
+                proto = salt._compat.urlparse(single_src).scheme
                 if proto == 'salt':
                     if single_src in mfiles:
                         source = single_src
@@ -921,7 +1077,7 @@ def source_list(source, source_hash, env):
                         source = single_src
                         source_hash = single_hash
                         break
-            elif isinstance(single, string_types):
+            elif isinstance(single, salt._compat.string_types):
                 if single[7:] in mfiles or single[7:] in mdirs:
                     source = single
                     break
@@ -942,6 +1098,10 @@ def get_managed(
         **kwargs):
     '''
     Return the managed file data for file.managed
+
+    CLI Example::
+
+        salt '*' file.get_managed /etc/httpd/conf.d/httpd.conf jinja salt://http/httpd.conf '{hash_type: 'md5', 'hsum': <md5sum>}' root root '755' base None None
     '''
     # If the file is a template and the contents is managed
     # then make sure to copy it down and templatize  things.
@@ -950,7 +1110,7 @@ def get_managed(
     if template and source:
         sfn = __salt__['cp.cache_file'](source, env)
         if not os.path.exists(sfn):
-            return sfn, {}, 'File "{0}" could not be found'.format(sfn)
+            return sfn, {}, 'Source file {0} not found'.format(source)
         if template in salt.utils.templates.TEMPLATE_REGISTRY:
             context_dict = defaults if defaults else {}
             if context:
@@ -985,13 +1145,13 @@ def get_managed(
     else:
         # Copy the file down if there is a source
         if source:
-            if urlparse(source).scheme == 'salt':
+            if salt._compat.urlparse(source).scheme == 'salt':
                 source_sum = __salt__['cp.hash_file'](source, env)
                 if not source_sum:
                     return '', {}, 'Source file {0} not found'.format(source)
             elif source_hash:
                 protos = ['salt', 'http', 'ftp']
-                if urlparse(source_hash).scheme in protos:
+                if salt._compat.urlparse(source_hash).scheme in protos:
                     # The source_hash is a file on a server
                     hash_fn = __salt__['cp.cache_file'](source_hash)
                     if not hash_fn:
@@ -1044,6 +1204,10 @@ def check_perms(name, ret, user, group, mode):
           specify mode 0777, for example, it must be specified as the string,
           '0777' otherwise, 0777 will be parsed as an octal and you'd get 511
           instead.
+
+    CLI Example::
+
+        salt '*' file.check_perms /etc/sudoers '{}' root root 400
     '''
     if not ret:
         ret = {'name': name,
@@ -1127,6 +1291,10 @@ def check_managed(
         **kwargs):
     '''
     Check to see what changes need to be made for a file
+
+    CLI Example::
+
+        salt '*' file.check_managed /etc/httpd/conf.d/httpd.conf salt://http/httpd.conf '{hash_type: 'md5', 'hsum': <md5sum>}' root, root, '755' jinja True None None base
     '''
     # If the source is a list then find which file exists
     source, source_hash = source_list(source, source_hash, env)
@@ -1149,7 +1317,7 @@ def check_managed(
         __clean_tmp(sfn)
         return False, comment
     changes = check_file_meta(name, sfn, source, source_sum, user,
-                              group, mode, env)
+                              group, mode, env, template)
     __clean_tmp(sfn)
     if changes:
         comment = 'The following values are set to be changed:\n'
@@ -1167,9 +1335,14 @@ def check_file_meta(
         user,
         group,
         mode,
-        env):
+        env,
+        template=None):
     '''
-    Check for the changes in the file metadata
+    Check for the changes in the file metadata.
+
+    CLI Example::
+
+        salt '*' file.check_file_meta /etc/httpd/conf.d/httpd.conf salt://http/httpd.conf '{hash_type: 'md5', 'hsum': <md5sum>}' root, root, '755' base
     '''
     changes = {}
     stats = __salt__['file.stats'](
@@ -1183,13 +1356,16 @@ def check_file_meta(
             if not sfn and source:
                 sfn = __salt__['cp.cache_file'](source, env)
             if sfn:
-                with nested(salt.utils.fopen(sfn, 'rb'),
+                with contextlib.nested(salt.utils.fopen(sfn, 'rb'),
                             salt.utils.fopen(name, 'rb')) as (src, name_):
                     slines = src.readlines()
                     nlines = name_.readlines()
-                changes['diff'] = (
-                        ''.join(difflib.unified_diff(nlines, slines))
-                        )
+                if __salt__['config.option']('obfuscate_templates'):
+                    changes['diff'] = '<Obfuscated Template>'
+                else:
+                    changes['diff'] = (
+                            ''.join(difflib.unified_diff(nlines, slines))
+                            )
             else:
                 changes['sum'] = 'Checksum differs'
     if not user is None and user != stats['user']:
@@ -1211,7 +1387,7 @@ def get_diff(
     '''
     Return unified diff of file compared to file on master
 
-    Example:
+    CLI Example::
 
         salt \* file.get_diff /home/fred/.vimrc salt://users/fred/.vimrc
     '''
@@ -1223,7 +1399,7 @@ def get_diff(
 
     sfn = __salt__['cp.cache_file'](masterfile, env)
     if sfn:
-        with nested(salt.utils.fopen(sfn, 'r'),
+        with contextlib.nested(salt.utils.fopen(sfn, 'r'),
                     salt.utils.fopen(minionfile, 'r')) as (src, name_):
             slines = src.readlines()
             nlines = name_.readlines()
@@ -1246,10 +1422,16 @@ def manage_file(name,
         group,
         mode,
         env,
-        backup):
+        backup,
+        template=None,
+        show_diff=True):
     '''
     Checks the destination against what was retrieved with get_managed and
     makes the appropriate modifications (if necessary).
+
+    CLI Example::
+
+        salt '*' file.manage_file /etc/httpd/conf.d/httpd.conf '{}' salt://http/httpd.conf '{hash_type: 'md5', 'hsum': <md5sum>}' root root '755' base ''
     '''
     if not ret:
         ret = {'name': name,
@@ -1271,7 +1453,7 @@ def manage_file(name,
                     ret, 'Source file {0} not found'.format(source))
             # If the downloaded file came from a non salt server source verify
             # that it matches the intended sum value
-            if urlparse(source).scheme != 'salt':
+            if salt._compat.urlparse(source).scheme != 'salt':
                 dl_sum = get_hash(sfn, source_sum['hash_type'])
                 if dl_sum != source_sum['hsum']:
                     ret['comment'] = ('File sum set for file {0} of {1} does '
@@ -1288,14 +1470,19 @@ def manage_file(name,
             if _is_bin(sfn) or _is_bin(name):
                 ret['changes']['diff'] = 'Replace binary file'
             else:
-                with nested(salt.utils.fopen(sfn, 'rb'),
+                with contextlib.nested(salt.utils.fopen(sfn, 'rb'),
                             salt.utils.fopen(name, 'rb')) as (src, name_):
                     slines = src.readlines()
                     nlines = name_.readlines()
-                # Print a diff equivalent to diff -u old new
-                    ret['changes']['diff'] = (''.join(difflib
-                                                      .unified_diff(nlines,
-                                                                    slines)))
+                    # Print a diff equivalent to diff -u old new
+                    if __salt__['config.option']('obfuscate_templates'):
+                        ret['changes']['diff'] = '<Obfuscated Template>'
+                    elif not show_diff:
+                        ret['changes']['diff'] = '<show_diff=False>'
+                    else:
+                        ret['changes']['diff'] = (
+                                ''.join(difflib.unified_diff(nlines, slines))
+                                )
             # Pre requisites are met, and the file needs to be replaced, do it
             try:
                 salt.utils.copyfile(
@@ -1330,8 +1517,8 @@ def manage_file(name,
                     ret, 'Source file {0} not found'.format(source))
             # If the downloaded file came from a non salt server source verify
             # that it matches the intended sum value
-            if urlparse(source).scheme != 'salt':
-                dl_sum = get_hash(name, source_sum['hash_type'])
+            if salt._compat.urlparse(source).scheme != 'salt':
+                dl_sum = get_hash(sfn, source_sum['hash_type'])
                 if dl_sum != source_sum['hsum']:
                     ret['comment'] = ('File sum set for file {0} of {1} does '
                                       'not match real sum of {2}'
@@ -1401,8 +1588,12 @@ def manage_file(name,
 def makedirs(path, user=None, group=None, mode=None):
     '''
     Ensure that the directory containing this path is available.
+
+    CLI Example::
+
+        salt '*' file.makedirs /opt/code
     '''
-    directory = os.path.dirname(path)
+    directory = os.path.dirname(os.path.normpath(path))
 
     if not os.path.isdir(directory):
         # turn on the executable bits for user, group and others.
@@ -1417,10 +1608,14 @@ def makedirs(path, user=None, group=None, mode=None):
         # follow the principal of least surprise method.
 
 
-def makedirs_perms(name, user=None, group=None, mode=0755):
+def makedirs_perms(name, user=None, group=None, mode='0755'):
     '''
     Taken and modified from os.makedirs to set user, group and mode for each
     directory created.
+
+    CLI Example::
+
+        salt '*' file.makedirs_perms /opt/code
     '''
     path = os.path
     mkdir = os.mkdir

@@ -9,9 +9,6 @@ module can be overwritten just by returning dict keys with the same value
 as those returned here
 '''
 
-# TODO: This needs some refactoring, I made it "as fast as I could" and could
-# be a lot clearer, so far it is spaghetti code
-
 # Import python libs
 import os
 import socket
@@ -25,11 +22,12 @@ import locale
 # /etc/DISTRO-release checking that is part of platform.linux_distribution()
 from platform import _supported_dists
 _supported_dists += ('arch', 'mageia', 'meego', 'vmware', 'bluewhite64',
-                     'slamd64', 'enterprise', 'ovs', 'system')
+                     'slamd64', 'ovs', 'system', 'mint', 'oracle')
 
 # Import salt libs
 import salt.log
 import salt.utils
+import salt.utils.socket_util
 
 # Solve the Chicken and egg problem where grains need to run before any
 # of the modules are loaded and are generally available for any usage.
@@ -48,6 +46,7 @@ if salt.utils.is_windows():
     # the Windows minion uses WMI for some of its grains
     try:
         import wmi
+        import salt.utils.winapi
         HAS_WMI = True
     except ImportError:
         log.exception("Unable to import Python wmi module, some core grains "
@@ -127,12 +126,12 @@ def _linux_cpudata():
 
 
 def _linux_gpu_data():
-    """
+    '''
     num_gpus: int
     gpus:
       - vendor: nvidia|amd|ati|...
         model: string
-    """
+    '''
     # dominant gpu vendors to search for (MUST be lowercase for matching below)
     known_vendors = ['nvidia', 'amd', 'ati', 'intel']
 
@@ -269,13 +268,14 @@ def _memdata(osdata):
             if comps[0].strip() == 'Memory' and comps[1].strip() == 'size:':
                 grains['mem_total'] = int(comps[2].strip())
     elif osdata['kernel'] == 'Windows' and HAS_WMI:
-        wmi_c = wmi.WMI()
-        # this is a list of each stick of ram in a system
-        # WMI returns it as the string value of the number of bytes
-        tot_bytes = sum(map(lambda x: int(x.Capacity),
-                            wmi_c.Win32_PhysicalMemory()), 0)
-        # return memory info in gigabytes
-        grains['mem_total'] = int(tot_bytes / (1024 ** 2))
+        with salt.utils.winapi.Com():
+            wmi_c = wmi.WMI()
+            # this is a list of each stick of ram in a system
+            # WMI returns it as the string value of the number of bytes
+            tot_bytes = sum(map(lambda x: int(x.Capacity),
+                                wmi_c.Win32_PhysicalMemory()), 0)
+            # return memory info in gigabytes
+            grains['mem_total'] = int(tot_bytes / (1024 ** 2))
     return grains
 
 
@@ -299,6 +299,8 @@ def _virtual(osdata):
 
         if ret['retcode'] > 0:
             if salt.log.is_logging_configured():
+                if salt.utils.is_windows():
+                    continue
                 log.warn(
                     'Although \'{0}\' was found in path, the current user '
                     'cannot execute it. Grains output might not be '
@@ -455,32 +457,33 @@ def _windows_platform_data(osdata):
     if not HAS_WMI:
         return {}
 
-    wmi_c = wmi.WMI()
-    # http://msdn.microsoft.com/en-us/library/windows/desktop/aa394102%28v=vs.85%29.aspx
-    systeminfo = wmi_c.Win32_ComputerSystem()[0]
-    # http://msdn.microsoft.com/en-us/library/windows/desktop/aa394239%28v=vs.85%29.aspx
-    osinfo = wmi_c.Win32_OperatingSystem()[0]
-    # http://msdn.microsoft.com/en-us/library/windows/desktop/aa394077(v=vs.85).aspx
-    biosinfo = wmi_c.Win32_BIOS()[0]
-    # http://msdn.microsoft.com/en-us/library/windows/desktop/aa394498(v=vs.85).aspx
-    timeinfo = wmi_c.Win32_TimeZone()[0]
+    with salt.utils.winapi.Com():
+        wmi_c = wmi.WMI()
+        # http://msdn.microsoft.com/en-us/library/windows/desktop/aa394102%28v=vs.85%29.aspx
+        systeminfo = wmi_c.Win32_ComputerSystem()[0]
+        # http://msdn.microsoft.com/en-us/library/windows/desktop/aa394239%28v=vs.85%29.aspx
+        osinfo = wmi_c.Win32_OperatingSystem()[0]
+        # http://msdn.microsoft.com/en-us/library/windows/desktop/aa394077(v=vs.85).aspx
+        biosinfo = wmi_c.Win32_BIOS()[0]
+        # http://msdn.microsoft.com/en-us/library/windows/desktop/aa394498(v=vs.85).aspx
+        timeinfo = wmi_c.Win32_TimeZone()[0]
 
-    # the name of the OS comes with a bunch of other data about the install
-    # location. For example:
-    # 'Microsoft Windows Server 2008 R2 Standard |C:\\Windows|\\Device\\Harddisk0\\Partition2'
-    (osfullname, _) = osinfo.Name.split('|', 1)
-    osfullname = osfullname.strip()
-    grains = {
-        'osmanufacturer': osinfo.Manufacturer,
-        'manufacturer': systeminfo.Manufacturer,
-        'productname': systeminfo.Model,
-        # bios name had a bunch of whitespace appended to it in my testing
-        # 'PhoenixBIOS 4.0 Release 6.0     '
-        'biosversion': biosinfo.Name.strip(),
-        'osfullname': osfullname,
-        'timezone': timeinfo.Description,
-        'windowsdomain': systeminfo.Domain,
-    }
+        # the name of the OS comes with a bunch of other data about the install
+        # location. For example:
+        # 'Microsoft Windows Server 2008 R2 Standard |C:\\Windows|\\Device\\Harddisk0\\Partition2'
+        (osfullname, _) = osinfo.Name.split('|', 1)
+        osfullname = osfullname.strip()
+        grains = {
+            'osmanufacturer': osinfo.Manufacturer,
+            'manufacturer': systeminfo.Manufacturer,
+            'productname': systeminfo.Model,
+            # bios name had a bunch of whitespace appended to it in my testing
+            # 'PhoenixBIOS 4.0 Release 6.0     '
+            'biosversion': biosinfo.Name.strip(),
+            'osfullname': osfullname,
+            'timezone': timeinfo.Description,
+            'windowsdomain': systeminfo.Domain,
+        }
 
     return grains
 
@@ -504,8 +507,11 @@ _OS_NAME_MAP = {
     'arch': 'Arch',
     'debian': 'Debian',
     'debiangnu/': 'Debian',
-    'fedoraremi': 'RedHat',
-    'amazonami': 'RedHat',
+    'fedoraremi': 'Fedora',
+    'amazonami': 'Amazon',
+    'alt': 'ALT',
+    'oracleserv': 'OEL',
+    'cloudserve': 'CloudLinux',
 }
 
 # Map the 'os' grain to the 'os_family' grain
@@ -524,6 +530,7 @@ _OS_FAMILY_MAP = {
     'OEL': 'RedHat',
     'Mandrake': 'Mandriva',
     'ESXi': 'VMWare',
+    'Mint': 'Debian',
     'VMWareESX': 'VMWare',
     'Bluewhite64': 'Bluewhite',
     'Slamd64': 'Slackware',
@@ -536,6 +543,8 @@ _OS_FAMILY_MAP = {
     'Solaris': 'Solaris',
     'SmartOS': 'Solaris',
     'Arch ARM': 'Arch',
+    'ALT': 'RedHat',
+    'Trisquel': 'Debian'
 }
 
 
@@ -607,6 +616,21 @@ def os_data():
                             name, value = match.groups()
                             if name.lower() == 'name':
                                 grains['lsb_distrib_id'] = value.strip()
+            elif os.path.isfile('/etc/altlinux-release'):
+                # ALT Linux
+                grains['lsb_distrib_id'] = 'altlinux'
+                with salt.utils.fopen('/etc/altlinux-release') as ifile:
+                    # This file is symlinked to from:
+                    #     /etc/fedora-release
+                    #     /etc/redhat-release
+                    #     /etc/system-release
+                    for line in ifile:
+                        # ALT Linux Sisyphus (unstable)
+                        comps = line.split()
+                        if comps[0] == 'ALT':
+                            grains['lsb_distrib_release'] = comps[2]
+                            grains['lsb_distrib_codename'] = \
+                                comps[3].replace('(','').replace(')','')
         # Use the already intelligent platform module to get distro info
         (osname, osrelease, oscodename) = platform.linux_distribution(
             supported_dists=_supported_dists)
@@ -645,6 +669,7 @@ def os_data():
         grains['os'] = grains['kernel']
     if grains['kernel'] in ('FreeBSD', 'OpenBSD'):
         grains.update(_bsd_cpudata(grains))
+        grains['osrelease'] = grains['kernelrelease'].split('-')[0]
     if not grains['os']:
         grains['os'] = 'Unknown {0}'.format(grains['kernel'])
         grains['os_family'] = 'Unknown'
@@ -698,6 +723,29 @@ def hostname():
     grains['fqdn'] = socket.getfqdn()
     (grains['host'], grains['domain']) = grains['fqdn'].partition('.')[::2]
     return grains
+
+
+def append_domain():
+    '''
+    Return append_domain if set
+    '''
+    grain = {}
+    if 'append_domain' in __opts__:
+        grain['append_domain'] = __opts__['append_domain']
+    return grain
+
+
+def ip4():
+    '''
+    Return a list of ipv4 addrs
+    '''
+    ips = []
+    if salt.utils.is_windows():
+        # TODO: Add windows ip addrs here
+        pass
+    else:
+        ips = salt.utils.socket_util.ip4_addrs()
+    return {'ipv4': ips}
 
 
 def path():

@@ -27,13 +27,13 @@ from salt._compat import StringIO as _StringIO
 from salt.exceptions import CommandExecutionError
 
 
-VIRT_STATE_NAME_MAP = {0: "running",
-                       1: "running",
-                       2: "running",
-                       3: "paused",
-                       4: "shutdown",
-                       5: "shutdown",
-                       6: "crashed"}
+VIRT_STATE_NAME_MAP = {0: 'running',
+                       1: 'running',
+                       2: 'running',
+                       3: 'paused',
+                       4: 'shutdown',
+                       5: 'shutdown',
+                       6: 'crashed'}
 
 
 def __virtual__():
@@ -50,7 +50,7 @@ def __get_conn():
     # This has only been tested on kvm and xen, it needs to be expanded to
     # support all vm layers supported by libvirt
     try:
-        conn = libvirt.open("qemu:///system")
+        conn = libvirt.open('qemu:///system')
     except Exception:
         raise CommandExecutionError(
             'Sorry, {0} failed to open a connection to the hypervisor '
@@ -82,26 +82,136 @@ def _libvirt_creds():
             shell=True,
             stdout=subprocess.PIPE).communicate()[0].split('"')[1]
     except IndexError:
-        group = "root"
+        group = 'root'
     try:
         user = subprocess.Popen(u_cmd,
             shell=True,
             stdout=subprocess.PIPE).communicate()[0].split('"')[1]
     except IndexError:
-        user = "root"
+        user = 'root'
     return {'user': user, 'group': group}
+
 
 def _get_migrate_command():
     '''
     Returns the command shared by the differnt migration types
     '''
+    if __salt__['config.option']('virt.tunnel'):
+        return ('virsh migrate --p2p --tunnelled --live --persistent '
+                '--undefinesource ')
     return 'virsh migrate --live --persistent --undefinesource '
+
 
 def _get_target(target, ssh):
     proto = 'qemu'
     if ssh:
         proto += '+ssh'
     return ' %s://%s/%s' %(proto, target, 'system')
+
+
+def _gen_xml(name, cpu, mem, vda, nicp, **kwargs):
+    '''
+    Generate the xml string to define a libvirt vm
+    '''
+    mem = mem * 1024
+    data = '''
+<domain type='kvm'>
+        <name>%%NAME%%</name>
+        <vcpu>%%CPU%%</vcpu>
+        <memory>%%MEM%%</memory>
+        <os>
+                <type>hvm</type>
+                <boot dev='hd'/>
+        </os>
+        <devices>
+                <disk type='file' device='disk'>
+                        <source file='%%VDA%%'/>
+                        <target dev='vda' bus='virtio'/>
+                        <driver name='qemu' type='%%DISKTYPE%%' cache='none' io='native'/>
+                </disk>
+                %%NICS%%
+                <graphics type='vnc' listen='0.0.0.0' autoport='yes'/>
+        </devices>
+        <features>
+                <acpi/>
+        </features>
+</domain>
+'''
+    data = data.replace('%%NAME%%', name)
+    data = data.replace('%%CPU%%', str(cpu))
+    data = data.replace('%%MEM%%', str(mem))
+    data = data.replace('%%VDA%%', vda)
+    data = data.replace('%%DISKTYPE%%', _image_type(vda))
+    nic_str = ''
+    for dev, args in nicp.items():
+        nic_t = '''
+                <interface type='%%TYPE%%'>
+                    <source %%SOURCE%%/>
+                    <mac address='%%MAC%%'/>
+                    <model type='%%MODEL%%'/>
+                </interface>
+'''
+        if 'bridge' in args:
+            nic_t = nic_t.replace('%%SOURCE%%', 'bridge=\'{0}\''.format(args['bridge']))
+            nic_t = nic_t.replace('%%TYPE%%', 'bridge')
+        elif 'network' in args:
+            nic_t = nic_t.replace('%%SOURCE%%', 'network=\'{0}\''.format(args['network']))
+            nic_t = nic_t.replace('%%TYPE%%', 'network')
+        if 'model' in args:
+            nic_t = nic_t.replace('%%MODEL%%', args['model'])
+        dmac = '{0}_mac'.format(dev)
+        if dmac in kwargs:
+            nic_t = nic_t.replace('%%MAC%%', kwargs[dmac])
+        else:
+            nic_t = nic_t.replace('%%MAC%%', salt.utils.gen_mac())
+        nic_str += nic_t
+    data = data.replace('%%NICS%%', nic_str)
+    return data
+
+
+def _image_type(vda):
+    '''
+    Detect what driver needs to be used for the given image
+    '''
+    out = __salt__['cmd.run']('file {0}'.format(vda))
+    if 'Qcow' in out and 'Version: 2' in out:
+        return 'qcow2'
+    else:
+        return 'raw'
+
+
+def _nic_profile(nic):
+    '''
+    Gather the nic profile from the config or apply the default
+    '''
+    default = {'eth0': {'bridge': 'br0', 'model': 'virtio'}}
+    return __salt__['config.option']('virt.nic', {}).get(nic, default)
+
+
+def init(name, cpu, mem, image, nic='default', **kwargs):
+    '''
+    Initialize a new vm
+
+    CLI Example::
+
+        salt 'hypervisor' vm_name 4 512 salt://path/to/image.raw
+    '''
+    img_dir = os.path.join(__salt__['config.option']('virt.images'), name)
+    img_dest = os.path.join(
+            __salt__['config.option']('virt.images'),
+            name,
+            'vda')
+    sfn = __salt__['cp.cache_file'](image)
+    if not os.path.isdir(img_dir):
+        os.makedirs(img_dir)
+    nicp = _nic_profile(nic)
+    salt.utils.copyfile(sfn, img_dest)
+    xml = _gen_xml(name, cpu, mem, img_dest, nicp, **kwargs)
+    define_xml_str(xml)
+    if kwargs.get('seed'):
+        __salt__['img.seed'](img_dest, name, kwargs.get('config'))
+    create(name)
+
 
 def list_vms():
     '''
@@ -247,17 +357,17 @@ def get_nics(vm_):
     '''
     nics = {}
     doc = minidom.parse(_StringIO(get_xml(vm_)))
-    for node in doc.getElementsByTagName("devices"):
-        i_nodes = node.getElementsByTagName("interface")
+    for node in doc.getElementsByTagName('devices'):
+        i_nodes = node.getElementsByTagName('interface')
         for i_node in i_nodes:
             nic = {}
             nic['type'] = i_node.getAttribute('type')
             for v_node in i_node.getElementsByTagName('*'):
-                if v_node.tagName == "mac":
+                if v_node.tagName == 'mac':
                     nic['mac'] = v_node.getAttribute('address')
-                if v_node.tagName == "model":
+                if v_node.tagName == 'model':
                     nic['model'] = v_node.getAttribute('type')
-                if v_node.tagName == "target":
+                if v_node.tagName == 'target':
                     nic['target'] = v_node.getAttribute('dev')
                 # driver, source, and match can all have optional attributes
                 if re.match('(driver|source|address)', v_node.tagName):
@@ -267,7 +377,7 @@ def get_nics(vm_):
                     nic[str(v_node.tagName)] = temp
                 # virtualport needs to be handled separately, to pick up the
                 # type attribute of the virtualport itself
-                if v_node.tagName == "virtualport":
+                if v_node.tagName == 'virtualport':
                     temp = {}
                     temp['type'] = v_node.getAttribute('type')
                     for key in v_node.attributes.keys():
@@ -289,8 +399,8 @@ def get_macs(vm_):
     '''
     macs = []
     doc = minidom.parse(_StringIO(get_xml(vm_)))
-    for node in doc.getElementsByTagName("devices"):
-        i_nodes = node.getElementsByTagName("interface")
+    for node in doc.getElementsByTagName('devices'):
+        i_nodes = node.getElementsByTagName('interface')
         for i_node in i_nodes:
             for v_node in i_node.getElementsByTagName('mac'):
                 macs.append(v_node.getAttribute('address'))
@@ -313,8 +423,8 @@ def get_graphics(vm_):
     xml = get_xml(vm_)
     ssock = _StringIO(xml)
     doc = minidom.parse(ssock)
-    for node in doc.getElementsByTagName("domain"):
-        g_nodes = node.getElementsByTagName("graphics")
+    for node in doc.getElementsByTagName('domain'):
+        g_nodes = node.getElementsByTagName('graphics')
         for g_node in g_nodes:
             for key in g_node.attributes.keys():
                 out[key] = g_node.getAttribute(key)
@@ -799,8 +909,12 @@ def purge(vm_, dirs=False):
         salt '*' virt.purge <vm name>
     '''
     disks = get_disks(vm_)
-    if not destroy(vm_):
-        return False
+    try:
+        if not destroy(vm_):
+            return False
+    except libvirt.libvirtError:
+        # This is thrown if the machine is already shut down
+        pass
     directories = set()
     for disk in disks:
         os.remove(disks[disk]['file'])
@@ -808,6 +922,7 @@ def purge(vm_, dirs=False):
     if dirs:
         for dir_ in directories:
             shutil.rmtree(dir_)
+    undefine(vm_)
     return True
 
 

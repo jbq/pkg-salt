@@ -23,7 +23,9 @@ def __virtual__():
 
 
 def _check_svn():
-    '''Check for svn on this node.'''
+    '''
+    Check for svn on this node.
+    '''
     utils.check_or_die('svn')
 
 
@@ -86,6 +88,10 @@ def info(cwd, targets=None, user=None, username=None, fmt='str'):
     fmt : str
         How to fmt the output from info.
         (str, xml, list, dict)
+
+    CLI Example::
+
+        salt '*' svn.info /path/to/svn/repo
     '''
     opts = list()
     if fmt == 'xml':
@@ -127,6 +133,10 @@ def checkout(cwd, remote, target=None, user=None, username=None, *opts):
 
     username : None
         Connect to the Subversion server as another user
+
+    CLI Example::
+
+        salt '*' svn.checkout /path/to/repo svn://remote/repo
     '''
     opts += (remote,)
     if target:
@@ -151,10 +161,41 @@ def update(cwd, targets=None, user=None, *opts):
 
     username : None
         Connect to the Subversion server as another user
+
+    CLI Example::
+
+        salt '*' svn.update /path/to/repo
     '''
     if targets:
         opts += tuple(shlex.split(targets))
     return _run_svn('update', cwd, user, None, opts)
+
+
+def diff(cwd, targets=None, user=None, username=None, *opts):
+    '''
+    Return the diff of the current directory, files, or directories from
+    the remote Subversion repository
+
+    cwd
+        The path to the Subversion repository
+
+    targets : None
+        files and directories to pass to the command as arguments
+        Default: svn uses '.'
+
+    user : None
+        Run svn as a user other than what the minion runs as
+
+    username : None
+        Connect to the Subversion server as another user
+
+    CLI Example::
+
+        salt '*' svn.diff /path/to/repo
+    '''
+    if targets:
+        opts += tuple(shlex.split(targets))
+    return _run_svn('diff', cwd, user, username, opts)
 
 
 def commit(cwd, targets=None, msg=None, user=None, username=None, *opts):
@@ -177,6 +218,10 @@ def commit(cwd, targets=None, msg=None, user=None, username=None, *opts):
 
     username : None
         Connect to the Subversion server as another user
+
+    CLI Example::
+
+        salt '*' svn.commit /path/to/repo
     '''
     if msg:
         opts += ('-m', msg)
@@ -197,6 +242,10 @@ def add(cwd, targets, user=None, *opts):
 
     user : None
         Run svn as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' svn.add /path/to/repo /path/to/new/file
     '''
     if targets:
         opts += tuple(shlex.split(targets))
@@ -221,6 +270,10 @@ def remove(cwd, targets, msg=None, user=None, username=None, *opts):
 
     username : None
         Connect to the Subversion server as another user
+
+    CLI Example::
+
+        salt '*' svn.remove /path/to/repo /path/to/repo/remove
     '''
     if msg:
         opts += ('-m', msg)
@@ -246,6 +299,10 @@ def status(cwd, targets=None, user=None, username=None, *opts):
 
     username : None
         Connect to the Subversion server as another user
+
+    CLI Example::
+
+        salt '*' svn.status /path/to/repo
     '''
     if targets:
         opts += tuple(shlex.split(targets))

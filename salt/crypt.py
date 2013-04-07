@@ -27,13 +27,6 @@ from salt.exceptions import (
 log = logging.getLogger(__name__)
 
 
-try:
-    import win32api
-    import win32con
-except ImportError:
-    pass
-
-
 def gen_keys(keydir, keyname, keysize):
     '''
     Generate a keypair for use with salt
@@ -335,13 +328,13 @@ class Crypticle(object):
         data = data[:-self.SIG_SIZE]
         mac_bytes = hmac.new(hmac_key, data, hashlib.sha256).digest()
         if len(mac_bytes) != len(sig):
-            log.warning('Failed to authenticate message')
+            log.debug('Failed to authenticate message')
             raise AuthenticationError('message authentication failed')
         result = 0
         for zipped_x, zipped_y in zip(mac_bytes, sig):
             result |= ord(zipped_x) ^ ord(zipped_y)
         if result != 0:
-            log.warning('Failed to authenticate message')
+            log.debug('Failed to authenticate message')
             raise AuthenticationError('message authentication failed')
         iv_bytes = data[:self.AES_BLOCK_SIZE]
         data = data[self.AES_BLOCK_SIZE:]
@@ -382,11 +375,16 @@ class SAuth(Auth):
         in, signing in can occur as often as needed to keep up with the
         revolving master aes key.
         '''
-        creds = self.sign_in()
-        if creds == 'retry':
-            log.error('Failed to authenticate with the master, verify this'\
-                + ' minion\'s public key has been accepted on the salt master')
-            sys.exit(2)
+        while True:
+            creds = self.sign_in()
+            if creds == 'retry':
+                if self.opts.get('caller'):
+                    msg = ('Minion failed to authenticate with the master, '
+                           'has the minion key been accepted?')
+                    print(msg)
+                    sys.exit(2)
+                continue
+            break
         return Crypticle(self.opts, creds['aes'])
 
     def gen_token(self, clear_tok):

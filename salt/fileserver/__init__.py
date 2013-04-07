@@ -3,6 +3,7 @@ File server pluggable modules and generic backend functions
 '''
 
 # Import python libs
+import os
 import re
 import fnmatch
 import logging
@@ -56,11 +57,15 @@ class Fileserver(object):
         '''
         Return the backend list
         '''
+        ret = []
         if not back:
             back = self.opts['fileserver_backend']
         if isinstance(back, str):
             back = [back]
-        return back
+        for sub in back:
+            if '{0}.envs'.format(sub) in self.servers:
+                ret.append(sub)
+        return ret
 
     def update(self, back=None):
         '''
@@ -107,12 +112,31 @@ class Fileserver(object):
         to other backend interfaces.
         '''
         back = self._gen_back(back)
+        kwargs = {}
         fnd = {'path': '',
                'rel': ''}
+        if os.path.isabs(path):
+            return fnd
+        if path.startswith('|'):
+            # The path arguments are escaped
+            path = path[1:]
+        else:
+            if '?' in path:
+                hcomps = path.split('?')
+                path = hcomps[0]
+                comps = hcomps[1].split('&')
+                for comp in comps:
+                    if not '=' in comp:
+                        # Invalid option, skip it
+                        continue
+                    args = comp.split('=', 1)
+                    kwargs[args[0]] = args[1]
+        if 'env' in kwargs:
+            env = kwargs.pop('env')
         for fsb in back:
             fstr = '{0}.find_file'.format(fsb)
             if fstr in self.servers:
-                fnd = self.servers[fstr](path, env)
+                fnd = self.servers[fstr](path, env, **kwargs)
                 if fnd.get('path'):
                     fnd['back'] = fsb
                     return fnd

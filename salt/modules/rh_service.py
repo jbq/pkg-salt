@@ -4,8 +4,14 @@ service command (so it is compatible with upstart systems) and the chkconfig
 command.
 '''
 
+# Import python libs
+import logging
+import os
+
 # Import salt libs
 import salt.utils
+
+log = logging.getLogger(__name__)
 
 
 def __virtual__():
@@ -14,20 +20,22 @@ def __virtual__():
     '''
     # Disable on these platforms, specific service modules exist:
     enable = [
-               'RedHat',
-               'CentOS',
-               'Scientific',
-               'CloudLinux',
-               'Amazon',
-               'Fedora',
-               'ALT',
-              ]
+        'RedHat',
+        'CentOS',
+        'Scientific',
+        'CloudLinux',
+        'Amazon',
+        'Fedora',
+        'ALT',
+        'OEL',
+    ]
     if __grains__['os'] in enable:
         if __grains__['os'] == 'Fedora':
             if __grains__['osrelease'] > 15:
                 return False
         return 'service'
     return False
+
 
 def _runlevel():
     '''
@@ -42,6 +50,27 @@ def _runlevel():
         return '3'
     else:
         return out.split()[1]
+
+
+def _add_custom_initscript(name):
+    '''
+    If the passed service name is not in the output from get_all(), runs a
+    'chkconfig --add' so that it is available.
+    '''
+    initscript_path = os.path.join('/etc/rc.d/init.d', name)
+    if name not in get_all() and __salt__['cmd.has_exec'](initscript_path):
+        cmd = '/sbin/chkconfig --add {0}'.format(name)
+        if __salt__['cmd.retcode'](cmd):
+            log.error('Unable to add initscript "{0}"'.format(name))
+        else:
+            log.info('Added initscript "{0}"'.format(name))
+            # Disable initscript by default. If a user wants it enabled, he/she
+            # can configure that in a state. Since we're adding the service
+            # automagically, we shouldn't also enable it, as the user may not
+            # be aware that the service was added to chkconfig and thus would
+            # not be expecting it to start on boot (which is the default).
+            cmd = '/sbin/chkconfig {0} off'.format(name)
+            __salt__['cmd.run'](cmd)
 
 
 def get_enabled():
@@ -60,9 +89,12 @@ def get_enabled():
         comps = line.split()
         if not comps:
             continue
-        if '{0}:on'.format(rlevel) in line:
+        if len(comps) > 3 and '{0}:on'.format(rlevel) in line:
             ret.add(comps[0])
+        elif len(comps) < 3 and comps[1] and comps[1] == 'on':
+            ret.add(comps[0].strip(':'))
     return sorted(ret)
+
 
 def get_disabled():
     '''
@@ -84,6 +116,7 @@ def get_disabled():
             ret.add(comps[0])
     return sorted(ret)
 
+
 def get_all():
     '''
     Return all installed services
@@ -94,6 +127,7 @@ def get_all():
     '''
     return sorted(get_enabled() + get_disabled())
 
+
 def start(name):
     '''
     Start the specified service
@@ -102,6 +136,7 @@ def start(name):
 
         salt '*' service.start <service name>
     '''
+    _add_custom_initscript(name)
     cmd = '/sbin/service {0} start'.format(name)
     return not __salt__['cmd.retcode'](cmd)
 
@@ -114,11 +149,12 @@ def stop(name):
 
         salt '*' service.stop <service name>
     '''
+    _add_custom_initscript(name)
     cmd = '/sbin/service {0} stop'.format(name)
     return not __salt__['cmd.retcode'](cmd)
 
 
-def restart(name):
+def restart(name, **kwargs):
     '''
     Restart the named service
 
@@ -126,8 +162,7 @@ def restart(name):
 
         salt '*' service.restart <service name>
     '''
-    if name == 'salt-minion':
-        salt.utils.daemonize_if(__opts__)
+    _add_custom_initscript(name)
     cmd = '/sbin/service {0} restart'.format(name)
     return not __salt__['cmd.retcode'](cmd)
 
@@ -141,6 +176,7 @@ def status(name, sig=None):
 
         salt '*' service.status <service name>
     '''
+    _add_custom_initscript(name)
     if sig:
         return bool(__salt__['status.pid'](sig))
     cmd = '/sbin/service {0} status'.format(name)
@@ -155,6 +191,7 @@ def enable(name, **kwargs):
 
         salt '*' service.enable <service name>
     '''
+    _add_custom_initscript(name)
     cmd = '/sbin/chkconfig {0} on'.format(name)
     return not __salt__['cmd.retcode'](cmd)
 
@@ -167,6 +204,7 @@ def disable(name, **kwargs):
 
         salt '*' service.disable <service name>
     '''
+    _add_custom_initscript(name)
     cmd = '/sbin/chkconfig {0} off'.format(name)
     return not __salt__['cmd.retcode'](cmd)
 
@@ -179,6 +217,7 @@ def enabled(name):
 
         salt '*' service.enabled <service name>
     '''
+    _add_custom_initscript(name)
     return name in get_enabled()
 
 
@@ -190,4 +229,5 @@ def disabled(name):
 
         salt '*' service.disabled <service name>
     '''
+    _add_custom_initscript(name)
     return name in get_disabled()

@@ -9,7 +9,7 @@ from salt.exceptions import CommandExecutionError
 
 def __virtual__():
     '''
-    Only run on Linux systems
+    Only run on FreeBSD systems
     '''
     return 'sysctl' if __grains__['os'] == 'FreeBSD' else False
 
@@ -47,13 +47,15 @@ def show():
     cmd = 'sysctl -ae'
     ret = {}
     out = __salt__['cmd.run'](cmd).splitlines()
+    comps = ['']
     for line in out:
-        if line.split('.')[0] not in roots:
-            comps = line.split('=')
+        if any([line.startswith('{0}.'.format(root)) for root in roots]):
+            comps = line.split('=', 1)
+            ret[comps[0]] = comps[1]
+        elif comps[0]:
             ret[comps[0]] += '{0}\n'.format(line)
+        else:
             continue
-        comps = line.split('=')
-        ret[comps[0]] = comps[1]
     return ret
 
 

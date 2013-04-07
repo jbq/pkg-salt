@@ -1,14 +1,18 @@
 '''
-The backend for the git based file server system. This system allows for salt
-to directly reference a remote git repository as the source of truth for files.
+The backend for the git based file server system.
 
-When using the git file server backend,
+After enabling this backend, branches and tags in a remote git repository
+are exposed to salt as different environments. This feature is managed by
+the fileserver_backend option in the salt master config.
+
+:depends: git-python Python module
 '''
 
 # Import python libs
 import os
 import time
 import hashlib
+import logging
 
 # Import third party libs
 HAS_GIT = False
@@ -23,13 +27,21 @@ import salt.utils
 import salt.fileserver
 
 
+log = logging.getLogger(__name__)
+
 def __virtual__():
     '''
-    Only load if gitpython is available
+    Only load if git-python is available
     '''
     if not isinstance(__opts__['gitfs_remotes'], list):
         return False
-    return 'git' if HAS_GIT else False
+    if not 'git' in __opts__['fileserver_backend']:
+        return False
+    if not HAS_GIT:
+        log.error('Git fileserver backend is enabled in configuration but '
+                  'could not be loaded, is git-python installed?')
+        return False
+    return 'git'
 
 
 def _get_ref(repo, short):
@@ -37,10 +49,7 @@ def _get_ref(repo, short):
     Return bool if the short ref is in the repo
     '''
     for ref in repo.refs:
-        if isinstance(ref, git.TagReference):
-            if short == os.path.basename(ref.name):
-                return ref
-        elif isinstance(ref, git.Head):
+        if isinstance(ref, git.RemoteReference):
             if short == os.path.basename(ref.name):
                 return ref
     return False
@@ -48,8 +57,8 @@ def _get_ref(repo, short):
 
 def _wait_lock(lk_fn, dest):
     '''
-    if the write lock is there check to see if the file is acctually being
-    written, if there is no change in the file size after a short sleep then
+    If the write lock is there, check to see if the file is actually being
+    written. If there is no change in the file size after a short sleep,
     remove the lock and move forward.
     '''
     if not os.path.isfile(lk_fn):
@@ -98,11 +107,15 @@ def init():
         rp_ = os.path.join(bp_, str(ind))
         if not os.path.isdir(rp_):
             os.makedirs(rp_)
-        repo = git.Repo.init(rp_, bare=True)
+        repo = git.Repo.init(rp_)
         if not repo.remotes:
             try:
                 repo.create_remote('origin', __opts__['gitfs_remotes'][ind])
             except Exception:
+                # This exception occurs when two processes are trying to write
+                # to the git config at once, go ahead and pass over it since
+                # this is the only write
+                # This should place a lock down
                 pass
         if repo.remotes:
             repos.append(repo)
@@ -125,19 +138,6 @@ def update():
             os.remove(lk_fn)
         except (OSError, IOError):
             pass
-        for ref in repo.refs:
-            if isinstance(ref, git.refs.remote.RemoteReference):
-                found = False
-                short = os.path.basename(ref.name)
-                for branch in repo.branches:
-                    if os.path.basename(branch.name) == short:
-                        # Found it, make sure it has the correct ref
-                        if not branch.tracking_branch() is ref:
-                            branch.set_tracking_branch(ref)
-                            found = True
-                if not found:
-                    branch = repo.create_head(short, ref)
-                    branch.set_tracking_branch(ref)
 
 
 def envs():
@@ -156,7 +156,7 @@ def envs():
     return list(ret)
 
 
-def find_file(path, short='base'):
+def find_file(path, short='base', **kwargs):
     '''
     Find the first file to match the path and ref, read the file out of git
     and send the path to the newly cached file
@@ -190,6 +190,15 @@ def find_file(path, short='base'):
     if not os.path.isdir(shadir):
         os.makedirs(shadir)
     repos = init()
+    if 'index' in kwargs:
+        try:
+            repos = [repos[int(kwargs['index'])]]
+        except IndexError:
+            # Invalid index param
+            return fnd
+        except ValueError:
+            # Invalid index option
+            return fnd
     for repo in repos:
         ref = _get_ref(repo, short)
         if not ref:

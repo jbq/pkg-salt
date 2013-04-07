@@ -1,5 +1,5 @@
 '''
-Recursively display nested data, this is the default outputter. 
+Recursively display nested data, this is the default outputter.
 '''
 
 # Import salt libs
@@ -17,36 +17,49 @@ class NestDisplay(object):
         '''
         if ret is None or ret is True or ret is False:
             out += '{0}{1}{2}{3}{4}\n'.format(
-                    self.colors['YELLOW'],
                     ' ' * indent,
+                    self.colors['YELLOW'],
                     prefix,
                     ret,
                     self.colors['ENDC'])
-        elif isinstance(ret, int):
+        elif isinstance(ret, (int, float)):
             out += '{0}{1}{2}{3}{4}\n'.format(
-                    self.colors['YELLOW'],
                     ' ' * indent,
+                    self.colors['YELLOW'],
                     prefix,
                     ret,
                     self.colors['ENDC'])
-        elif isinstance(ret, str):
+        elif isinstance(ret, basestring):
             lines = ret.split('\n')
             for line in lines:
                 out += '{0}{1}{2}{3}{4}\n'.format(
-                        self.colors['GREEN'],
                         ' ' * indent,
+                        self.colors['GREEN'],
                         prefix,
                         line,
                         self.colors['ENDC'])
         elif isinstance(ret, list) or isinstance(ret, tuple):
             for ind in ret:
-                out = self.display(ind, indent, '- ', out)
+                if isinstance(ind, (list, tuple)):
+                    out += '{0}{1}|_{2}\n'.format(
+                            ' ' * indent,
+                            self.colors['GREEN'],
+                            self.colors['ENDC'])
+                    out = self.display(ind, indent + 2, '- ', out)
+                else:
+                    out = self.display(ind, indent, '- ', out)
         elif isinstance(ret, dict):
+            if indent:
+                out += '{0}{1}{2}{3}\n'.format(
+                        ' ' * indent,
+                        self.colors['CYAN'],
+                        '-' * 10,
+                        self.colors['ENDC'])
             for key in sorted(ret):
                 val = ret[key]
                 out += '{0}{1}{2}{3}{4}:\n'.format(
-                        self.colors['CYAN'],
                         ' ' * indent,
+                        self.colors['CYAN'],
                         prefix,
                         key,
                         self.colors['ENDC'])

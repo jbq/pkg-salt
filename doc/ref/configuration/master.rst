@@ -72,7 +72,7 @@ seeing on the console(and then salt-master crashes)::
   Too many open files (tcp_listener.cpp:335)
   Aborted (core dumped)
 
-By default this value will be the one of `ulimit -Hn`, ie, the hard limit for
+By default this value will be the one of `ulimit -Hn`, i.e., the hard limit for
 max open files.
 
 If you wish to set a different value than the default one, uncomment and
@@ -191,6 +191,22 @@ Disabling the job cache will make previously executed jobs unavailable to
 the jobs system and is not generally recommended. Normally it is wise to make
 sure the master has access to a faster IO system or a tmpfs is mounted to the
 jobs dir
+
+.. conf_master:: ext_job_cache
+
+``ext_job_cache``
+-----------------
+
+Default: ''
+
+Used to specify a default returner for all minions, when this option is set
+the specified returner needs to be properly configured and the minions will
+always default to sending returns to this returner. This will also disable the
+local job cache on the master
+
+.. code-block:: yaml
+
+    ext_job_cache: redis
 
 .. conf_master:: sock_dir
 
@@ -393,7 +409,7 @@ at the moment a single state fails
 
 Default:: ``False``
 
-Set all state calls to only test if they are going to acctually make changes
+Set all state calls to only test if they are going to actually make changes
 or just post what changes are going to be made
 
 .. code-block:: yaml
@@ -410,7 +426,7 @@ Master File Server Settings
 
 Default: ``base: [/srv/salt]``
 
-Salt runs a lightweight file server written in zeromq to deliver files to
+Salt runs a lightweight file server written in ZeroMQ to deliver files to
 minions. This file server is built into the master daemon and does not
 require a dedicated port.
 
@@ -690,7 +706,7 @@ One of 'garbage', 'trace', 'debug', info', 'warning', 'error', 'critical'.
 
 Default: ``%H:%M:%S``
 
-The date and time format used in console log messages. Allowed date/time formating
+The date and time format used in console log messages. Allowed date/time formatting
 can be seen on http://docs.python.org/library/time.html#time.strftime
 
 .. code-block:: yaml
@@ -704,7 +720,7 @@ can be seen on http://docs.python.org/library/time.html#time.strftime
 
 Default: ``%Y-%m-%d %H:%M:%S``
 
-The date and time format used in log file messages. Allowed date/time formating
+The date and time format used in log file messages. Allowed date/time formatting
 can be seen on http://docs.python.org/library/time.html#time.strftime
 
 .. code-block:: yaml
@@ -746,7 +762,7 @@ be seen on http://docs.python.org/library/logging.html#logrecord-attributes
 
 Default: ``{}``
 
-This can be used to control logging levels more specificically.  The
+This can be used to control logging levels more specifically.  The
 example sets the main salt library at the 'warning' level, but sets 
 'salt.modules' to log at the 'debug' level:
 
@@ -763,7 +779,7 @@ example sets the main salt library at the 'warning' level, but sets
 
 Default: ``master.d/*.conf``
 
-The minion can include configuration from other files. Per default the
-minion will automatically include all config files from `master.d/*.conf`
-where minion.d is relative to the directory of the minion configuration
+The master can include configuration from other files. Per default the
+master will automatically include all config files from `master.d/*.conf`
+where master.d is relative to the directory of the master configuration
 file.

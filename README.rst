@@ -2,10 +2,9 @@
 What is Salt?
 =============
 
-.. image:: https://secure.travis-ci.org/saltstack/salt.png?branch=develop
-   :target: http://travis-ci.org/saltstack/salt
+.. rubric:: We are not just talking about NaCl.
 
-.. rubric:: We’re not just talking about NaCl.
+Join us in #salt on freenode!
 
 Distributed Remote Execution
 ============================

@@ -10,11 +10,7 @@
     :license: Apache 2.0, see LICENSE for more details.
 '''
 
-# Import python libs
-import logging
-
 # Import salt libs
-from salt import log as saltlog
 from saltunittest import (
     TestCase, TestLoader, TextTestRunner, TestsLoggingHandler
 )
@@ -70,5 +66,5 @@ class TestLog(TestCase):
 
 if __name__ == "__main__":
     loader = TestLoader()
-    tests = loader.loadTestsFromTestCase(ConfigTestCase)
+    tests = loader.loadTestsFromTestCase(TestLog)
     TextTestRunner(verbosity=1).run(tests)

@@ -4,7 +4,7 @@ Windows
 
 Salt has full support for running the Salt Minion on Windows.
 
-There are no plans for the forseeable future to develop a Salt
+There are no plans for the foreseeable future to develop a Salt
 Master on Windows. For now you must run your Salt Master on a
 supported operating system to control your Salt Minions on Windows.
 
@@ -18,11 +18,26 @@ A Salt Minion Windows installer can be found here:
 
 .. admonition:: Download here
 
-    http://saltstack.org/static/downloads/Salt-Minion-0.11.1-Setup-amd64.exe
+    * 0.13.3
+    * http://saltstack.com/downloads/Salt-Minion-0.13.3-x86-Setup.exe
+    * http://saltstack.com/downloads/Salt-Minion-0.13.3-AMD64-Setup.exe
 
-This installer has been tested on Windows 7 64bit and Windows Server 2008R2
-64bit. Please file a bug report on our github repo if issues for other
-platforms are found.
+    * 0.13.2
+    * http://saltstack.com/downloads/Salt-Minion-0.13.2-x86-Setup.exe
+    * http://saltstack.com/downloads/Salt-Minion-0.13.2-AMD64-Setup.exe
+
+    * 0.13.1
+    * http://saltstack.com/downloads/Salt-Minion-0.13.1-Setup-amd64.exe
+    * http://saltstack.com/downloads/Salt-Minion-0.13.1-Setup-win32.exe
+
+    * 0.12.1  
+    * http://saltstack.com/downloads/Salt-Minion-0.12.1-Setup-amd64.exe
+    * http://saltstack.com/downloads/Salt-Minion-0.12.1-Setup-win32.exe
+
+The 64bit installer has been tested on Windows 7 64bit and Windows Server
+2008R2 64bit. The 32bit installer has been tested on Windows 2003 Server 32bit.
+Please file a bug report on our github repo if issues for other platforms are
+found.
 
 The installer asks for 2 bits of information; the master hostname and the
 minion name. The installer will update the minion config with these options and
@@ -54,7 +69,9 @@ Installer Source
 
 The Salt Windows installer is built with the open-source NSIS compiler. The
 source for the installer is found in the pkg directory of the Salt repo here:
-https://github.com/saltstack/salt/blob/develop/pkg/windows/installer/Salt-Minion-Setup.nsi
+https://github.com/saltstack/salt/blob/develop/pkg/windows/installer/Salt-Minion-Setup.nsi.
+To create the installer run ``python setup.py bdist_esky``, extract the
+frozen archive from ``dist/`` into ``pkg/windows/buildenv/`` and run NSIS.
 
 The NSIS installer can be found here: http://nsis.sourceforge.net/Main_Page
 
@@ -86,10 +103,10 @@ Install on Windows XP 32bit
 
 4.  Add c:\\Python27 to your system path
 
-5.  Install the Microsoft Visuall C++ 2008 SP1 Redistributable, `vcredist_x86`_. 
+5.  Install the Microsoft Visual C++ 2008 SP1 Redistributable, `vcredist_x86`_.
 
 6.  Install `Win32OpenSSL-1_0_0e.exe`_
-    
+
     #.  Choose first option to install in Windows system directory
 
 7.  Install `pyzmq-2.1.11.win32-py2.7.msi`_
@@ -117,13 +134,13 @@ Install on Windows XP 32bit
 14.  Close terminal window and open a new terminal window (*cmd*)
 
 15.  Install jinja2
-        
+
 .. code-block:: bash
 
         pip install jinja2
 
 16.  Install Messagepack
-        
+
 .. code-block:: bash
 
         pip install msgpack-python
@@ -161,18 +178,18 @@ Install on Windows XP 32bit
 .. code-block:: bash
 
         sudo salt-key -A
-        
+
         (This accepts all unaccepted keys. If you're concerned about security just accept the key for this specific minion)
 
 21.  Test that your minion is responding
-        
+
         a.  On the salt-master run:
 
 .. code-block:: bash
 
         sudo salt '*' test.ping
 
-    
+
 You should get the following response: {'your minion hostname': True}
 
 
@@ -187,7 +204,7 @@ On a 64 bit Windows host the following script makes an unattended install of sal
 
 	(All in one line.)
 
-You can execute the above command remotely from a linux host using winexe:
+You can execute the above command remotely from a Linux host using winexe:
 
 .. code-block:: bash
 

@@ -20,6 +20,7 @@ import datetime
 import platform
 import tempfile
 import subprocess
+import zmq
 from calendar import month_abbr as months
 
 try:
@@ -32,7 +33,9 @@ except ImportError:
 # Import salt libs
 import salt.minion
 import salt.payload
-from salt.exceptions import SaltClientError, CommandNotFoundError
+from salt.exceptions import (
+    SaltClientError, CommandNotFoundError, SaltSystemExit
+)
 
 
 # Do not use these color declarations, use get_colors()
@@ -106,26 +109,26 @@ def get_colors(use=True):
     as empty strings so that they will not be applied
     '''
     colors = {
-            'BLACK': '\033[0;30m',
-            'DARK_GRAY': '\033[1;30m',
-            'LIGHT_GRAY': '\033[0;37m',
-            'BLUE': '\033[0;34m',
-            'LIGHT_BLUE': '\033[1;34m',
-            'GREEN': '\033[0;32m',
-            'LIGHT_GREEN': '\033[1;32m',
-            'CYAN': '\033[0;36m',
-            'LIGHT_CYAN': '\033[1;36m',
-            'RED': '\033[0;31m',
-            'LIGHT_RED': '\033[1;31m',
-            'PURPLE': '\033[0;35m',
-            'LIGHT_PURPLE': '\033[1;35m',
-            'BROWN': '\033[0;33m',
-            'YELLOW': '\033[1;33m',
-            'WHITE': '\033[1;37m',
-            'DEFAULT_COLOR': '\033[00m',
-            'RED_BOLD': '\033[01;31m',
-            'ENDC': '\033[0m',
-            }
+        'BLACK': '\033[0;30m',
+        'DARK_GRAY': '\033[1;30m',
+        'LIGHT_GRAY': '\033[0;37m',
+        'BLUE': '\033[0;34m',
+        'LIGHT_BLUE': '\033[1;34m',
+        'GREEN': '\033[0;32m',
+        'LIGHT_GREEN': '\033[1;32m',
+        'CYAN': '\033[0;36m',
+        'LIGHT_CYAN': '\033[1;36m',
+        'RED': '\033[0;31m',
+        'LIGHT_RED': '\033[1;31m',
+        'PURPLE': '\033[0;35m',
+        'LIGHT_PURPLE': '\033[1;35m',
+        'BROWN': '\033[0;33m',
+        'YELLOW': '\033[1;33m',
+        'WHITE': '\033[1;37m',
+        'DEFAULT_COLOR': '\033[00m',
+        'RED_BOLD': '\033[01;31m',
+        'ENDC': '\033[0m',
+    }
 
     try:
         fileno = sys.stdout.fileno()
@@ -185,25 +188,11 @@ def daemonize_if(opts, **kwargs):
     '''
     if 'salt-call' in sys.argv[0]:
         return
-    if not opts['multiprocessing']:
+    if not opts.get('multiprocessing', True):
         return
     if sys.platform.startswith('win'):
         return
-    # Daemonizing breaks the proc dir, so the proc needs to be rewritten
-    data = {}
-    for key, val in kwargs.items():
-        if key.startswith('__pub_'):
-            data[key[6:]] = val
-    if not 'jid' in data:
-        return
-    serial = salt.payload.Serial(opts)
-    proc_dir = salt.minion.get_proc_dir(opts['cachedir'])
-    fn_ = os.path.join(proc_dir, data['jid'])
     daemonize()
-    sdata = {'pid': os.getpid()}
-    sdata.update(data)
-    with salt.utils.fopen(fn_, 'w+') as ofile:
-        ofile.write(serial.dumps(sdata))
 
 
 def profile_func(filename=None):
@@ -230,7 +219,7 @@ def profile_func(filename=None):
 
 def which(exe=None):
     '''
-    Python clone of POSIX's /usr/bin/which
+    Python clone of /usr/bin/which
     '''
     if exe:
         if os.access(exe, os.X_OK):
@@ -290,15 +279,13 @@ def jid_to_time(jid):
     second = jid[12:14]
     micro = jid[14:]
 
-    ret = '{0}, {1} {2} {3}:{4}:{5}.{6}'.format(
-            year,
-            months[int(month)],
-            day,
-            hour,
-            minute,
-            second,
-            micro
-            )
+    ret = '{0}, {1} {2} {3}:{4}:{5}.{6}'.format(year,
+                                                months[int(month)],
+                                                day,
+                                                hour,
+                                                minute,
+                                                second,
+                                                micro)
     return ret
 
 
@@ -383,7 +370,7 @@ def required_modules_error(name, docstring):
     return msg.format(filename, ', '.join(modules))
 
 
-def prep_jid(cachedir, sum_type, user='root'):
+def prep_jid(cachedir, sum_type, user='root', nocache=False):
     '''
     Return a job id and prepare the job id directory
     '''
@@ -392,10 +379,13 @@ def prep_jid(cachedir, sum_type, user='root'):
     jid_dir_ = jid_dir(jid, cachedir, sum_type)
     if not os.path.isdir(jid_dir_):
         os.makedirs(jid_dir_)
-        with salt.utils.fopen(os.path.join(jid_dir_, 'jid'), 'w+') as fn_:
+        with fopen(os.path.join(jid_dir_, 'jid'), 'w+') as fn_:
             fn_.write(jid)
+        if nocache:
+            with fopen(os.path.join(jid_dir_, 'nocache'), 'w+') as fn_:
+                fn_.write('')
     else:
-        return prep_jid(cachedir, sum_type)
+        return prep_jid(cachedir, sum_type, user=user, nocache=nocache)
     return jid
 
 
@@ -429,12 +419,12 @@ def copyfile(source, dest, backup_mode='', cachedir=''):
     '''
     if not os.path.isfile(source):
         raise IOError(
-                '[Errno 2] No such file or directory: {0}'.format(source)
-                )
+            '[Errno 2] No such file or directory: {0}'.format(source)
+        )
     if not os.path.isdir(os.path.dirname(dest)):
         raise IOError(
-                '[Errno 2] No such file or directory: {0}'.format(source)
-                )
+            '[Errno 2] No such file or directory: {0}'.format(source)
+        )
     bname = os.path.basename(dest)
     dname = os.path.dirname(os.path.abspath(dest))
     tgt = mkstemp(prefix=bname, dir=dname)
@@ -451,11 +441,9 @@ def copyfile(source, dest, backup_mode='', cachedir=''):
             msecs = str(int(time.time() * 1000000))[-6:]
             stamp = time.asctime().replace(' ', '_')
             stamp = '{0}{1}_{2}'.format(stamp[:-4], msecs, stamp[-4:])
-            bkpath = os.path.join(
-                    bkroot,
-                    dname[1:],
-                    '{0}_{1}'.format(bname, stamp)
-                    )
+            bkpath = os.path.join(bkroot,
+                                  dname[1:],
+                                  '{0}_{1}'.format(bname, stamp))
             if not os.path.isdir(os.path.dirname(bkpath)):
                 os.makedirs(os.path.dirname(bkpath))
             shutil.copyfile(dest, bkpath)
@@ -467,8 +455,9 @@ def copyfile(source, dest, backup_mode='', cachedir=''):
     # If SELINUX is available run a restorecon on the file
     rcon = which('restorecon')
     if rcon:
-        cmd = [rcon, dest]
-        subprocess.call(cmd)
+        with open(os.devnull, 'w') as dev_null:
+            cmd = [rcon, dest]
+            subprocess.call(cmd, stdout=dev_null, stderr=dev_null)
     if os.path.isfile(tgt):
         # The temp file failed to move
         try:
@@ -509,7 +498,7 @@ def pem_finger(path, sum_type='md5'):
     '''
     if not os.path.isfile(path):
         return ''
-    with salt.utils.fopen(path, 'rb') as fp_:
+    with fopen(path, 'rb') as fp_:
         key = ''.join(fp_.readlines()[1:-1])
     pre = getattr(hashlib, sum_type)(key).hexdigest()
     finger = ''
@@ -750,6 +739,22 @@ def fopen(*args, **kwargs):
     return fhandle
 
 
+def traverse_dict(data, target, default, delim=':'):
+    '''
+    Traverse a dict using a colon-delimited (or otherwise delimited, using
+    the "delim" param) target string. The target 'foo:bar:baz' will return
+    data['foo']['bar']['baz'] if this value exists, and will otherwise
+    return an empty dict.
+    '''
+    try:
+        for each in target.split(delim):
+            data = data[each]
+    except (KeyError, IndexError, TypeError):
+        # Encountered a non-indexable value in the middle of traversing
+        return default
+    return data
+
+
 def mkstemp(*args, **kwargs):
     '''
     Helper function which does exactly what `tempfile.mkstemp()` does but
@@ -794,3 +799,66 @@ def is_linux():
     Simple function to return if a host is Linux or not
     '''
     return sys.platform.startswith('linux')
+
+
+def check_ipc_path_max_len(uri):
+    # The socket path is limited to 107 characters on Solaris and
+    # Linux, and 103 characters on BSD-based systems.
+    ipc_path_max_len = getattr(zmq, 'IPC_PATH_MAX_LEN', 103)
+    if ipc_path_max_len and len(uri) > ipc_path_max_len:
+        raise SaltSystemExit(
+            'The socket path is longer than allowed by OS. '
+            '{0!r} is longer than {1} characters. '
+            'Either try to reduce the length of this setting\'s '
+            'path or switch to TCP; in the configuration file, '
+            'set "ipc_mode: tcp".'.format(
+                uri, ipc_path_max_len
+            )
+        )
+
+
+def check_state_result(self, running):
+    '''
+    Check the total return value of the run and determine if the running
+    dict has any issues
+    '''
+    if not isinstance(running, dict):
+        return False
+    if not running:
+        return False
+    for host in running:
+        if not isinstance(running[host], dict):
+            return False
+        for tag, ret in running[host].items():
+            if not 'result' in ret:
+                return False
+            if ret['result'] is False:
+                return False
+    return True
+
+
+def rm_rf(path):
+    '''
+    Platform-independent recursive delete. Includes code from
+    http://stackoverflow.com/a/2656405
+    '''
+    def _onerror(func, path, exc_info):
+        """
+        Error handler for `shutil.rmtree`.
+
+        If the error is due to an access error (read only file)
+        it attempts to add write permission and then retries.
+
+        If the error is for another reason it re-raises the error.
+
+        Usage : `shutil.rmtree(path, onerror=onerror)`
+        """
+        if is_windows() and not os.access(path, os.W_OK):
+            import stat
+            # Is the error an access error ?
+            os.chmod(path, stat.S_IWUSR)
+            func(path)
+        else:
+            raise
+
+    shutil.rmtree(path, onerror=_onerror)

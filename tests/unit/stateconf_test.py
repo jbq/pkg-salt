@@ -10,11 +10,7 @@ import salt.config
 
 REQUISITES = ['require', 'require_in', 'use', 'use_in', 'watch', 'watch_in']
 
-OPTS = salt.config.master_config('whatever, just load the defaults!')
-# we should have used minion_config(), but that would try to resolve
-# the master hostname, and retry for 30 seconds! Lucily for our purpose,
-# master conf or minion conf, it doesn't matter.
-
+OPTS = salt.config.minion_config(None, check_dns=False)
 OPTS['file_client'] = 'local'
 OPTS['file_roots'] = dict(base=['/'])
 
@@ -78,7 +74,7 @@ test1:
 test2:
   user.present
 '''     )
-        self.assertTrue(len(result), 3)
+        self.assertEqual(len(result), 3)
         for args in (result['test1']['pkg.installed'],
                      result['test2']['user.present']  ):
             self.assertTrue(isinstance(args, list))
@@ -156,7 +152,7 @@ state_id:
     - {0}:
       - cmd: .utils::some_state
 '''.format(req), sls='test.work')
-            self.assertEqual(result['include'][1], 'test.utils')
+            self.assertEqual(result['include'][1], {'base': 'test.utils'})
             self.assertEqual(result['state_id']['cmd.run'][2][req][0]['cmd'],
                          'test.utils::some_state')
 
@@ -175,6 +171,23 @@ extend:
         self.assertTrue('test.utils::some_state' in result['extend'])
 
 
+    def test_start_state_generation(self):
+        if sys.version_info < (2, 7) and not HAS_ORDERED_DICT:
+            self.skipTest('OrderedDict is not available')
+        result = render_sls('''
+A:
+  cmd.run:
+    - name: echo hello
+    - cwd: /
+B:
+  cmd.run:
+    - name: echo world
+    - cwd: /
+''', sls='test', argline='-so yaml . jinja')
+        self.assertEqual(len(result), 4)
+        self.assertEqual(result['test::start']['stateconf.set'][0]['require_in'][0]['cmd'], 'A')
+
+
     def test_goal_state_generation(self):
         result = render_sls('''
 {% for sid in "ABCDE": %}
@@ -185,11 +198,9 @@ extend:
 {% endfor %}
 
 ''', sls='test.goalstate', argline='yaml . jinja')
-        self.assertTrue(len(result), len('ABCDE')+1)
+        self.assertEqual(len(result), len('ABCDE')+1)
 
-        reqs = result['test.goalstate::goal']['stateconf.set'][1]['require']
-        # note: arg 0 is the name arg.
-
+        reqs = result['test.goalstate::goal']['stateconf.set'][0]['require']
         self.assertEqual(set([i.itervalues().next() for i in reqs]),
                          set('ABCDE'))
 
@@ -243,9 +254,8 @@ G:
         self.assertEqual(G_req[2]['cmd'], 'F')
 
         goal_args = result['test::goal']['stateconf.set']
-        # Note: arg 0 is the auto-added name arg.
-
-        self.assertEqual(len(goal_args), 2)
+        self.assertEqual(len(goal_args), 1)
         self.assertEqual(
-                [i.itervalues().next() for i in goal_args[1]['require']],
+                [i.itervalues().next() for i in goal_args[0]['require']],
                 list('ABCDEFG'))
+

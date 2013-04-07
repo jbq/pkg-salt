@@ -5,6 +5,7 @@ Homebrew for Mac OS X
 # Import salt libs
 import salt
 
+
 def __virtual__():
     '''
     Confine this module to Mac OS with Homebrew.
@@ -15,7 +16,7 @@ def __virtual__():
     return False
 
 
-def list_pkgs(*args):
+def list_pkgs(versions_as_list=False):
     '''
     List the packages currently installed in a dict::
 
@@ -25,18 +26,23 @@ def list_pkgs(*args):
 
         salt '*' pkg.list_pkgs
     '''
+    versions_as_list = __salt__['config.is_true'](versions_as_list)
+    ret = {}
     cmd = 'brew list --versions {0}'.format(' '.join(args))
-
-    result_dict = {}
-
     for line in __salt__['cmd.run'](cmd).splitlines():
-        (pkg, version) = line.split(' ')[0:2]
-        result_dict[pkg] = version
+        try:
+            name, version = line.split(' ')[0:2]
+        except ValueError:
+            continue
+        __salt__['pkg_resource.add_pkg'](ret, name, version)
 
-    return result_dict
+    __salt__['pkg_resource.sort_pkglist'](ret)
+    if not versions_as_list:
+        __salt__['pkg_resource.stringify'](ret)
+    return ret
 
 
-def version(*names):
+def version(*names, **kwargs):
     '''
     Returns a string representing the package version or an empty string if not
     installed. If more than one package name is specified, a dict of
@@ -47,19 +53,10 @@ def version(*names):
         salt '*' pkg.version <package name>
         salt '*' pkg.version <package1> <package2> <package3>
     '''
-    pkgs = list_pkgs()
-    if len(names) == 0:
-        return ''
-    elif len(names) == 1:
-        return pkgs.get(names[0], '')
-    else:
-        ret = {}
-        for name in names:
-            ret[name] = pkgs.get(name, '')
-        return ret
+    return __salt__['pkg_resource.version'](*names, **kwargs)
 
 
-def available_version(*names):
+def latest_version(*names, **kwargs):
     '''
     Return the latest version of the named package available for upgrade or
     installation
@@ -69,8 +66,8 @@ def available_version(*names):
 
     CLI Example::
 
-        salt '*' pkg.available_version <package name>
-        salt '*' pkg.available_version <package1> <package2> <package3>
+        salt '*' pkg.latest_version <package name>
+        salt '*' pkg.latest_version <package1> <package2> <package3>
     '''
     if len(names) <= 1:
         return ''
@@ -79,6 +76,9 @@ def available_version(*names):
         for name in names:
             ret[name] = ''
         return ret
+
+# available_version is being deprecated
+available_version = latest_version
 
 
 def remove(pkgs, **kwargs):
@@ -127,17 +127,17 @@ def install(name=None, pkgs=None, **kwargs):
 
         salt '*' pkg.install 'package package package'
     '''
-    pkg_params, pkg_type = __salt__['pkg_resource.parse_targets'](
-            name,
-            pkgs,
-            kwargs.get('sources', {}))
+    pkg_params, pkg_type = \
+        __salt__['pkg_resource.parse_targets'](name,
+                                               pkgs,
+                                               kwargs.get('sources', {}))
     if pkg_params is None or len(pkg_params) == 0:
         return {}
 
     formulas = ' '.join(pkg_params)
     old = list_pkgs()
-    homebrew_prefix = __salt__['cmd.run']('brew --prefix')
-    user = __salt__['file.get_user'](homebrew_prefix)
+    homebrew_binary = __salt__['cmd.run']('brew --prefix') + "/bin/brew"
+    user = __salt__['file.get_user'](homebrew_binary)
     cmd = 'brew install {0}'.format(formulas)
     if user != __opts__['user']:
         __salt__['cmd.run'](cmd, runas=user)
@@ -172,14 +172,27 @@ def upgrade_available(pkg):
     return pkg in list_upgrades()
 
 
-def compare(version1='', version2=''):
+def perform_cmp(pkg1='', pkg2=''):
     '''
-    Compare two version strings. Return -1 if version1 < version2,
-    0 if version1 == version2, and 1 if version1 > version2. Return None if
-    there was a problem making the comparison.
+    Do a cmp-style comparison on two packages. Return -1 if pkg1 < pkg2, 0 if
+    pkg1 == pkg2, and 1 if pkg1 > pkg2. Return None if there was a problem
+    making the comparison.
 
     CLI Example::
 
-        salt '*' pkg.compare '0.2.4-0' '0.2.4.1-0'
+        salt '*' pkg.perform_cmp '0.2.4-0' '0.2.4.1-0'
+        salt '*' pkg.perform_cmp pkg1='0.2.4-0' pkg2='0.2.4.1-0'
     '''
-    return __salt__['pkg_resource.compare'](version1, version2)
+    return __salt__['pkg_resource.perform_cmp'](pkg1=pkg1, pkg2=pkg2)
+
+
+def compare(pkg1='', oper='==', pkg2=''):
+    '''
+    Compare two version strings.
+
+    CLI Example::
+
+        salt '*' pkg.compare '0.2.4-0' '<' '0.2.4.1-0'
+        salt '*' pkg.compare pkg1='0.2.4-0' oper='<' pkg2='0.2.4.1-0'
+    '''
+    return __salt__['pkg_resource.compare'](pkg1=pkg1, oper=oper, pkg2=pkg2)

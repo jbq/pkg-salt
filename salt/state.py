@@ -127,20 +127,19 @@ def format_log(ret):
                 if 'diff' in chg:
                     if isinstance(chg['diff'], string_types):
                         msg = 'File changed:\n{0}'.format(chg['diff'])
-                chgfirst = next(iter(chg))
-                if isinstance(chg[chgfirst], dict):
-                    if 'new' in chg[chgfirst]:
+                if all([isinstance(x, dict) for x in chg.values()]):
+                    if all([('old' in x and 'new' in x)
+                            for x in chg.values()]):
                         # This is the return data from a package install
                         msg = 'Installed Packages:\n'
                         for pkg in chg:
-                            old = 'absent'
-                            if chg[pkg]['old']:
-                                old = chg[pkg]['old']
-                            msg += '{0} changed from {1} to {2}\n'.format(
-                                    pkg, old, chg[pkg]['new'])
+                            old = chg[pkg]['old'] or 'absent'
+                            new = chg[pkg]['new'] or 'absent'
+                            msg += '{0} changed from {1} to ' \
+                                   '{2}\n'.format(pkg, old, new)
             if not msg:
                 msg = str(ret['changes'])
-            if ret['result']:
+            if ret['result'] is True or ret['result'] is None:
                 log.info(msg)
             else:
                 log.error(msg)
@@ -317,8 +316,11 @@ class Compiler(object):
                                         if not ishashable(req_val):
                                             errors.append((
                                                 'Illegal requisite "{0}", '
-                                                'please check your syntax.\n'
-                                                ).format(str(req_val)))
+                                                'is SLS {1}\n'
+                                                ).format(
+                                                    str(req_val),
+                                                    body['__sls__']))
+                                            continue
 
                                         # Check for global recursive requisites
                                         reqs[name][req_val] = req_key
@@ -478,11 +480,13 @@ class State(object):
     '''
     Class used to execute salt states
     '''
-    def __init__(self, opts):
+    def __init__(self, opts, pillar=None):
         if 'grains' not in opts:
             opts['grains'] = salt.loader.grains(opts)
         self.opts = opts
         self.opts['pillar'] = self.__gather_pillar()
+        if pillar and isinstance(pillar, dict):
+            self.opts['pillar'].update(pillar)
         self.state_con = {}
         self.load_modules()
         self.active = set()
@@ -750,7 +754,9 @@ class State(object):
                                                 'Illegal requisite "{0}", '
                                                 'please check your syntax.\n'
                                                 ).format(str(req_val)))
+                                            continue
 
+                                        print req_val
                                         # Check for global recursive requisites
                                         reqs[name][req_val] = req_key
                                         # I am going beyond 80 chars on
@@ -906,9 +912,12 @@ class State(object):
                         for key, val in arg.items():
                             if key == 'names':
                                 names.update(val)
-                                continue
+                            elif (key == 'name' and
+                                  not isinstance(val, string_types)):
+                                # Invalid name, fall back to ID
+                                chunk[key] = name
                             else:
-                                chunk.update(arg)
+                                chunk[key] = val
                 if names:
                     for low_name in names:
                         live = copy.deepcopy(chunk)
@@ -1059,6 +1068,8 @@ class State(object):
                                     extend[name] = {}
                                 if not _state in extend[name]:
                                     extend[name][_state] = []
+                                extend[name]['__env__'] = body['__env__']
+                                extend[name]['__sls__'] = body['__sls__']
                                 for ind in range(len(extend[name][_state])):
                                     if next(iter(
                                         extend[name][_state][ind])) == rkey:
@@ -1141,6 +1152,8 @@ class State(object):
                                     extend[name] = {}
                                 if not _state in extend[name]:
                                     extend[name][_state] = []
+                                extend[name]['__env__'] = body['__env__']
+                                extend[name]['__sls__'] = body['__sls__']
                                 for ind in range(len(extend[name][_state])):
                                     if next(iter(
                                         extend[name][_state][ind])) == rkey:
@@ -1347,6 +1360,13 @@ class State(object):
                 if ctag not in running:
                     if ctag in self.active:
                         log.error('Recursive requisite found')
+                        if not ctag in running:
+                            running[tag] = {
+                                    'changes': {},
+                                    'result': False,
+                                    'comment': 'Recursive requisite found',
+                                    '__run_num__': self.__run_num}
+                        self.__run_num += 1
                         return running
                     running = self.call_chunk(chunk, running, chunks)
                     if self.check_failhard(chunk, running):
@@ -1756,169 +1776,178 @@ class BaseHighState(object):
         state = None
         try:
             state = compile_template(
-                fn_, self.state.rend, self.state.opts['renderer'], env, sls)
+                fn_, self.state.rend, self.state.opts['renderer'], env, sls, rendered_sls=mods)
         except Exception as exc:
-            errors.append(('Rendering SLS {0} failed, render error:\n{1}'
-                           .format(sls, exc)))
+            import traceback
+            errors.append(('Rendering SLS {0} failed, render error:\n{1}\n{2}'
+                           .format(sls, traceback.format_exc(), exc)))
         mods.add(sls)
-        nstate = None
         if state:
             if not isinstance(state, dict):
                 errors.append(('SLS {0} does not render to a dictionary'
                                .format(sls)))
             else:
+                include = []
                 if 'include' in state:
                     if not isinstance(state['include'], list):
                         err = ('Include Declaration in SLS {0} is not formed '
                                'as a list'.format(sls))
                         errors.append(err)
                     else:
-                        for inc_sls in state.pop('include'):
-                            # inc_sls may take the form of:
-                            #   'sls.to.include' <- same as {<env>: 'sls.to.include'}
-                            #   {<env_key>: 'sls.to.include'}
-                            #   {'_xenv': 'sls.to.resolve'}
-                            xenv_key = '_xenv'
+                        include = state.pop('include')
 
-                            if isinstance(inc_sls, dict):
-                                env_key, inc_sls = inc_sls.popitem()
-                            else:
-                                env_key = env
+                self._handle_extend(state, sls, env, errors)
+                self._handle_exclude(state, sls, env, errors)
+                self._handle_state_decls(state, sls, env, errors)
 
-                            if env_key != xenv_key:
-                                # Resolve inc_sls in the specified environment
-                                if env_key in matches and fnmatch.filter(self.avail[env_key], inc_sls):
-                                    resolved_envs = [env_key]
-                                else:
-                                    resolved_envs = []
-                            else:
-                                # Resolve inc_sls in the subset of environment matches
-                                resolved_envs = [
-                                    aenv for aenv in matches
-                                    if fnmatch.filter(self.avail[aenv], inc_sls)
-                                ]
+                for inc_sls in include:
+                    # inc_sls may take the form of:
+                    #   'sls.to.include' <- same as {<env>: 'sls.to.include'}
+                    #   {<env_key>: 'sls.to.include'}
+                    #   {'_xenv': 'sls.to.resolve'}
+                    xenv_key = '_xenv'
 
-                            # An include must be resolved to a single environment, or
-                            # the include must exist in the current environment
-                            if len(resolved_envs) == 1 or env in resolved_envs:
-                                if inc_sls not in mods:
-                                    nstate, mods, err = self.render_state(
-                                        inc_sls,
-                                        resolved_envs[0] if len(resolved_envs) == 1 else env,
-                                        mods,
-                                        matches
-                                    )
-                                if nstate:
-                                    state.update(nstate)
-                                if err:
-                                    errors += err
-                            else:
-                                msg = ''
-                                if not resolved_envs:
-                                    msg = ('Unknown include: Specified SLS {0}: {1} is not available on the salt '
-                                           'master in environment(s): {2} '
-                                           ).format(env_key,
-                                                    inc_sls,
-                                                    ', '.join(matches) if env_key == xenv_key else env_key)
-                                elif len(resolved_envs) > 1:
-                                    msg = ('Ambiguous include: Specified SLS {0}: {1} is available on the salt master '
-                                           'in multiple available environments: {2}'
-                                           ).format(env_key,
-                                                    inc_sls,
-                                                    ', '.join(resolved_envs))
-                                log.error(msg)
-                                if self.opts['failhard']:
-                                    errors.append(msg)
-                if 'extend' in state:
-                    ext = state.pop('extend')
-                    for name in ext:
-                        if not isinstance(ext[name], dict):
-                            errors.append(('Extension name {0} in sls {1} is '
-                                           'not a dictionary'
-                                           .format(name, sls)))
-                            continue
-                        if '__sls__' not in ext[name]:
-                            ext[name]['__sls__'] = sls
-                        if '__env__' not in ext[name]:
-                            ext[name]['__env__'] = env
-                        for key in ext[name]:
-                            if key.startswith('_'):
-                                continue
-                            if not isinstance(ext[name][key], list):
-                                continue
-                            if '.' in key:
-                                comps = key.split('.')
-                                ext[name][comps[0]] = ext[name].pop(key)
-                                ext[name][comps[0]].append(comps[1])
-                        if '__extend__' not in state:
-                            state['__extend__'] = [ext]
-                        else:
-                            state['__extend__'].append(ext)
-                if 'exclude' in state:
-                    exc = state.pop('exclude')
-                    if not isinstance(exc, list):
-                        err = ('Exclude Declaration in SLS {0} is not formed '
-                               'as a list'.format(sls))
-                        errors.append(err)
-                    if '__exclude__' not in state:
-                        state['__exclude__'] = exc
+                    if isinstance(inc_sls, dict):
+                        env_key, inc_sls = inc_sls.popitem()
                     else:
-                        state['__exclude__'].extend(exc)
-                for name in state:
-                    if not isinstance(state[name], dict):
-                        if name == '__extend__':
-                            continue
-                        if name == '__exclude__':
-                            continue
+                        env_key = env
 
-                        if isinstance(state[name], string_types):
-                            # Is this is a short state, it needs to be padded
-                            if '.' in state[name]:
-                                comps = state[name].split('.')
-                                state[name] = {'__sls__': sls,
-                                               '__env__': env,
-                                               comps[0]: [comps[1]]}
-                                continue
-                        errors.append(
-                            ('Name {0} in sls {1} is not a dictionary'
-                            .format(name, sls)))
-                        continue
-                    skeys = set()
-                    for key in sorted(state[name]):
-                        if key.startswith('_'):
-                            continue
-                        if not isinstance(state[name][key], list):
-                            continue
-                        if '.' in key:
-                            comps = key.split('.')
-                            # Salt doesn't support state files such as:
-                            #
-                            #     /etc/redis/redis.conf:
-                            #       file.managed:
-                            #         - source: salt://redis/redis.conf
-                            #         - user: redis
-                            #         - group: redis
-                            #         - mode: 644
-                            #       file.comment:
-                            #           - regex: ^requirepass
-                            if comps[0] in skeys:
-                                err = ('Name "{0}" in sls "{1}" contains '
-                                       'multiple state decs of the same type'
-                                      ).format(name, sls)
-                                errors.append(err)
-                                continue
-                            state[name][comps[0]] = state[name].pop(key)
-                            state[name][comps[0]].append(comps[1])
-                            skeys.add(comps[0])
-                            continue
-                        skeys.add(key)
-                    if '__sls__' not in state[name]:
-                        state[name]['__sls__'] = sls
-                    if '__env__' not in state[name]:
-                        state[name]['__env__'] = env
+                    if env_key != xenv_key:
+                        # Resolve inc_sls in the specified environment
+                        if env_key in matches and fnmatch.filter(self.avail[env_key], inc_sls):
+                            resolved_envs = [env_key]
+                        else:
+                            resolved_envs = []
+                    else:
+                        # Resolve inc_sls in the subset of environment matches
+                        resolved_envs = [
+                            aenv for aenv in matches
+                            if fnmatch.filter(self.avail[aenv], inc_sls)
+                        ]
+
+                    # An include must be resolved to a single environment, or
+                    # the include must exist in the current environment
+                    if len(resolved_envs) == 1 or env in resolved_envs:
+                        if inc_sls not in mods:
+                            nstate, err = self.render_state(
+                                inc_sls,
+                                resolved_envs[0] if len(resolved_envs) == 1 else env,
+                                mods,
+                                matches
+                            )
+                            if nstate:
+                                self.merge_included_states(state, nstate, errors)
+                                state.update(nstate)
+                            if err:
+                                errors.extend(err)
+                    else:
+                        msg = ''
+                        if not resolved_envs:
+                            msg = ('Unknown include: Specified SLS {0}: {1} is not available on the salt '
+                                   'master in environment(s): {2} '
+                                   ).format(env_key,
+                                            inc_sls,
+                                            ', '.join(matches) if env_key == xenv_key else env_key)
+                        elif len(resolved_envs) > 1:
+                            msg = ('Ambiguous include: Specified SLS {0}: {1} is available on the salt master '
+                                   'in multiple available environments: {2}'
+                                   ).format(env_key,
+                                            inc_sls,
+                                            ', '.join(resolved_envs))
+                        log.error(msg)
+                        if self.opts['failhard']:
+                            errors.append(msg)
         else:
             state = {}
-        return state, mods, errors
+        return state, errors
+
+
+    def _handle_state_decls(self, state, sls, env, errors):
+        for name in state:
+            if not isinstance(state[name], dict):
+                if name == '__extend__':
+                    continue
+                if name == '__exclude__':
+                    continue
+
+                if isinstance(state[name], string_types):
+                    # Is this is a short state, it needs to be padded
+                    if '.' in state[name]:
+                        comps = state[name].split('.')
+                        state[name] = {'__sls__': sls,
+                                       '__env__': env,
+                                       comps[0]: [comps[1]]}
+                        continue
+                errors.append(
+                    ('Name {0} in sls {1} is not a dictionary'
+                    .format(name, sls)))
+                continue
+            skeys = set()
+            for key in sorted(state[name]):
+                if key.startswith('_'):
+                    continue
+                if not isinstance(state[name][key], list):
+                    continue
+                if '.' in key:
+                    comps = key.split('.')
+                    # Salt doesn't support state files such as:
+                    #
+                    #     /etc/redis/redis.conf:
+                    #       file.managed:
+                    #         - source: salt://redis/redis.conf
+                    #         - user: redis
+                    #         - group: redis
+                    #         - mode: 644
+                    #       file.comment:
+                    #           - regex: ^requirepass
+                    if comps[0] in skeys:
+                        err = ('Name "{0}" in sls "{1}" contains '
+                               'multiple state decs of the same type'
+                              ).format(name, sls)
+                        errors.append(err)
+                        continue
+                    state[name][comps[0]] = state[name].pop(key)
+                    state[name][comps[0]].append(comps[1])
+                    skeys.add(comps[0])
+                    continue
+                skeys.add(key)
+            if '__sls__' not in state[name]:
+                state[name]['__sls__'] = sls
+            if '__env__' not in state[name]:
+                state[name]['__env__'] = env
+
+    def _handle_extend(self, state, sls, env, errors):
+        if 'extend' in state:
+            ext = state.pop('extend')
+            for name in ext:
+                if not isinstance(ext[name], dict):
+                    errors.append(('Extension name {0} in sls {1} is '
+                                   'not a dictionary'
+                                   .format(name, sls)))
+                    continue
+                if '__sls__' not in ext[name]:
+                    ext[name]['__sls__'] = sls
+                if '__env__' not in ext[name]:
+                    ext[name]['__env__'] = env
+                for key in ext[name]:
+                    if key.startswith('_'):
+                        continue
+                    if not isinstance(ext[name][key], list):
+                        continue
+                    if '.' in key:
+                        comps = key.split('.')
+                        ext[name][comps[0]] = ext[name].pop(key)
+                        ext[name][comps[0]].append(comps[1])
+            state.setdefault('__extend__', []).append(ext)
+
+    def _handle_exclude(self, state, sls, env, errors):
+        if 'exclude' in state:
+            exc = state.pop('exclude')
+            if not isinstance(exc, list):
+                err = ('Exclude Declaration in SLS {0} is not formed '
+                       'as a list'.format(sls))
+                errors.append(err)
+            state.setdefault('__exclude__', []).extend(exc)
 
     def render_highstate(self, matches):
         '''
@@ -1926,57 +1955,60 @@ class BaseHighState(object):
         high data structure.
         '''
         highstate = {}
-        errors = []
+        all_errors = []
         for env, states in matches.items():
             mods = set()
             for sls_match in states:
                 for sls in fnmatch.filter(self.avail[env], sls_match):
-                    state, mods, err = self.render_state(sls, env, mods, matches)
-                    # The extend members can not be treated as globally unique:
-                    if '__extend__' in state and '__extend__' in highstate:
-                        highstate['__extend__'].extend(state.pop('__extend__'))
-                    if '__exclude__' in state and '__exclude__' in highstate:
-                        highstate['__exclude__'].extend(state.pop('__exclude__'))
-                    for id_ in state:
-                        if id_ in highstate:
-                            if highstate[id_] != state[id_]:
-                                errors.append(('Detected conflicting IDs, SLS'
-                                ' IDs need to be globally unique.\n    The'
-                                ' conflicting ID is "{0}" and is found in SLS'
-                                ' "{1}:{2}" and SLS "{3}:{4}"').format(
-                                        id_,
-                                        highstate[id_]['__env__'],
-                                        highstate[id_]['__sls__'],
-                                        state[id_]['__env__'],
-                                        state[id_]['__sls__'])
-                                )
+                    state, errors = self.render_state(sls, env, mods, matches)
                     if state:
-                        try:
-                            highstate.update(state)
-                        except ValueError:
-                            errors.append(
-                                'Error when rendering state with '
-                                'contents: {0}'.format(
-                                    state
-                                )
-                            )
-                    if err:
-                        errors += err
-        # Clean out duplicate extend data
+                        self.merge_included_states(highstate, state, errors)
+                    all_errors.extend(errors)
+
+        self.clean_duplicate_extends(highstate)
+        return highstate, all_errors
+
+
+    def clean_duplicate_extends(self, highstate):
         if '__extend__' in highstate:
             highext = []
-            for ext in highstate['__extend__']:
-                for key, val in ext.items():
-                    exists = False
-                    for hext in highext:
-                        if hext == {key: val}:
-                            exists = True
-                    if not exists:
-                        highext.append({key: val})
-            highstate['__extend__'] = highext
-        return highstate, errors
+            for items in (ext.items() for ext in highstate['__extend__']):
+                for item in items:
+                    if item not in highext:
+                        highext.append(item)
+            highstate['__extend__'] = [{t[0]: t[1]} for t in highext]
 
-    def call_highstate(self):
+
+    def merge_included_states(self, highstate, state, errors):
+        # The extend members can not be treated as globally unique:
+        if '__extend__' in state:
+            highstate.setdefault('__extend__', []).extend(state.pop('__extend__'))
+        if '__exclude__' in state:
+            highstate.setdefault('__exclude__', []).extend(state.pop('__exclude__'))
+        for id_ in state:
+            if id_ in highstate:
+                if highstate[id_] != state[id_]:
+                    errors.append(('Detected conflicting IDs, SLS'
+                    ' IDs need to be globally unique.\n    The'
+                    ' conflicting ID is "{0}" and is found in SLS'
+                    ' "{1}:{2}" and SLS "{3}:{4}"').format(
+                            id_,
+                            highstate[id_]['__env__'],
+                            highstate[id_]['__sls__'],
+                            state[id_]['__env__'],
+                            state[id_]['__sls__'])
+                    )
+        try:
+            highstate.update(state)
+        except ValueError:
+            errors.append(
+                'Error when rendering state with contents: {0}'.format(state)
+            )
+
+
+
+
+    def call_highstate(self, exclude=None):
         '''
         Run the sequence to execute the salt highstate for this minion
         '''
@@ -1993,7 +2025,12 @@ class BaseHighState(object):
 
         #File exists so continue
         err = []
-        top = self.get_top()
+        try:
+            top = self.get_top()
+        except Exception:
+            trb = traceback.format_exc()
+            err.append(trb)
+            return err
         err += self.verify_tops(top)
         matches = self.top_matches(top)
         if not matches:
@@ -2002,6 +2039,13 @@ class BaseHighState(object):
             return ret
         self.load_dynamic(matches)
         high, errors = self.render_highstate(matches)
+        if exclude:
+            if isinstance(exclude, str):
+                exclude = exclude.split(',')
+            if '__exclude__' in high:
+                high['__exclude__'].extend(exclude)
+            else:
+                high['__exclude__'] = exclude
         err += errors
         if err:
             return err
@@ -2040,6 +2084,9 @@ class BaseHighState(object):
 
         # Verify that the high data is structurally sound
         errors += self.state.verify_high(high)
+        high, req_in_errors = self.state.requisite_in(high)
+        errors += req_in_errors
+        high = self.state.apply_exclude(high)
 
         if errors:
             return errors
@@ -2056,11 +2103,33 @@ class HighState(BaseHighState):
     compound state derived from a group of template files stored on the
     salt master or in the local cache.
     '''
-    def __init__(self, opts):
+    stack = [] # a stack of active HighState objects during a state.highstate run.
+
+    def __init__(self, opts, pillar=None):
         self.client = salt.fileclient.get_file_client(opts)
         BaseHighState.__init__(self, opts)
-        self.state = State(self.opts)
+        self.state = State(self.opts, pillar)
         self.matcher = salt.minion.Matcher(self.opts)
+
+        # tracks all pydsl state declarations globally across sls files
+        self._pydsl_all_decls = {}
+
+        # a stack of current rendering Sls objects, maintained and used by the pydsl renderer.
+        self._pydsl_render_stack = []
+
+    def push_active(self):
+        self.stack.append(self)
+
+    @classmethod
+    def pop_active(self):
+        self.stack.pop()
+
+    @classmethod
+    def get_active(klass):
+        try:
+            return klass.stack[-1]
+        except IndexError:
+            return None
 
 
 class MasterState(State):

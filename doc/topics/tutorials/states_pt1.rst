@@ -9,12 +9,12 @@ system please refer to the full :doc:`states reference </ref/states/index>`.
 This tutorial will walk you through using Salt to configure a minion to run the
 Apache HTTP server and to ensure the server is running.
 
-.. include:: requisite_incl.rst
+.. include:: /_incl/requisite_incl.rst
 
 Setting up the Salt State Tree
 ==============================
 
-States are stored in text files on the master and transfered to the minions on
+States are stored in text files on the master and transferred to the minions on
 demand via the master's File Server. The collection of state files make up the
 :term:`State Tree`.
 
@@ -60,7 +60,7 @@ minion matches is defined; for now simply specify all hosts (``*``).
 .. admonition:: Targeting minions
 
     The expressions can use any of the targeting mechanisms used by Salt —
-    minions can be matched by glob, pcre regular expression, or by :doc:`grains
+    minions can be matched by glob, PCRE regular expression, or by :doc:`grains
     </topics/targeting/grains>`. For example::
 
         base:
