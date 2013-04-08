@@ -2,7 +2,9 @@ Source: salt
 Section: admin
 Priority: optional
 Maintainer: Debian Salt Team <pkg-salt-team@lists.alioth.debian.org>
-Uploaders: Joe Healy <joehealy@gmail.com>, Franklin G Mendoza <franklin.g.mendoza@gmail.com>
+Uploaders: Joe Healy <joehealy@gmail.com>,
+           Franklin G Mendoza <franklin.g.mendoza@gmail.com>,
+           Andriy Senkovych <jolly_roger@itblog.org.ua>
 Build-Depends: debhelper (>= 9.20120410~),
                bash-completion,
                cython,
