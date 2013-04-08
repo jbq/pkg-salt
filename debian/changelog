@@ -1,3 +1,23 @@
+salt (0.14.0-1) unstable; urgency=low
+
+  [ Joe Healy ]
+  * team upload
+  * [4234664] Updated debian branch
+  * [a623ed7] Added gitignore file
+  * [f97485a] Imported Upstream version 0.14.0 Closes: #701155
+  * [ee4a462] Updated maintainer and uploaders Closes: #698772
+
+  [ Andriy Senkovych ]
+  * [5752009] Update Vcs-* fields to point to pkg-salt alioth repository.
+  * [6d3bea7] debian/copyright: set versioned copyright format uri
+  * [a282c5f] Remove unnecessary dh_quilt invocations
+  * [64fe85c] Add Andriy Senkovych <jolly_roger@itblog.org.ua> to Uploaders
+
+  [ Ulrich Dangel ]
+  * [aa8f816] Change conflict to breaks and adjust python-mako comparison
+
+ -- Ulrich Dangel <uli@debian.org>  Mon, 08 Apr 2013 21:08:03 +0100
+
 salt (0.12.1-1~bpo60+1~madduck.2) squeeze-backports; urgency=low
 
   * Add recommendation to python-mako, but conflict with versions before
