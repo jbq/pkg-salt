@@ -272,14 +272,19 @@ class Minion(object):
         returners = salt.loader.returners(self.opts, functions)
         return functions, returners
 
-    def _fire_master(self, data, tag):
+    def _fire_master(self, data=None, tag=None, events=None):
         '''
         Fire an event on the master
         '''
         load = {'id': self.opts['id'],
-                'tag': tag,
-                'data': data,
                 'cmd': '_minion_event'}
+        if events:
+            load['events'] = events
+        elif data and tag:
+            load['data'] = data
+            load['tag'] = tag
+        else:
+            return
         sreq = salt.payload.SREQ(self.opts['master_uri'])
         try:
             sreq.send('aes', self.crypticle.dumps(load))
@@ -435,6 +440,8 @@ class Minion(object):
                 aspec = _getargs(minion_instance.functions[data['fun']])
                 msg = 'Missing arguments executing "{0}": {1}'
                 log.warning(msg.format(function_name, aspec))
+                dmsg = '"Missing args" caused by exc: {0}'.format(exc)
+                log.debug(dmsg)
                 ret['return'] = msg.format(function_name, aspec)
             except Exception:
                 trb = traceback.format_exc()
@@ -526,30 +533,34 @@ class Minion(object):
         '''
         Return the data from the executed command to the master server
         '''
+        jid = ret.get('jid', ret.get('__jid__'))
+        fun = ret.get('fun', ret.get('__fun__'))
         if self.opts['multiprocessing']:
-            fn_ = os.path.join(self.proc_dir, ret['jid'])
+            fn_ = os.path.join(self.proc_dir, jid)
             if os.path.isfile(fn_):
                 try:
                     os.remove(fn_)
                 except (OSError, IOError):
                     # The file is gone already
                     pass
-        log.info('Returning information for job: {0}'.format(ret['jid']))
+        log.info('Returning information for job: {0}'.format(jid))
         sreq = salt.payload.SREQ(self.opts['master_uri'])
         if ret_cmd == '_syndic_return':
             load = {'cmd': ret_cmd,
-                    'jid': ret['jid'],
-                    'id': self.opts['id']}
+                    'id': self.opts['id'],
+                    'jid': jid,
+                    'fun': fun,
+                    'load': ret.get('__load__')}
             load['return'] = {}
             for key, value in ret.items():
-                if key == 'jid' or key == 'fun':
+                if key.startswith('__'):
                     continue
                 load['return'][key] = value
         else:
-            load = {'return': ret['return'],
-                    'cmd': ret_cmd,
-                    'jid': ret['jid'],
+            load = {'cmd': ret_cmd,
                     'id': self.opts['id']}
+            for key, value in ret.items():
+                load[key] = value
         try:
             if hasattr(self.functions[ret['fun']], '__outputter__'):
                 oput = self.functions[ret['fun']].__outputter__
@@ -832,6 +843,8 @@ class Minion(object):
             self.socket.close()
         if hasattr(self, 'context') and self.context.closed is False:
             self.context.term()
+        if hasattr(self, 'local'):
+            del(self.local)
 
     def __del__(self):
         self.destroy()
@@ -844,9 +857,12 @@ class Syndic(Minion):
     '''
     def __init__(self, opts):
         interface = opts.get('interface')
+        sock_dir = opts['sock_dir']
         self._syndic = True
+        opts['loop_interval'] = 1
         Minion.__init__(self, opts)
         self.local = salt.client.LocalClient(opts['_master_conf_file'])
+        self.local.event.subscribe('')
         opts.update(self.opts)
         self.opts = opts
         self.local.opts['interface'] = interface
@@ -888,14 +904,7 @@ class Syndic(Minion):
         Override this method if you wish to handle the decoded data
         differently.
         '''
-        if self.opts['multiprocessing']:
-            multiprocessing.Process(
-                target=self.syndic_cmd, args=(data,)
-            ).start()
-        else:
-            threading.Thread(
-                target=self.syndic_cmd, args=(data,)
-            ).start()
+        self.syndic_cmd(data)
 
     def syndic_cmd(self, data):
         '''
@@ -905,27 +914,105 @@ class Syndic(Minion):
         if 'tgt_type' not in data:
             data['tgt_type'] = 'glob'
         # Send out the publication
-        pub_data = self.local.pub(
+        self.local.pub(
             data['tgt'],
             data['fun'],
             data['arg'],
             data['tgt_type'],
             data['ret'],
             data['jid'],
-            data['to']
+            data['to'])
+
+    def tune_in(self):
+        '''
+        Lock onto the publisher. This is the main event loop for the syndic
+        '''
+        signal.signal(signal.SIGTERM, self.clean_die)
+        log.debug('Syndic "{0}" trying to tune in'.format(self.opts['id']))
+        self.context = zmq.Context()
+
+        # Start with the publish socket
+        id_hash = hashlib.md5(self.opts['id']).hexdigest()
+        self.poller = zmq.Poller()
+        self.socket = self.context.socket(zmq.SUB)
+        self.socket.setsockopt(zmq.SUBSCRIBE, '')
+        self.socket.setsockopt(zmq.IDENTITY, self.opts['id'])
+        if hasattr(zmq, 'RECONNECT_IVL_MAX'):
+            self.socket.setsockopt(
+                zmq.RECONNECT_IVL_MAX, self.opts['recon_max']
+            )
+        if hasattr(zmq, 'TCP_KEEPALIVE'):
+            self.socket.setsockopt(
+                zmq.TCP_KEEPALIVE, self.opts['tcp_keepalive']
+            )
+            self.socket.setsockopt(
+                zmq.TCP_KEEPALIVE_IDLE, self.opts['tcp_keepalive_idle']
+            )
+            self.socket.setsockopt(
+                zmq.TCP_KEEPALIVE_CNT, self.opts['tcp_keepalive_cnt']
+            )
+            self.socket.setsockopt(
+                zmq.TCP_KEEPALIVE_INTVL, self.opts['tcp_keepalive_intvl']
+            )
+        self.socket.connect(self.master_pub)
+        self.poller.register(self.socket, zmq.POLLIN)
+        # Send an event to the master that the minion is live
+        self._fire_master(
+            'Syndic {0} started at {1}'.format(
+            self.opts['id'],
+            time.asctime()
+            ),
+            'syndic_start'
         )
-        # Gather the return data
-        ret = self.local.get_full_returns(
-            pub_data['jid'],
-            pub_data['minions'],
-            data['to']
-        )
-        for minion in ret:
-            ret[minion] = ret[minion]['ret']
-        ret['jid'] = data['jid']
-        ret['fun'] = data['fun']
-        # Return the publication data up the pipe
-        self._return_pub(ret, '_syndic_return')
+
+        # Make sure to gracefully handle SIGUSR1
+        enable_sigusr1_handler()
+
+        loop_interval = int(self.opts['loop_interval'])
+        while True:
+            try:
+                socks = dict(self.poller.poll(
+                    loop_interval * 1000)
+                )
+                if self.socket in socks and socks[self.socket] == zmq.POLLIN:
+                    payload = self.serial.loads(self.socket.recv())
+                    self._handle_payload(payload)
+                time.sleep(0.05)
+                jids = {}
+                raw_events = []
+                while True:
+                    event = self.local.event.get_event(0.5, full=True)
+                    if event is None:
+                        # Timeout reached
+                        break
+                    if salt.utils.is_jid(event['tag']) and 'return' in event['data']:
+                        if not event['tag'] in jids:
+                            if not 'jid' in event['data']:
+                                # Not a job return
+                                continue
+                            jids[event['tag']] = {}
+                            jids[event['tag']]['__fun__'] = event['data'].get('fun')
+                            jids[event['tag']]['__jid__'] = event['data']['jid']
+                            jids[event['tag']]['__load__'] = salt.utils.jid_load(
+                                    event['data']['jid'],
+                                    self.local.opts['cachedir'],
+                                    self.opts['hash_type'])
+                        jids[event['tag']][event['data']['id']] = event['data']['return']
+                    else:
+                        # Add generic event aggregation here
+                        if not 'retcode' in event['data']:
+                            raw_events.append(event)
+                if raw_events:
+                    self._fire_master(events=raw_events)
+                for jid in jids:
+                    self._return_pub(jids[jid], '_syndic_return')
+            except zmq.ZMQError:
+                # This is thrown by the inturupt caused by python handling the
+                # SIGCHLD. This is a safe error and we just start the poll
+                # again
+                continue
+            except Exception:
+                log.critical(traceback.format_exc())
 
 
 class Matcher(object):

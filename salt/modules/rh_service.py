@@ -31,7 +31,7 @@ def __virtual__():
     ]
     if __grains__['os'] in enable:
         if __grains__['os'] == 'Fedora':
-            if __grains__['osrelease'] > 15:
+            if __grains__.get('osrelease', 0) > 15:
                 return False
         return 'service'
     return False
@@ -57,7 +57,7 @@ def _add_custom_initscript(name):
     If the passed service name is not in the output from get_all(), runs a
     'chkconfig --add' so that it is available.
     '''
-    initscript_path = os.path.join('/etc/rc.d/init.d', name)
+    initscript_path = os.path.join('/etc/init.d', name)
     if name not in get_all() and __salt__['cmd.has_exec'](initscript_path):
         cmd = '/sbin/chkconfig --add {0}'.format(name)
         if __salt__['cmd.retcode'](cmd):

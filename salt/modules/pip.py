@@ -186,14 +186,18 @@ def install(pkgs=None,
     treq = None
     if requirements:
         if requirements.startswith('salt://'):
-            # If being called from state.virtualenv, the requirements file
-            # should already be cached, let's try to use that one
-            req = __salt__['cp.is_cached'](requirements, __env__)
-            if not req:
+            cached_requirements = __salt__['cp.is_cached'](requirements,
+                    __env__)
+            if not cached_requirements:
                 # It's not cached, let's cache it.
-                req = __salt__['cp.cache_file'](requirements, __env__)
-
-            if not req:
+                cached_requirements = __salt__['cp.cache_file'](requirements,
+                        __env__)
+            # Check if the master version has changed.
+            if __salt__['cp.hash_file'](requirements, __env__) != \
+                    __salt__['cp.hash_file'](cached_requirements, __env__):
+                cached_requirements = __salt__['cp.cache_file'](requirements,
+                        __env__)
+            if not cached_requirements:
                 return {
                     'result': False,
                     'comment': (
@@ -203,10 +207,10 @@ def install(pkgs=None,
                     )
                 }
 
-            treq = salt.utils.mkstemp()
-            shutil.copyfile(req, treq)
-        else:
-            treq = requirements
+                treq = salt.utils.mkstemp()
+                shutil.copyfile(req, treq)
+            else:
+                treq = cached_requirements
         cmd = '{cmd} --requirement "{requirements}" '.format(
             cmd=cmd, requirements=treq or requirements)
 

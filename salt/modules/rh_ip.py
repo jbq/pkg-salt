@@ -42,8 +42,8 @@ _ETHTOOL_CONFIG_OPTS = [
     'gso', 'gro', 'lro'
 ]
 _RH_CONFIG_OPTS = [
-    'domain', 'peerdns', 'defaultroute',
-    'mtu', 'static-routes'
+    'domain', 'peerdns', 'defroute',
+    'mtu', 'static-routes', 'gateway'
 ]
 _RH_CONFIG_BONDING_OPTS = [
     'mode', 'miimon', 'arp_interval',
@@ -546,7 +546,7 @@ def _parse_settings_eth(opts, iface_type, enabled, iface):
 
     if 'dns' in opts:
         result['dns'] = opts['dns']
-        result['peernds'] = 'yes'
+        result['peerdns'] = 'yes'
 
     if iface_type not in ['bridge']:
         ethtool = _parse_ethtool_opts(opts, iface)
@@ -596,12 +596,12 @@ def _parse_settings_eth(opts, iface_type, enabled, iface):
         if 'bridge' in opts:
             result['bridge'] = opts['bridge']
 
-    for opt in ['ipaddr', 'master', 'netmask', 'srcaddr', 'delay']:
+    for opt in ['ipaddr', 'master', 'netmask', 'srcaddr', 'delay', 'domain', 'gateway']:
         if opt in opts:
             result[opt] = opts[opt]
 
     valid = _CONFIG_TRUE + _CONFIG_FALSE
-    for opt in ['peerdns', 'slave', 'vlan']:
+    for opt in ['peerdns', 'slave', 'vlan', 'defroute']:
         if opt in opts:
             if opts[opt] in _CONFIG_TRUE:
                 result[opt] = 'yes'

@@ -48,7 +48,7 @@ import salt.utils.verify
 import salt.utils.minions
 import salt.utils.gzip_util
 from salt.utils.debug import enable_sigusr1_handler
-from salt.exceptions import SaltMasterError
+from salt.exceptions import SaltMasterError, MasterExit
 
 log = logging.getLogger(__name__)
 
@@ -78,13 +78,6 @@ def clean_proc(proc, wait_for_kill=10):
         # Catch AttributeError when the process dies between proc.is_alive()
         # and proc.terminate() and turns into a NoneType
         pass
-
-
-class MasterExit(SystemExit):
-    '''
-    Named exit exception for the master process exiting
-    '''
-    pass
 
 
 class SMaster(object):
@@ -888,11 +881,10 @@ class AESFuncs(object):
                 self.opts['hash_type']
                 )
         if not os.path.isdir(jid_dir):
-            log.error(
-                'An inconsistency occurred, a job was received with a job id '
-                'that is not present on the master: {jid}'.format(**load)
-            )
-            return False
+            os.makedirs(jid_dir)
+            if 'load' in load:
+                with open(os.path.join(jid_dir, '.load.p'), 'w+') as fp_:
+                    self.serial.dump(load['load'], fp_)
         wtag = os.path.join(jid_dir, 'wtag_{0}'.format(load['id']))
         try:
             with salt.utils.fopen(wtag, 'w+') as fp_:
@@ -1102,10 +1094,7 @@ class AESFuncs(object):
                   ' "{arg}", target: "{tgt}"').format(**load))
         pub_sock.send(self.serial.dumps(payload))
         # Run the client get_returns method based on the form data sent
-        if 'form' in clear_load:
-            ret_form = clear_load['form']
-        else:
-            ret_form = 'clean'
+        ret_form = clear_load.get('form', 'clean')
         if ret_form == 'clean':
             return self.local.get_returns(
                 jid,
@@ -1136,7 +1125,12 @@ class AESFuncs(object):
             return self.crypticle.dumps({})
         # Run the func
         if hasattr(self, func):
-            ret = getattr(self, func)(load)
+            try:
+                ret = getattr(self, func)(load)
+            except Exception:
+                trb = traceback.format_exc()
+                ret = ''
+                log.error('Error in function {0}:\n{1}'.format(func, trb))
         else:
             log.error(
                 'Received function {0} which is unavailable on the master, '
@@ -1558,9 +1552,14 @@ class ClearFuncs(object):
             if not token['name'] in self.opts['external_auth'][token['eauth']]:
                 log.warning('Authentication failure of type "token" occurred.')
                 return ''
-            return self.wheel_.call_func(
-                    clear_load.pop('fun'),
-                    **clear_load)
+
+            try:
+                fun = clear_load.pop('fun')
+                return self.wheel_.call_func(fun, **clear_load)
+            except Exception as exc:
+                log.error('Exception occurred while '
+                        'introspecting {0}: {1}'.format(fun, exc))
+                return ''
 
         if not 'eauth' in clear_load:
             msg = ('Authentication failure of type "eauth" occurred for '
@@ -1594,9 +1593,15 @@ class ClearFuncs(object):
                        'user {0}.').format(clear_load.get('username', 'UNKNOWN'))
                 log.warning(msg)
                 return ''
-            return self.wheel_.call_func(
-                    clear_load.pop('fun'),
-                    **clear_load)
+
+            try:
+                fun = clear_load.pop('fun')
+                return self.wheel_.call_func(fun, **clear_load)
+            except Exception as exc:
+                log.error('Exception occurred while '
+                        'introspecting {0}: {1}'.format(fun, exc))
+                return ''
+
         except Exception as exc:
             log.error(
                 'Exception occurred in the wheel system: {0}'.format(exc)
@@ -1816,6 +1821,7 @@ class ClearFuncs(object):
                         'minions': minions
                     }
                 }
+        self.event.fire_event({'minions': minions}, clear_load['jid'])
         # Retrieve the jid
         if not clear_load['jid']:
             clear_load['jid'] = salt.utils.prep_jid(

@@ -80,7 +80,7 @@ def stop(name):
 
 def restart(name, **kwargs):
     '''
-    Restart the named service
+    Restart the specified service
 
     CLI Example::
 
@@ -106,7 +106,7 @@ def status(name, sig=None):
 
 def reload(name):
     '''
-    Restart the named service
+    Restart the specified service
 
     CLI Example::
 
@@ -117,7 +117,7 @@ def reload(name):
     return not __salt__['cmd.retcode'](cmd)
 
 
-def get_all(name):
+def get_all():
     '''
     Return a list of all available services
 
@@ -132,7 +132,7 @@ def get_all(name):
 
 def available(name):
     '''
-    Return if the names service is available
+    Return if the specified service is available
 
     CLI Example::
 

@@ -22,6 +22,7 @@ import salt.grains.extra
 # Only available on posix systems, nonfatal on windows
 try:
     import pwd
+    import grp
 except ImportError:
     pass
 
@@ -43,10 +44,8 @@ def __virtual__():
 
 def _chugid(runas):
     uinfo = pwd.getpwnam(runas)
-
-    if os.getuid() == uinfo.pw_uid and os.getgid() == uinfo.pw_gid:
-        # No need to change user or group
-        return
+    supgroups = [g.gr_gid for g in grp.getgrall()
+                 if uinfo.pw_name in g.gr_mem and g.gr_gid != uinfo.pw_gid]
 
     # No logging can happen on this function
     #
@@ -69,6 +68,17 @@ def _chugid(runas):
             raise CommandExecutionError(
                 'Failed to change from gid {0} to {1}. Error: {2}'.format(
                     os.getgid(), uinfo.pw_gid, err
+                )
+            )
+
+    # Set supplemental groups
+    if sorted(os.getgroups()) != sorted(supgroups):
+        try:
+            os.setgroups(supgroups)
+        except OSError, err:
+            raise CommandExecutionError(
+                'Failed to set supplemental groups to {0}. Error: {1}'.format(
+                    supgroups, err
                 )
             )
 
@@ -140,6 +150,7 @@ def _render_cmd(cmd, cwd, template):
     cmd = _render(cmd)
     cwd = _render(cwd)
     return (cmd, cwd)
+
 
 def _run(cmd,
          cwd=None,
@@ -252,7 +263,7 @@ def _run(cmd,
             raise CommandExecutionError(msg)
     else:
         _umask = None
-        
+
     if runas or umask:
         kwargs['preexec_fn'] = functools.partial(_chugid_and_umask, runas, _umask)
 
@@ -460,7 +471,7 @@ def script(
         salt '*' cmd.script salt://scripts/runme.sh
         salt '*' cmd.script salt://scripts/runme.sh 'arg1 arg2 "arg 3"'
     '''
-    path = salt.utils.mkstemp()
+    path = salt.utils.mkstemp(dir=cwd)
     if template:
         __salt__['cp.get_template'](source, path, template, env, **kwargs)
     else:

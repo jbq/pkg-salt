@@ -19,7 +19,7 @@ try:
 except ImportError as e:
     if e.args[0] != 'No module named _msgpack':
         raise
-from salt.exceptions import SaltSystemExit
+from salt.exceptions import SaltSystemExit, MasterExit
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class Master(parsers.MasterOptionParser):
         if check_user(self.config['user']):
             try:
                 self.master.start()
-            except salt.master.MasterExit:
+            except MasterExit:
                 self.shutdown()
             finally:
                 sys.exit()
@@ -178,8 +178,8 @@ class Minion(parsers.MinionOptionParser):
         # the boot process waiting for a key to be accepted on the master.
         # This is the latest safe place to daemonize
         self.daemonize_if_required()
-        self.minion = salt.minion.Minion(self.config)
         self.set_pidfile()
+        self.minion = salt.minion.Minion(self.config)
 
     def start(self):
         '''

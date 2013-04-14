@@ -726,6 +726,13 @@ class State(object):
                             # Add the requires to the reqs dict and check them
                             # all for recursive requisites.
                             argfirst = next(iter(arg))
+                            if argfirst == 'names':
+                                if not isinstance(arg[argfirst], list):
+                                    errors.append(('Names statement in state '
+                                    '"{0}" in sls "{1}" needs to be formed as'
+                                    'a list').format(
+                                        name,
+                                        body['__sls__']))
                             if argfirst == 'require' or argfirst == 'watch':
                                 if not isinstance(arg[argfirst], list):
                                     errors.append(('The require or watch'
@@ -756,7 +763,6 @@ class State(object):
                                                 ).format(str(req_val)))
                                             continue
 
-                                        print req_val
                                         # Check for global recursive requisites
                                         reqs[name][req_val] = req_key
                                         # I am going beyond 80 chars on
