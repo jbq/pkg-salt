@@ -176,7 +176,7 @@ def info(name):
     lines = __salt__['cmd.run'](cmd).splitlines()
     for line in lines:
         if 'name could not be found' in line:
-            return False
+            return {}
         if 'successfully' not in line:
             comps = line.split('    ', 1)
             if not len(comps) > 1:
@@ -220,7 +220,7 @@ def list_groups(name):
     return sorted(list(ugrp))
 
 
-def getent(user=None):
+def getent():
     '''
     Return the list of all info for all users
 
@@ -228,6 +228,9 @@ def getent(user=None):
 
         salt '*' user.getent
     '''
+    if 'user.getent' in __context__:
+        return __context__['user.getent']
+
     ret = []
     users = []
     startusers = False
@@ -260,9 +263,5 @@ def getent(user=None):
 
         ret.append(stuff)
 
-    if user:
-        try:
-            ret = [x for x in ret if x.get('name', '') == user][0]
-        except IndexError:
-            ret = {}
+    __context__['user.getent'] = ret
     return ret

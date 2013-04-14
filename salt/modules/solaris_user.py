@@ -136,7 +136,7 @@ def delete(name, remove=False, force=False):
     return not ret['retcode']
 
 
-def getent(user=None):
+def getent():
     '''
     Return the list of all info for all users
 
@@ -144,14 +144,13 @@ def getent(user=None):
 
         salt '*' user.getent
     '''
+    if 'user.getent' in __context__:
+        return __context__['user.getent']
+
     ret = []
     for data in pwd.getpwall():
         ret.append(info(data.pw_name))
-    if user:
-        try:
-            ret = [x for x in ret if x.get('name', '') == user][0]
-        except IndexError:
-            ret = {}
+    __context__['user.getent'] = ret
     return ret
 
 
@@ -379,17 +378,7 @@ def info(name):
         ret['workphone'] = gecos_field[2]
         ret['homephone'] = gecos_field[3]
     except KeyError:
-        ret['gid'] = ''
-        ret['groups'] = ''
-        ret['home'] = ''
-        ret['name'] = ''
-        ret['passwd'] = ''
-        ret['shell'] = ''
-        ret['uid'] = ''
-        ret['fullname'] = ''
-        ret['roomnumber'] = ''
-        ret['workphone'] = ''
-        ret['homephone'] = ''
+        return {}
     return ret
 
 
@@ -404,8 +393,16 @@ def list_groups(name):
     ugrp = set()
     # Add the primary user's group
     ugrp.add(grp.getgrgid(pwd.getpwnam(name).pw_gid).gr_name)
+
+    # If we already grabbed the group list, it's overkill to grab it again
+    if 'user.getgrall' in __context__:
+        groups = __context__['user.getgrall']
+    else:
+        groups = grp.getgrall()
+        __context__['user.getgrall'] = groups
+
     # Now, all other groups the user belongs to
-    for group in grp.getgrall():
+    for group in groups:
         if name in group.gr_mem:
             ugrp.add(group.gr_name)
 

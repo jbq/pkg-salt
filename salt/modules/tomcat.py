@@ -43,7 +43,11 @@ Notes:
 import glob
 import urllib
 import urllib2
+import tempfile
+import os
 
+# Import Salt libs
+import salt.utils
 
 def __virtual__():
     '''
@@ -78,8 +82,8 @@ def _auth(uri):
         password = __grains__['tomcat-manager']['passwd']
     except KeyError:
         try:
-            user = __salt__['config.option']('tomcat-manager.user')
-            password = __salt__['config.option']('tomcat-manager.passwd')
+            user = salt.utils.option('tomcat-manager.user' ,'' ,__opts__ , __pillar__)
+            password = salt.utils.option('tomcat-manager.passwd' ,'' ,__opts__ , __pillar__)
         except Exception:
             return False
     
@@ -141,18 +145,19 @@ def _wget(cmd, opts={}, url='http://localhost:8080/manager'):
     
     return ret
 
-
 def _simple_cmd(cmd, app, url='http://localhost:8080/manager'):
     '''
     Simple command wrapper to commands that need only a path option
     '''
     
     try:
-        full = ls(url)[app]['fullname']
-        return '\n'.join(_wget(cmd,{'path': '/'+full},url)['msg'])
+        opts = {
+            'path': app,
+            'version': ls(url)[app]['version']
+        }
+        return '\n'.join(_wget(cmd,opts,url)['msg'])
     except Exception:
         return 'FAIL - No context exists for path {0}'.format(app)
-
 
 def status(url='http://localhost:8080/manager'):
     '''
@@ -335,7 +340,6 @@ def undeploy(app, url='http://localhost:8080/manager'):
     
     return _simple_cmd('undeploy', app, url)
 
-
 def deploy_war(war, context, force='no', url='http://localhost:8080/manager', env='base'):
     '''
     Deploy a war file
@@ -363,27 +367,32 @@ def deploy_war(war, context, force='no', url='http://localhost:8080/manager', en
     '''
     
     # Copy file name if needed
-    tempfile = war
+    tfile = war
     if war[0] != '/':
-        tempfile = '/tmp/salt.{0}'.format( war.split('/')[-1] )
+        tfile = os.path.join( tempfile.gettempdir(), 'salt.'+os.path.basename(war) )
         try:
-            cached = __salt__['cp.get_file'](war, tempfile, env)
+            cached = __salt__['cp.get_file'](war, tfile, env)
             __salt__['file.set_mode'](cached, '0644')
         except Exception:
             return 'FAIL - could not cache the war file'
     
-    context = '{0}##{1}'.format(context, war.split('/')[-1].replace('.war',''))
-    
     # Prepare options
     opts = {
-        'war': 'file:{0}'.format(tempfile),
+        'war': 'file:{0}'.format(tfile),
         'path': context,
+        'version': os.path.basename(war).replace('.war',''),
     }
     if force == 'yes':
         opts['update'] = 'true'
     
-    return '\n'.join(_wget('deploy',opts,url)['msg'])
-
+    # Deploy
+    res = '\n'.join(_wget('deploy',opts,url)['msg'])
+    
+    # Cleanup
+    if war[0] != '/':
+        __salt__['file.remove'](tfile)
+    
+    return res
 
 def version():
     '''

@@ -25,6 +25,7 @@ as either absent or present
 
 # Import python libs
 import logging
+import sys
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ def _changes(name,
              gid=None,
              groups=None,
              optional_groups=None,
+             remove_groups=True,
              home=True,
              password=None,
              enforce_password=True,
@@ -51,14 +53,12 @@ def _changes(name,
     if not __grains__['os'] in ('FreeBSD', 'OpenBSD'):
         lshad = __salt__['shadow.info'](name)
 
-    lusr = __salt__['user.getent'](name)
+    lusr = __salt__['user.info'](name)
     if not lusr:
         return False
 
     change = {}
-    wanted_groups = sorted(
-        list(set((groups or []) + (optional_groups or [])))
-    )
+    wanted_groups = sorted(set((groups or []) + (optional_groups or [])))
     if uid:
         if lusr['uid'] != uid:
             change['uid'] = uid
@@ -78,8 +78,15 @@ def _changes(name,
         wanted_groups.remove(
             __salt__['file.gid_to_group'](gid or lusr['gid']))
     if groups is not None or wanted_groups:
-        if lusr['groups'] != wanted_groups:
-            change['groups'] = wanted_groups
+        if remove_groups:
+            if lusr['groups'] != wanted_groups:
+                change['groups'] = wanted_groups
+        else:
+            for wanted_group in wanted_groups:
+                if not wanted_group in lusr['groups']:
+                    if not groups in change:
+                        change['groups'] = []
+                    change['groups'].append(wanted_group)
     if home:
         if lusr['home'] != home:
             if not home is True:
@@ -112,6 +119,7 @@ def present(name,
             gid_from_name=False,
             groups=None,
             optional_groups=None,
+            remove_groups=True,
             home=True,
             password=None,
             enforce_password=True,
@@ -152,6 +160,10 @@ def present(name,
 
     NOTE: If the same group is specified in both "groups" and
     "optional_groups", then it will be assumed to be required and not optional.
+
+    remove_groups
+        Remove groups that the user is a member of that weren't specified in
+        the state, True by default
 
     home
         The location of the home directory to manage
@@ -231,6 +243,7 @@ def present(name,
                        gid,
                        groups,
                        present_optgroups,
+                       remove_groups,
                        home,
                        password,
                        enforce_password,
@@ -257,7 +270,15 @@ def present(name,
             if key == 'passwd':
                 __salt__['shadow.set_password'](name, password)
                 continue
-            __salt__['user.ch{0}'.format(key)](name, val)
+            if key == 'groups':
+                __salt__['user.ch{0}'.format(key)](name, val, not remove_groups)
+            else:
+                __salt__['user.ch{0}'.format(key)](name, val)
+
+        # Clear cached groups
+        sys.modules[
+            __salt__['user.info'].__module__
+        ].__context__.pop('user.getgrall', None)
 
         post = __salt__['user.info'](name)
         spost = {}
@@ -279,6 +300,7 @@ def present(name,
                            gid,
                            groups,
                            present_optgroups,
+                           remove_groups,
                            home,
                            password,
                            enforce_password,
@@ -354,7 +376,7 @@ def absent(name, purge=False, force=False):
            'result': True,
            'comment': ''}
 
-    lusr = __salt__['user.getent'](name)
+    lusr = __salt__['user.info'](name)
     if lusr:
         # The user is present, make it not present
         if __opts__['test']:

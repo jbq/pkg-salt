@@ -205,7 +205,7 @@ def get_mode(path):
         salt '*' file.get_mode /etc/passwd
     '''
     if not os.path.exists(path):
-        return -1
+        return ''
     mode = str(oct(os.stat(path).st_mode)[-4:])
     if mode.startswith('0'):
         return mode[1:]
@@ -1230,7 +1230,7 @@ def check_perms(name, ret, user, group, mode):
         if str(mode) != perms['lmode']:
             if not __opts__['test']:
                 __salt__['file.set_mode'](name, mode)
-            if str(mode) != __salt__['file.get_mode'](name).lstrip('0'):
+            if str(mode) != str(__salt__['file.get_mode'](name)).lstrip('0'):
                 ret['result'] = False
                 ret['comment'].append(
                     'Failed to change mode to {0}'.format(mode)

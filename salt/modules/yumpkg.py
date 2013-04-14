@@ -43,6 +43,12 @@ def __virtual__():
         # Fedora <= 10 used Python 2.5 and below
         if os_major >= 11:
             return 'pkg'
+    elif os_grain == 'XCP':
+        if os_major >= 2:
+            return 'pkg'
+    elif os_grain == 'XenServer':
+        if os_major > 6:
+            return 'pkg'
     elif os_family == 'RedHat' and os_major >= 6:
         return 'pkg'
     return False
@@ -355,9 +361,9 @@ def group_install(name=None,
     pkgs = []
     for group in pkg_groups:
         group_detail = group_info(group)
-        for package in group_detail['mandatory packages'].keys():
+        for package in group_detail.get('mandatory packages', {}).keys():
             pkgs.append(package)
-        for package in group_detail['default packages'].keys():
+        for package in group_detail.get('default packages', {}).keys():
             if package not in skip_pkgs:
                 pkgs.append(package)
         for package in include:
@@ -656,12 +662,12 @@ def group_info(groupname):
 
     CLI Example::
 
-        salt '*' pkg.groupinfo 'Perl Support'
+        salt '*' pkg.group_info 'Perl Support'
     '''
     yumbase = yum.YumBase()
     (installed, available) = yumbase.doGroupLists()
     for group in installed + available:
-        if group.name == groupname:
+        if group.name.lower() == groupname.lower():
             return {'mandatory packages': group.mandatory_packages,
                     'optional packages': group.optional_packages,
                     'default packages': group.default_packages,
