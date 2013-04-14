@@ -1,3 +1,10 @@
+salt (0.14.1-1) unstable; urgency=low
+
+  [ Joe Healy ]
+  * Imported Upstream version 0.14.1
+
+ -- Joe Healy <joehealy@gmail.com>  Sun, 14 Apr 2013 03:31:37 +0000
+
 salt (0.14.0-1) unstable; urgency=low
 
   [ Joe Healy ]
