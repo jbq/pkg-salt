@@ -1,3 +1,10 @@
+salt (0.14.1-2) unstable; urgency=low
+
+  [ Franklin G Mendoza ]
+  * Updated daemons files debian/*.init. Closes #692066
+
+ -- Franklin García Mendoza <franklin.g.mendoza@gmail.com>  Mon, 15 Apr 2013 14:28:17 -0430
+
 salt (0.14.1-1) unstable; urgency=low
 
   [ Joe Healy ]
