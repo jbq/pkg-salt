@@ -28,33 +28,69 @@ SCRIPTNAME=/etc/init.d/$NAME
 . /lib/init/vars.sh
 . /lib/lsb/init-functions
 
+do_start() {
+    pid=$(pidofproc -p $PIDFILE $DAEMON)
+    if [ -n "$pid" ] ; then
+        log_begin_msg "$DESC already running."
+        log_end_msg 0
+        exit 0
+    fi
+
+    log_daemon_msg "Starting salt-syndic daemon: "
+    start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- $DAEMON_ARGS
+    log_end_msg $?
+}
+
+do_stop() {
+    log_begin_msg "Stopping $DESC ..."
+    start-stop-daemon --stop --quiet --oknodo --pidfile $PIDFILE
+    RC=$?
+    [ $RC -eq 0 ] && rm -f $PIDFILE
+    log_end_msg $RC
+}
+
 case "$1" in
-     start)
-
-        pid=$(pidofproc -p $PIDFILE $DAEMON)
-
-        if [ -n "$pid" ]; then
-                echo $NAME "daemon is already running"
-                exit 0
-        fi
-
-        echo "Starting $DESC: $NAME."
-        start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- $DAEMON_ARGS
+    start)
+        [ "$VERBOSE" != no ] && log_daemon_msg "Starting $DESC" "$NAME"
+        do_start
+        case "$?" in
+            0|1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
+              2) [ "$VERBOSE" != no ] && log_end_msg 1 ;;
+        esac
         ;;
-     stop)
-        echo "Stopping $DESC: $NAME."
-        start-stop-daemon --stop --quiet --oknodo --retry 30 --pidfile $PIDFILE
+    stop)
+        [ "$VERBOSE" != no ] && log_daemon_msg "Stopping $DESC" "$NAME"
+        do_stop
+        case "$?" in
+            0|1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
+              2) [ "$VERBOSE" != no ] && log_end_msg 1 ;;
+        esac
         ;;
-     restart|force-reload)
-        echo -n "Restarting $DESC: $NAME... "
-        start-stop-daemon --stop --quiet --oknodo --retry 30 --pidfile $PIDFILE
-        start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- $DAEMON_ARGS
-        echo "Done."
+    status)
+        status_of_proc "$DAEMON" "$NAME" && exit 0 || exit $?
         ;;
-     status)
-        status_of_proc "$DAEMON" "$NAME" || exit 0
+    #reload)
+        # not implemented
+        #;;
+    restart|force-reload)
+        log_daemon_msg "Restarting $DESC" "$NAME"
+        do_stop
+        case "$?" in
+          0|1)
+              do_start
+              case "$?" in
+                  0) log_end_msg 0 ;;
+                  1) log_end_msg 1 ;; # Old process is still running
+                  *) log_end_msg 1 ;; # Failed to start
+              esac
+              ;;
+          *)
+              # Failed to stop
+              log_end_msg 1
+              ;;
+        esac
         ;;
-     *)
+    *)
         echo "Usage: $SCRIPTNAME {start|stop|status|restart|force-reload}" >&2
         exit 3
         ;;
