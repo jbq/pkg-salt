@@ -5,6 +5,7 @@ Support for the Git SCM
 # Import python libs
 import os
 import tempfile
+import pipes
 
 # Import salt libs
 from salt import utils, exceptions
@@ -430,3 +431,274 @@ def submodule(cwd, init=True, opts=None, user=None):
         opts = ''
     cmd = 'git submodule update {0} {1}'.format('--init' if init else '', opts)
     return _git_run(cmd, cwd=cwd, runas=user)
+
+
+def status(cwd, user=None):
+    '''
+    Return the status of the repository. The returned format uses the status
+    codes of gits 'porcelain' output mode
+
+    cwd
+        The path to the Git repository
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.status /path/to/git/repo
+    '''
+    cmd = 'git status -z --porcelain'
+    stdout = _git_run(cmd, cwd=cwd, runas=user)
+    status = []
+    for line in stdout.split("\0"):
+        state = line[:2]
+        filename = line[3:]
+        if filename != '' and state != '':
+            status.append((state, filename))
+    return status
+
+
+def add(cwd, file_name, user=None, opts=None):
+    '''
+    add a file to git
+
+    cwd
+        The path to the Git repository
+
+    file_name
+        Path to the file in the cwd
+
+    opts : None
+        Any additional options to add to the command line
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.add /path/to/git/repo /path/to/file
+
+    '''
+
+    if not opts:
+        opts = ''
+    cmd = 'git add {0} {1}'.format(file_name, opts)
+    return _git_run(cmd, cwd=cwd, runas=user)
+
+
+def rm(cwd, file_name, user=None, opts=None):
+    '''
+    Remove a file from git
+
+    cwd
+        The path to the Git repository
+
+    file_name
+        Path to the file in the cwd
+
+    opts : None
+        Any additional options to add to the command line
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.rm /path/to/git/repo /path/to/file
+    '''
+
+    if not opts:
+        opts = ''
+    cmd = 'git rm {0} {1}'.format(file_name, opts)
+    return _git_run(cmd, cwd=cwd, runas=user)
+
+
+def commit(cwd, message, user=None, opts=None):
+    '''
+    create a commit
+
+    cwd
+        The path to the Git repository
+
+    message
+        The commit message
+
+    opts : None
+        Any additional options to add to the command line
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.commit /path/to/git/repo 'The commit message'
+    '''
+
+    if not opts:
+        opts = ''
+    cmd = 'git commit -m {0} {1}'.format(pipes.quote(message), opts)
+    return _git_run(cmd, cwd=cwd, runas=user)
+
+
+def push(cwd, remote_name, branch='master', user=None, opts=None,
+         identity=None):
+    '''
+    Push to remote
+
+    cwd
+        The path to the Git repository
+
+    remote_name
+        Name of the remote to push to
+
+    branch : master
+        Name of the branch to push
+
+    opts : None
+        Any additional options to add to the command line
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    identity : None
+        A path to a private key to use over SSH
+
+
+    CLI Example::
+
+        salt '*' git.push /path/to/git/repo remote-name
+    '''
+
+    if not opts:
+        opts = ''
+    cmd = 'git push {0} {1} {2}'.format(remote_name, branch, opts)
+    return _git_run(cmd, cwd=cwd, runas=user, identity=identity)
+
+
+def remotes(cwd, user=None):
+    '''
+    Get remotes like git remote -v
+
+    cwd
+        The path to the Git repository
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.remotes /path/to/repo
+    '''
+    cmd = 'git remote'
+    ret = _git_run(cmd, cwd=cwd, runas=user)
+    res = dict()
+    for remote_name in ret.splitlines():
+        remote = remote_name.strip()
+        res[remote] = remote_get(cwd, remote, user=user)
+    return res
+
+
+def remote_get(cwd, remote='origin', user=None):
+    '''
+    get fetch und push url for a specified remote name
+
+    remote : origin
+        the remote name used to define the fetch and push url
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.remote_get /path/to/repo
+        salt '*' git.remote_get /path/to/repo upstream
+    '''
+    try:
+        cmd = 'git remote show -n {0}'.format(remote)
+        ret = _git_run(cmd, cwd=cwd, runas=user)
+        lines = ret.splitlines()
+        remote_fetch_url = lines[1].replace('Fetch URL: ', '').strip()
+        remote_push_url = lines[2].replace('Push  URL: ', '').strip()
+        if remote_fetch_url != remote and remote_push_url != remote:
+            res = (remote_fetch_url, remote_push_url)
+            return res
+        else:
+            return None
+    except exceptions.CommandExecutionError:
+        return None
+
+
+def remote_set(cwd, name='origin', url=None, user=None):
+    '''
+    sets a remote with name and url like git remote add <remote_name> <remote_url>
+
+    remote_name : origin
+        defines the remote name
+
+    remote_url : None
+        defines the remote url shut not be null!
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.remote_set /path/to/repo remote_url=git@github.com:saltstack/salt.git
+        salt '*' git.remote_set /path/to/repo origin git@github.com:saltstack/salt.git
+    '''
+    if remote_get(cwd, name):
+        cmd = 'git remote rm {0}'.format(name)
+        _git_run(cmd, cwd=cwd, runas=user)
+    cmd = 'git remote add {0} {1}'.format(name, url)
+    _git_run(cmd, cwd=cwd, runas=user)
+    return remote_get(cwd=cwd, remote=name, user=None)
+
+
+def reset(cwd, opts=None, user=None):
+    '''
+    Reset the repository checkout
+
+    cwd
+        The path to the Git repository
+
+    opts : None
+        Any additional options to add to the command line
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.reset /path/to/repo master
+    '''
+    _check_git()
+
+    if not opts:
+        opts = ''
+    return _git_run('git reset {0}'.format(opts), cwd=cwd, runas=user)
+
+
+def stash(cwd, opts=None, user=None):
+    '''
+    Stash changes in the repository checkout
+
+    cwd
+        The path to the Git repository
+
+    opts : None
+        Any additional options to add to the command line
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.stash /path/to/repo master
+    '''
+    _check_git()
+
+    if not opts:
+        opts = ''
+    return _git_run('git stash {0}'.format(opts), cwd=cwd, runas=user)
+

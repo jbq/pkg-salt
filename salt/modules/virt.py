@@ -106,7 +106,7 @@ def _get_target(target, ssh):
     proto = 'qemu'
     if ssh:
         proto += '+ssh'
-    return ' %s://%s/%s' %(proto, target, 'system')
+    return ' %s://%s/%s' % (proto, target, 'system')
 
 
 def _gen_xml(name, cpu, mem, vda, nicp, **kwargs):
@@ -460,7 +460,7 @@ def get_disks(vm_):
                 qemu_target = source.getAttribute('dev')
             elif source.hasAttribute('protocol') and \
                     source.hasAttribute('name'): # For rbd network
-                qemu_target = '%s:%s' %(
+                qemu_target = '%s:%s' % (
                         source.getAttribute('protocol'),
                         source.getAttribute('name'))
             if qemu_target:
@@ -830,7 +830,7 @@ def seed_non_shared_migrate(disks, force=False):
         form = data['file format']
         size = data['virtual size'].split()[1][1:]
         if os.path.isfile(fn_) and not force:
-            # the target exists, check to see if is is compatible
+            # the target exists, check to see if it is compatible
             pre = yaml.safe_load(subprocess.Popen('qemu-img info arch',
                 shell=True,
                 stdout=subprocess.PIPE).communicate()[0])
@@ -1070,7 +1070,7 @@ def vm_netstats(vm_=None):
                 'tx_errs'    : 0,
                 'tx_drop'    : 0
                }
-        for mac, attrs in nics.items():
+        for attrs in nics.values():
             if 'target' in attrs:
                 dev = attrs['target']
                 stats = dom.interfaceStats(dev)

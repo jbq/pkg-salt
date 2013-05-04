@@ -22,7 +22,7 @@ The service can also be set to be started at runtime via the enable option:
 
 By default if a service is triggered to refresh due to a watch statement the
 service is by default restarted. If the desired behaviour is to reload the
-service then set the reload value to True:
+service, then set the reload value to True:
 
 .. code-block:: yaml
 
@@ -34,6 +34,9 @@ service then set the reload value to True:
         - watch:
           - pkg: redis
 '''
+
+# Import python libs
+import sys
 
 
 def __virtual__():
@@ -265,6 +268,11 @@ def running(name, enable=None, sig=None, **kwargs):
         ret['comment'] = 'Service {0} is set to start'.format(name)
         return ret
 
+    # Clear cached service info
+    sys.modules[
+        __salt__['service.status'].__module__
+    ].__context__.pop('service.all', None)
+
     changes = {name: __salt__['service.start'](name)}
 
     if not changes[name]:
@@ -290,7 +298,7 @@ def running(name, enable=None, sig=None, **kwargs):
 
 def dead(name, enable=None, sig=None, **kwargs):
     '''
-    Ensure that the named service is dead
+    Ensure that the named service is dead by stopping the service if it is running
 
     name
         The name of the init or rc script used to manage the service
@@ -325,6 +333,11 @@ def dead(name, enable=None, sig=None, **kwargs):
         ret['result'] = None
         ret['comment'] = 'Service {0} is set to be killed'.format(name)
         return ret
+
+    # Clear cached service info
+    sys.modules[
+        __salt__['service.status'].__module__
+    ].__context__.pop('service.all', None)
 
     changes = {name: __salt__['service.stop'](name)}
 

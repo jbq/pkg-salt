@@ -5,6 +5,10 @@
 
     This is where Salt's logging gets set up.
 
+    This module should be imported as soon as possible, preferably the first
+    module salt or any salt depending library imports so any new logging
+    logger instance uses our ``salt.log.SaltLoggingClass``.
+
 
     :copyright: 2011-2012 :email:`Pedro Algarvio (pedro@algarvio.me)`
     :license: Apache 2.0, see LICENSE for more details.
@@ -45,6 +49,7 @@ MODNAME_PATTERN = re.compile(r'(?P<name>%%\(name\)(?:\-(?P<digits>[\d]+))?s)')
 
 __CONSOLE_CONFIGURED = False
 __LOGFILE_CONFIGURED = False
+__TEMP_LOGGING_CONFIGURED = False
 
 
 def is_console_configured():
@@ -57,6 +62,10 @@ def is_logfile_configured():
 
 def is_logging_configured():
     return __CONSOLE_CONFIGURED or __LOGFILE_CONFIGURED
+
+
+def is_temp_logging_configured():
+    return __TEMP_LOGGING_CONFIGURED
 
 
 if sys.version_info < (2, 7):
@@ -77,6 +86,9 @@ if sys.version_info < (2, 7):
 
 # Store a reference to the null logging handler
 LOGGING_NULL_HANDLER = logging.NullHandler()
+
+# Store a reference to the temporary console logger
+LOGGING_TEMP_HANDLER = logging.StreamHandler(sys.stderr)
 
 
 class LoggingTraceMixIn(object):
@@ -239,6 +251,44 @@ def getLogger(name):  # pylint: disable-msg=C0103
     return logging.getLogger(name)
 
 
+def setup_temp_logger(log_level='error'):
+    '''
+    Setup the temporary console logger
+    '''
+    if is_temp_logging_configured():
+        logging.getLogger(__name__).warn(
+            'Temporary logging is already configured'
+        )
+        return
+
+    # Remove the temporary null logging handler
+    __remove_null_logging_handler()
+
+    if log_level is None:
+        log_level = 'warning'
+
+    level = LOG_LEVELS.get(log_level.lower(), logging.ERROR)
+
+    handler = None
+    for handler in logging.root.handlers:
+        if handler.stream is sys.stderr:
+            # There's already a logging handler outputting to sys.stderr
+            break
+    else:
+        handler = LOGGING_TEMP_HANDLER
+    handler.setLevel(level)
+
+    # Set the default temporary console formatter config
+    formatter = logging.Formatter(
+        '[%(levelname)-8s] %(message)s', datefmt='%H:%M:%S'
+    )
+    handler.setFormatter(formatter)
+    logging.getLogger().addHandler(handler)
+
+    global __TEMP_LOGGING_CONFIGURED
+    __TEMP_LOGGING_CONFIGURED = True
+
+
 def setup_console_logger(log_level='error', log_format=None, date_format=None):
     '''
     Setup the console logger
@@ -247,8 +297,8 @@ def setup_console_logger(log_level='error', log_format=None, date_format=None):
         logging.getLogger(__name__).warn('Console logging already configured')
         return
 
-    # Remove the temporary null logging handler
-    __remove_null_logging_handler()
+    # Remove the temporary logging handler
+    __remove_temp_logging_handler()
 
     if log_level is None:
         log_level = 'warning'
@@ -317,8 +367,8 @@ def setup_logfile_logger(log_path, log_level='error', log_format=None,
         )
         return
 
-    # Remove the temporary null logging handler
-    __remove_null_logging_handler()
+    # Remove the temporary logging handler
+    __remove_temp_logging_handler()
 
     if log_level is None:
         log_level = 'warning'
@@ -411,8 +461,8 @@ def setup_logfile_logger(log_path, log_level='error', log_format=None,
     else:
         try:
             # Logfile logging is UTF-8 on purpose.
-            # Since salt uses yaml and yaml uses either UTF-8 or UTF-16, if a
-            # user is not using plain ascii, he's system should be ready to
+            # Since salt uses YAML and YAML uses either UTF-8 or UTF-16, if a
+            # user is not using plain ASCII, their system should be ready to
             # handle UTF-8.
             handler = getattr(
                 logging.handlers, 'WatchedFileHandler', logging.FileHandler
@@ -452,10 +502,10 @@ def set_logger_level(logger_name, log_level='error'):
 
 def __remove_null_logging_handler():
     '''
-    This function will run once logging has been configured. It just removes
-    the NullHandler from the logging handlers.
+    This function will run once the temporary logging has been configured. It
+    just removes the NullHandler from the logging handlers.
     '''
-    if is_logfile_configured():
+    if is_temp_logging_configured():
         # In this case, the NullHandler has been removed, return!
         return
 
@@ -467,6 +517,29 @@ def __remove_null_logging_handler():
             root_logger.removeHandler(LOGGING_NULL_HANDLER)
             # Redefine the null handler to None so it can be garbage collected
             LOGGING_NULL_HANDLER = None
+            break
+
+
+def __remove_temp_logging_handler():
+    '''
+    This function will run once logging has been configured. It just removes
+    the temporary stream Handler from the logging handlers.
+    '''
+    if is_logging_configured():
+        # In this case, the temporary logging handler has been removed, return!
+        return
+
+    # This should already be done, but...
+    __remove_null_logging_handler()
+
+    root_logger = logging.getLogger()
+    global LOGGING_TEMP_HANDLER
+
+    for handler in root_logger.handlers:
+        if handler is LOGGING_TEMP_HANDLER:
+            root_logger.removeHandler(LOGGING_TEMP_HANDLER)
+            # Redefine the null handler to None so it can be garbage collected
+            LOGGING_TEMP_HANDLER = None
             break
 
     if sys.version_info >= (2, 7):

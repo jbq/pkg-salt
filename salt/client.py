@@ -167,7 +167,7 @@ class LocalClient(object):
             )
 
         # Failed to connect to the master and send the pub
-        if not 'jid' in pub_data:
+        if 'jid' not in pub_data:
             return {}
         if pub_data['jid'] == '0':
             print('Failed to connect to the Master, '
@@ -258,7 +258,8 @@ class LocalClient(object):
                 'arg': arg,
                 'expr_form': expr_form,
                 'ret': ret,
-                'batch': batch}
+                'batch': batch,
+                'raw': kwargs.get('raw', False)}
         for key, val in self.opts.items():
             if key not in opts:
                 opts[key] = val
@@ -410,7 +411,8 @@ class LocalClient(object):
         else:
             for fn_ret in self.get_iter_returns(pub_data['jid'],
                                                 pub_data['minions'],
-                                                timeout):
+                                                timeout,
+                                                **kwargs):
                 yield fn_ret
 
     def cmd_full_return(
@@ -509,7 +511,7 @@ class LocalClient(object):
                     found.add(fn_)
                     fret.update(ret)
                     yield ret
-            if glob.glob(wtag) and not int(time.time()) > start + timeout + 1:
+            if glob.glob(wtag) and int(time.time()) <= start + timeout + 1:
                 # The timeout +1 has not been reached and there is still a
                 # write tag for the syndic
                 continue
@@ -577,18 +579,22 @@ class LocalClient(object):
         # Wait for the hosts to check in
         while True:
             raw = self.event.get_event(timeout, jid)
-            if not raw is None:
+            if raw is not None:
                 if 'minions' in raw.get('data', {}):
                     minions.update(raw['data']['minions'])
                     continue
                 if 'syndic' in raw:
                     minions.update(raw['syndic'])
                     continue
-                found.add(raw['id'])
-                ret = {raw['id']: {'ret': raw['return']}}
-                if 'out' in raw:
-                    ret[raw['id']]['out'] = raw['out']
-                yield ret
+                if kwargs.get('raw', False):
+                    found.add(raw['id'])
+                    yield raw
+                else:
+                    found.add(raw['id'])
+                    ret = {raw['id']: {'ret': raw['return']}}
+                    if 'out' in raw:
+                        ret[raw['id']]['out'] = raw['out']
+                    yield ret
                 if len(found.intersection(minions)) >= len(minions):
                     # All minions have returned, break out of the loop
                     break
@@ -597,7 +603,7 @@ class LocalClient(object):
             if len(found.intersection(minions)) >= len(minions):
                 # All minions have returned, break out of the loop
                 break
-            if glob.glob(wtag) and not int(time.time()) > start + timeout + 1:
+            if glob.glob(wtag) and int(time.time()) <= start + timeout + 1:
                 # The timeout +1 has not been reached and there is still a
                 # write tag for the syndic
                 continue
@@ -650,7 +656,7 @@ class LocalClient(object):
             if len(found.intersection(minions)) >= len(minions):
                 # All minions have returned, break out of the loop
                 break
-            if glob.glob(wtag) and not int(time.time()) > start + timeout + 1:
+            if glob.glob(wtag) and int(time.time()) <= start + timeout + 1:
                 # The timeout +1 has not been reached and there is still a
                 # write tag for the syndic
                 continue
@@ -698,7 +704,7 @@ class LocalClient(object):
                             pass
             if ret and start == 999999999999:
                 start = int(time.time())
-            if glob.glob(wtag) and not int(time.time()) > start + timeout + 1:
+            if glob.glob(wtag) and int(time.time()) <= start + timeout + 1:
                 # The timeout +1 has not been reached and there is still a
                 # write tag for the syndic
                 continue
@@ -743,7 +749,7 @@ class LocalClient(object):
         # Wait for the hosts to check in
         while True:
             raw = self.event.get_event(timeout, jid)
-            if not raw is None:
+            if raw is not None:
                 if 'minions' in raw.get('data', {}):
                     minions.update(raw['data']['minions'])
                     continue
@@ -759,14 +765,14 @@ class LocalClient(object):
             if len(found.intersection(minions)) >= len(minions):
                 # All minions have returned, break out of the loop
                 break
-            if glob.glob(wtag) and not int(time.time()) > start + timeout + 1:
+            if glob.glob(wtag) and int(time.time()) <= start + timeout + 1:
                 # The timeout +1 has not been reached and there is still a
                 # write tag for the syndic
                 continue
             if int(time.time()) > start + timeout:
                 if verbose:
                     if tgt_type in ('glob', 'pcre', 'list'):
-                        if not len(found) >= len(minions):
+                        if len(found) < len(minions):
                             fail = sorted(list(minions.difference(found)))
                             for minion in fail:
                                 ret[minion] = {
@@ -814,7 +820,7 @@ class LocalClient(object):
         # Wait for the hosts to check in
         while True:
             raw = self.event.get_event(timeout, jid)
-            if not raw is None:
+            if raw is not None:
                 if 'minions' in raw.get('data', {}):
                     minions.update(raw['data']['minions'])
                     continue
@@ -834,7 +840,7 @@ class LocalClient(object):
             if len(found.intersection(minions)) >= len(minions):
                 # All minions have returned, break out of the loop
                 break
-            if glob.glob(wtag) and not int(time.time()) > start + timeout + 1:
+            if glob.glob(wtag) and int(time.time()) <= start + timeout + 1:
                 # The timeout +1 has not been reached and there is still a
                 # write tag for the syndic
                 continue
@@ -855,7 +861,7 @@ class LocalClient(object):
                     continue
                 if verbose:
                     if tgt_type in ('glob', 'pcre', 'list'):
-                        if not len(found) >= len(minions):
+                        if len(found) < len(minions):
                             fail = sorted(list(minions.difference(found)))
                             for minion in fail:
                                 yield({
@@ -992,8 +998,6 @@ class LocalClient(object):
         )
         payload = sreq.send('clear', payload_kwargs)
 
-        # We have the payload, let's get rid of SREQ fast(GC'ed faster)
-
         if not payload:
             # The master key could have changed out from under us! Regen
             # and try again if the key has changed
@@ -1005,6 +1009,8 @@ class LocalClient(object):
             payload = sreq.send('clear', payload_kwargs)
             if not payload:
                 return payload
+
+        # We have the payload, let's get rid of SREQ fast(GC'ed faster)
         del(sreq)
 
         return {'jid': payload['load']['jid'],
@@ -1028,6 +1034,7 @@ class FunctionWrapper(dict):
     minion when the salt functions dict is referenced.
     '''
     def __init__(self, opts, minion):
+        super(FunctionWrapper, self).__init__()
         self.opts = opts
         self.minion = minion
         self.local = LocalClient(self.opts['conf_file'])
@@ -1038,7 +1045,7 @@ class FunctionWrapper(dict):
         Since the function key is missing, wrap this call to a command to the
         minion of said key if it is available in the self.functions set
         '''
-        if not key in self.functions:
+        if key not in self.functions:
             raise KeyError
         return self.run_key(key)
 
@@ -1062,6 +1069,7 @@ class FunctionWrapper(dict):
             for _key, _val in kwargs:
                 args.append('{0}={1}'.format(_key, _val))
             return self.local.cmd(self.minion, key, args)
+        return func
 
 
 class Caller(object):

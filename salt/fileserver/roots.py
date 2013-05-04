@@ -82,12 +82,10 @@ def file_hash(load, fnd):
     if 'path' not in load or 'env' not in load:
         return ''
     path = fnd['path']
-    if not path:
-        return {}
     ret = {}
-    with salt.utils.fopen(path, 'rb') as fp_:
-        ret['hsum'] = getattr(hashlib, __opts__['hash_type'])(
-                fp_.read()).hexdigest()
+    if not path:
+        return ret
+    ret['hsum'] = salt.utils.get_hash(path, __opts__['hash_type'])
     ret['hash_type'] = __opts__['hash_type']
     return ret
 
@@ -102,7 +100,7 @@ def file_list(load):
         return ret
 
     for path in __opts__['file_roots'][load['env']]:
-        for root, dirs, files in os.walk(path, followlinks=True):
+        for root, dirs, files in os.walk(path):
             for fname in files:
                 rel_fn = os.path.relpath(
                             os.path.join(root, fname),
@@ -121,7 +119,7 @@ def file_list_emptydirs(load):
     if load['env'] not in __opts__['file_roots']:
         return ret
     for path in __opts__['file_roots'][load['env']]:
-        for root, dirs, files in os.walk(path, followlinks=True):
+        for root, dirs, files in os.walk(path):
             if len(dirs) == 0 and len(files) == 0:
                 rel_fn = os.path.relpath(root, path)
                 if not salt.fileserver.is_file_ignored(__opts__, rel_fn):
@@ -137,6 +135,6 @@ def dir_list(load):
     if load['env'] not in __opts__['file_roots']:
         return ret
     for path in __opts__['file_roots'][load['env']]:
-        for root, dirs, files in os.walk(path, followlinks=True):
+        for root, dirs, files in os.walk(path):
             ret.append(os.path.relpath(root, path))
     return ret

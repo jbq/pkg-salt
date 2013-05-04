@@ -38,6 +38,8 @@ def __virtual__():
         return False
     if not 'git' in __opts__['fileserver_backend']:
         return False
+    if not git.__version__ > '0.3.0':
+        return False
     if not HAS_GIT:
         log.error('Git fileserver backend is enabled in configuration but '
                   'could not be loaded, is git-python installed?')
@@ -148,11 +150,15 @@ def envs():
     ret = set()
     repos = init()
     for repo in repos:
+        remote = repo.remote()
         for ref in repo.refs:
-            if isinstance(ref, git.Head) or isinstance(ref, git.Tag):
-                short = os.path.basename(ref.name)
+            short = os.path.basename(ref.name)
+            if isinstance(ref, git.Head):
                 if short == 'master':
                     short = 'base'
+                if ref not in remote.stale_refs:
+                    ret.add(short)
+            elif isinstance(ref, git.Tag):
                 ret.add(short)
     return list(ret)
 

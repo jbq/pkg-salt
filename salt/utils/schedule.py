@@ -62,6 +62,9 @@ class Schedule(object):
         '''
         Execute this method in a multiprocess or thread
         '''
+        if salt.utils.is_windows():
+            self.functions = salt.loader.minion_mods(self.opts)
+            self.returners = salt.loader.returners(self.opts, self.functions)
         ret = {'id': self.opts.get('id', 'master'),
                'fun': func,
                'jid': '{0:%Y%m%d%H%M%S%f}'.format(datetime.datetime.now())}
@@ -82,18 +85,18 @@ class Schedule(object):
                 rets.append(data['returner'])
             elif isinstance(data['returner'], list):
                 for returner in data['returner']:
-                    if not returner in rets:
+                    if returner not in rets:
                         rets.append(returner)
             if isinstance(self.schedule_returner, list):
                 for returner in self.schedule_returner:
-                    if not returner in rets:
+                    if returner not in rets:
                         rets.append(returner)
             if isinstance(self.schedule_returner, str):
-                if not self.schedule_returner in rets:
+                if self.schedule_returner not in rets:
                     rets.append(self.schedule_returner)
             for returner in rets:
                 if returner in self.returners:
-                    self.returners[returner](ret)
+                    self.returners['{0}.returner'.format(returner)](ret)
                 else:
                     log.info(
                         'Job {1} using invalid returner: {0} Ignoring.'.format(

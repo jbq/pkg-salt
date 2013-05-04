@@ -55,7 +55,7 @@ if salt.utils.is_windows():
 
 def _windows_cpudata():
     '''
-    Return some cpu information on Windows minions
+    Return some CPU information on Windows minions
     '''
     # Provides:
     #   num_cpus
@@ -74,7 +74,7 @@ def _windows_cpudata():
 
 def _linux_cpudata():
     '''
-    Return some cpu information for Linux minions
+    Return some CPU information for Linux minions
     '''
     # Provides:
     #   num_cpus
@@ -173,7 +173,7 @@ def _linux_gpu_data():
 
 def _bsd_cpudata(osdata):
     '''
-    Return cpu information for BSD-like systems
+    Return CPU information for BSD-like systems
     '''
     # Provides:
     #   cpuarch
@@ -201,7 +201,7 @@ def _bsd_cpudata(osdata):
             cpu_here = False
             for line in _fp:
                 if line.startswith('CPU: '):
-                    cpu_here = True  # starts cpu descr
+                    cpu_here = True  # starts CPU descr
                     continue
                 if cpu_here:
                     if not line.startswith(' '):
@@ -222,7 +222,7 @@ def _bsd_cpudata(osdata):
 
 def _sunos_cpudata(osdata):
     '''
-    Return the cpu information for Solaris-like systems
+    Return the CPU information for Solaris-like systems
     '''
     # Provides:
     #   cpuarch
@@ -289,7 +289,7 @@ def _virtual(osdata):
     #   virtual
     #   virtual_subtype
     grains = {'virtual': 'physical'}
-    for command in ('dmidecode', 'lspci'):
+    for command in ('dmidecode', 'lspci', 'dmesg'):
         cmd = salt.utils.which(command)
 
         if not cmd:
@@ -310,7 +310,7 @@ def _virtual(osdata):
 
         output = ret['stdout']
 
-        if command == 'dmidecode':
+        if command == 'dmidecode' or command == 'dmesg':
             # Product Name: VirtualBox
             if 'Vendor: QEMU' in output:
                 # FIXME: Make this detect between kvm or qemu
@@ -324,7 +324,7 @@ def _virtual(osdata):
                 grains['virtual'] = 'VMware'
             # Manufacturer: Microsoft Corporation
             # Product Name: Virtual Machine
-            elif 'Manufacturer: Microsoft' in output and 'Virtual Machine' in output:
+            elif ': Microsoft' in output and 'Virtual Machine' in output:
                 grains['virtual'] = 'VirtualPC'
             # Manufacturer: Parallels Software International Inc.
             elif 'Parallels Software' in output:
@@ -348,10 +348,10 @@ def _virtual(osdata):
             break
     else:
         log.warn(
-            'Both \'dmidecode\' and \'lspci\' failed to execute, either '
+            'The tools \'dmidecode\', \'lspci\' and \'dmesg\' failed to execute '
             'because they do not exist on the system of the user running '
-            'this instance does not have the necessary permissions to '
-            'execute them. Grains output might not be accurate.'
+            'this instance or the user does not have the necessary permissions '
+            'to execute them. Grains output might not be accurate.'
         )
 
     choices = ('Linux', 'OpenBSD', 'HP-UX')
@@ -547,7 +547,8 @@ _OS_FAMILY_MAP = {
     'OpenIndiana Development': 'Solaris',
     'Arch ARM': 'Arch',
     'ALT': 'RedHat',
-    'Trisquel': 'Debian'
+    'Trisquel': 'Debian',
+    'GCEL': 'Debian'
 }
 
 
@@ -930,3 +931,13 @@ def get_server_id():
     # Provides:
     #   server_id
     return {'server_id': abs(hash(__opts__.get('id', '')) % (2 ** 31))}
+
+def get_master():
+    '''
+    Provides the minion with the name of its master.
+    This is useful in states to target other services running on the master.
+    '''
+    # Provides:
+    #   master
+    return {'master': __opts__.get('master', '')}
+

@@ -7,6 +7,9 @@ A module to wrap pacman calls, since Arch is the best
 import logging
 import re
 
+# Import salt libs
+import salt.utils
+
 log = logging.getLogger(__name__)
 
 
@@ -14,7 +17,7 @@ def __virtual__():
     '''
     Set the virtual pkg module if the os is Arch
     '''
-    return 'pkg' if __grains__['os'] == 'Arch' else False
+    return 'pkg' if __grains__['os'] in ('Arch', 'Arch ARM') else False
 
 
 def _list_removed(old, new):
@@ -126,7 +129,7 @@ def list_pkgs(versions_as_list=False):
 
         salt '*' pkg.list_pkgs
     '''
-    versions_as_list = __salt__['config.is_true'](versions_as_list)
+    versions_as_list = salt.utils.is_true(versions_as_list)
     cmd = 'pacman -Q'
     ret = {}
     out = __salt__['cmd.run'](cmd).splitlines()
@@ -236,7 +239,7 @@ def install(name=None,
             # Allow "version" to work for single package target
             pkg_params = {name: version}
         else:
-            log.warning('"version" parameter will be ignored for muliple '
+            log.warning('"version" parameter will be ignored for multiple '
                         'package targets')
 
     if pkg_type == 'file':
@@ -267,7 +270,7 @@ def install(name=None,
                 log.error(problem)
             return {}
 
-        if __salt__['config.is_true'](refresh):
+        if salt.utils.is_true(refresh):
             cmd = 'pacman -Syu --noprogressbar --noconfirm ' \
                   '"{0}"'.format('" "'.join(targets))
         else:

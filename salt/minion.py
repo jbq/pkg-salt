@@ -50,9 +50,10 @@ log = logging.getLogger(__name__)
 # 1. Read in the configuration
 # 2. Generate the function mapping dict
 # 3. Authenticate with the master
-# 4. Store the aes key
+# 4. Store the AES key
 # 5. connect to the publisher
 # 6. handle publications
+
 
 def resolve_dns(opts):
     '''
@@ -67,7 +68,7 @@ def resolve_dns(opts):
         # Because I import salt.log below I need to re-import salt.utils here
         import salt.utils
         try:
-            ret['master_ip'] = salt.utils.dns_check(opts['master'], True)
+            ret['master_ip'] = salt.utils.dns_check(opts['master'], True, opts['ipv6'])
         except SaltClientError:
             if opts['retry_dns']:
                 while True:
@@ -81,7 +82,7 @@ def resolve_dns(opts):
                     time.sleep(opts['retry_dns'])
                     try:
                         ret['master_ip'] = salt.utils.dns_check(
-                            opts['master'], True
+                            opts['master'], True, opts['ipv6']
                         )
                         break
                     except SaltClientError:
@@ -92,7 +93,7 @@ def resolve_dns(opts):
         ret['master_ip'] = '127.0.0.1'
 
     ret['master_uri'] = 'tcp://{ip}:{port}'.format(ip=ret['master_ip'],
-                                                    port=opts['master_port'])
+                                                   port=opts['master_port'])
     return ret
 
 
@@ -302,7 +303,7 @@ class Minion(object):
 
     def _handle_aes(self, load):
         '''
-        Takes the aes encrypted load, decrypts is and runs the encapsulated
+        Takes the AES encrypted load, decrypts it, and runs the encapsulated
         instructions
         '''
         try:
@@ -328,11 +329,14 @@ class Minion(object):
         #if data['fun'] not in self.functions:
         #    return
         if 'user' in data:
-            log.info(('User {0[user]} Executing command {0[fun]} with jid '
-                      '{0[jid]}'.format(data)))
+            log.info(
+                'User {0[user]} Executing command {0[fun]} with jid '
+                '{0[jid]}'.format(data)
+            )
         else:
-            log.info(('Executing command {0[fun]} with jid {0[jid]}'
-                      .format(data)))
+            log.info(
+                'Executing command {0[fun]} with jid {0[jid]}'.format(data)
+            )
         log.debug('Command details {0}'.format(data))
         self._handle_decoded_payload(data)
 
@@ -420,7 +424,12 @@ class Minion(object):
             try:
                 func = minion_instance.functions[data['fun']]
                 args, kwargs = detect_kwargs(func, data['arg'], data)
+                sys.modules[func.__module__].__context__['retcode'] = 0
                 ret['return'] = func(*args, **kwargs)
+                ret['retcode'] = sys.modules[func.__module__].__context__.get(
+                        'retcode',
+                        0
+                )
                 ret['success'] = True
             except CommandNotFoundError as exc:
                 msg = 'Command required for \'{0}\' not found: {1}'
@@ -438,11 +447,15 @@ class Minion(object):
                 )
             except TypeError as exc:
                 aspec = _getargs(minion_instance.functions[data['fun']])
-                msg = 'Missing arguments executing "{0}": {1}'
-                log.warning(msg.format(function_name, aspec))
-                dmsg = '"Missing args" caused by exc: {0}'.format(exc)
-                log.debug(dmsg)
-                ret['return'] = msg.format(function_name, aspec)
+                msg = 'Missing arguments executing "{0}": {1}'.format(
+                    function_name, aspec
+                )
+                log.warning(msg)
+                log.debug(
+                    '"Missing args" caused by exc: {0}'.format(exc),
+                    exc_info=True
+                )
+                ret['return'] = msg
             except Exception:
                 trb = traceback.format_exc()
                 msg = 'The minion function caused an exception: {0}'
@@ -508,7 +521,7 @@ class Minion(object):
                 trb = traceback.format_exc()
                 log.warning(
                     'The minion function caused an exception: {0}'.format(
-                    exc
+                        exc
                     )
                 )
                 ret['return'][data['fun'][ind]] = trb
@@ -608,6 +621,9 @@ class Minion(object):
 
     @property
     def master_pub(self):
+        '''
+        Return the master publish port
+        '''
         return 'tcp://{ip}:{port}'.format(ip=self.opts['master_ip'],
                                           port=self.publish_port)
 
@@ -616,7 +632,7 @@ class Minion(object):
         Authenticate with the master, this method breaks the functional
         paradigm, it will update the master information from a fresh sign
         in, signing in can occur as often as needed to keep up with the
-        revolving master aes key.
+        revolving master AES key.
         '''
         log.debug(
             'Attempting to authenticate with the Salt Master at {0}'.format(
@@ -635,29 +651,24 @@ class Minion(object):
         self.publish_port = creds['publish_port']
         self.crypticle = salt.crypt.Crypticle(self.opts, self.aes)
 
-    def passive_refresh(self):
+    def module_refresh(self):
         '''
-        Check to see if the salt refresh file has been laid down, if it has,
-        refresh the functions and returners.
+        Refresh the functions and returners.
         '''
-        fn_ = os.path.join(self.opts['cachedir'], 'module_refresh')
-        if os.path.isfile(fn_):
-            with salt.utils.fopen(fn_, 'r+') as ifile:
-                data = ifile.read()
-                if 'pillar' in data:
-                    self.opts['pillar'] = salt.pillar.get_pillar(
-                        self.opts,
-                        self.opts['grains'],
-                        self.opts['id'],
-                        self.opts['environment'],
-                    ).compile_pillar()
-            try:
-                os.remove(fn_)
-            except OSError:
-                pass
-            self.functions, self.returners = self.__load_modules()
-            self.schedule.functions = self.functions
-            self.schedule.returners = self.returners
+        self.functions, self.returners = self.__load_modules()
+        self.schedule.functions = self.functions
+        self.schedule.returners = self.returners
+
+    def pillar_refresh(self):
+        '''
+        Refresh the pillar
+        '''
+        self.opts['pillar'] = salt.pillar.get_pillar(
+            self.opts,
+            self.opts['grains'],
+            self.opts['id'],
+            self.opts['environment'],
+        ).compile_pillar()
 
     def clean_die(self, signum, frame):
         '''
@@ -748,6 +759,9 @@ class Minion(object):
         self.socket = self.context.socket(zmq.SUB)
         self.socket.setsockopt(zmq.SUBSCRIBE, '')
         self.socket.setsockopt(zmq.IDENTITY, self.opts['id'])
+        if self.opts['ipv6'] is True and hasattr(zmq, 'IPV4ONLY'):
+            # IPv6 sockets work for both IPv6 and IPv4 addresses
+            self.socket.setsockopt(zmq.IPV4ONLY, 0)
         if hasattr(zmq, 'RECONNECT_IVL_MAX'):
             self.socket.setsockopt(
                 zmq.RECONNECT_IVL_MAX, self.opts['recon_max']
@@ -805,24 +819,28 @@ class Minion(object):
                     payload = self.serial.loads(self.socket.recv())
                     self._handle_payload(payload)
                 time.sleep(0.05)
-                # Clean up the minion processes which have been executed and
-                # have finished
-                # Check if modules and grains need to be refreshed
-                self.passive_refresh()
                 # Check the event system
                 if self.epoller.poll(1):
                     try:
-                        package = self.epull_sock.recv(zmq.NOBLOCK)
-                        self.epub_sock.send(package)
+                        while True:
+                            package = self.epull_sock.recv(zmq.NOBLOCK)
+                            if package.startswith('module_refresh'):
+                                self.module_refresh()
+                            elif package.startswith('pillar_refresh'):
+                                self.pillar_refresh()
+                            self.epub_sock.send(package)
                     except Exception:
                         pass
             except zmq.ZMQError:
-                # This is thrown by the inturupt caused by python handling the
+                # This is thrown by the interrupt caused by python handling the
                 # SIGCHLD. This is a safe error and we just start the poll
                 # again
                 continue
             except Exception:
-                log.critical(traceback.format_exc())
+                log.critical(
+                    'An exception occurred while polling the minion',
+                    exc_info=True
+                )
 
     def destroy(self):
         if hasattr(self, 'poller'):
@@ -856,20 +874,16 @@ class Syndic(Minion):
     master to authenticate with a higher level master.
     '''
     def __init__(self, opts):
-        interface = opts.get('interface')
-        sock_dir = opts['sock_dir']
+        self._syndic_interface = opts.get('interface')
         self._syndic = True
         opts['loop_interval'] = 1
         Minion.__init__(self, opts)
-        self.local = salt.client.LocalClient(opts['_master_conf_file'])
-        self.local.event.subscribe('')
         opts.update(self.opts)
         self.opts = opts
-        self.local.opts['interface'] = interface
 
     def _handle_aes(self, load):
         '''
-        Takes the aes encrypted load, decrypts is and runs the encapsulated
+        Takes the AES encrypted load, decrypts it, and runs the encapsulated
         instructions
         '''
         # If the AES authentication has changed, re-authenticate
@@ -914,25 +928,29 @@ class Syndic(Minion):
         if 'tgt_type' not in data:
             data['tgt_type'] = 'glob'
         # Send out the publication
-        self.local.pub(
-            data['tgt'],
-            data['fun'],
-            data['arg'],
-            data['tgt_type'],
-            data['ret'],
-            data['jid'],
-            data['to'])
+        self.local.pub(data['tgt'],
+                       data['fun'],
+                       data['arg'],
+                       data['tgt_type'],
+                       data['ret'],
+                       data['jid'],
+                       data['to'])
 
     def tune_in(self):
         '''
         Lock onto the publisher. This is the main event loop for the syndic
         '''
+        # Instantiate the local client
+        self.local = salt.client.LocalClient(self.opts['_master_conf_file'])
+        self.local.event.subscribe('')
+        self.local.opts['interface'] = self._syndic_interface
+
         signal.signal(signal.SIGTERM, self.clean_die)
         log.debug('Syndic "{0}" trying to tune in'.format(self.opts['id']))
+
         self.context = zmq.Context()
 
         # Start with the publish socket
-        id_hash = hashlib.md5(self.opts['id']).hexdigest()
         self.poller = zmq.Poller()
         self.socket = self.context.socket(zmq.SUB)
         self.socket.setsockopt(zmq.SUBSCRIBE, '')
@@ -1007,12 +1025,15 @@ class Syndic(Minion):
                 for jid in jids:
                     self._return_pub(jids[jid], '_syndic_return')
             except zmq.ZMQError:
-                # This is thrown by the inturupt caused by python handling the
+                # This is thrown by the interrupt caused by python handling the
                 # SIGCHLD. This is a safe error and we just start the poll
                 # again
                 continue
             except Exception:
-                log.critical(traceback.format_exc())
+                log.critical(
+                    'An exception occurred while polling the syndic',
+                    exc_info=True
+                )
 
 
 class Matcher(object):
@@ -1032,7 +1053,7 @@ class Matcher(object):
         '''
         matcher = 'glob'
         if not data:
-            log.error('Recived bad data when setting the match from the top '
+            log.error('Received bad data when setting the match from the top '
                       'file')
             return False
         for item in data:
@@ -1085,6 +1106,9 @@ class Matcher(object):
             log.error('Targeted grain "{0}" not found'.format(comps[0]))
             return False
         if isinstance(match, dict):
+            if comps[1] == '*':
+                # We are just checking that the key exists
+                return True
             log.error('Targeted grain "{0}" must correspond to a list, '
                       'string, or numeric value'.format(comps[0]))
             return False
@@ -1107,6 +1131,9 @@ class Matcher(object):
         if comps[0] not in self.opts['grains']:
             log.error('Got unknown grain from master: {0}'.format(comps[0]))
             return False
+        if isinstance(self.opts['grains'][comps[0]], dict) and comps[1] == '*':
+            # We are just checking that the key exists
+            return True
         if isinstance(self.opts['grains'][comps[0]], list):
             # We are matching a single component to a single list member
             for member in self.opts['grains'][comps[0]]:
@@ -1169,6 +1196,9 @@ class Matcher(object):
             log.error('Targeted pillar "{0}" not found'.format(comps[0]))
             return False
         if isinstance(match, dict):
+            if comps[1] == '*':
+                # We are just checking that the key exists
+                return True
             log.error('Targeted pillar "{0}" must correspond to a list, '
                       'string, or numeric value'.format(comps[0]))
             return False
@@ -1205,7 +1235,11 @@ class Matcher(object):
         '''
         if HAS_RANGE:
             range = seco.range.Range(self.opts['range_server'])
-            return self.opts['grains']['fqdn'] in range.expand(tgt)
+            try:
+                return self.opts['grains']['fqdn'] in range.expand(tgt)
+            except seco.range.RangeException as e:
+                log.debug('Range exception in compound match: {0}'.format(e))
+                return False
         return
 
     def compound_match(self, tgt):

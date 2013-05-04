@@ -7,7 +7,7 @@ of ways in which files can be managed.
 
 Regular files can be enforced with the ``managed`` function. This function
 downloads files from the salt master and places them on the target system.
-The downloaded files can be rendered as a jinja, mako, or wempy template
+The downloaded files can be rendered as a jinja, mako, or wempy template,
 adding a dynamic component to file management. An example of ``file.managed``
 which makes use of the jinja templating system would look like this:
 
@@ -25,6 +25,23 @@ which makes use of the jinja templating system would look like this:
         - defaults:
             custom_var: "default value"
             other_var: 123
+
+The ``source`` parameter can be specified as a list. If this is done, then the
+first file to be matched will be the one that is used. This allows you to have
+a default file on which to fall back if the desired file does not exist on the
+salt fileserver. Here's an example:
+
+.. code-block:: yaml
+
+    /etc/foo.conf
+      file.managed:
+        - source:
+          - salt://foo.conf.{{ grains['fqdn'] }}
+          - salt://foo.conf.fallback
+        - user: foo
+        - group: users
+        - mode: 644
+
 
 Directories can be managed via the ``directory`` function. This function can
 create and enforce the permissions on a directory. A directory statement will
@@ -72,7 +89,7 @@ specify both directory and file permissions, use this form:
           - group
           - mode
 
-Symlinks can be easily created, the symlink function is very simple and only
+Symlinks can be easily created; the symlink function is very simple and only
 takes a few arguments:
 
 .. code-block:: yaml
@@ -84,8 +101,8 @@ takes a few arguments:
 Recursive directory management can also be set via the ``recurse``
 function. Recursive directory management allows for a directory on the salt
 master to be recursively copied down to the minion. This is a great tool for
-deploying large code and configuration systems. A recurse state would look
-something like this:
+deploying large code and configuration systems. A state using ``recurse``
+would look something like this:
 
 .. code-block:: yaml
 
@@ -108,7 +125,6 @@ import fnmatch
 import salt.utils
 import salt.utils.templates
 from salt._compat import string_types
-from salt.exceptions import SaltException
 
 log = logging.getLogger(__name__)
 
@@ -159,8 +175,7 @@ def _check_file(name):
 
     if not os.path.isabs(name):
         ret = False
-        msg = ('Specified file {0} is not an absolute'
-               ' path').format(name)
+        msg = 'Specified file {0} is not an absolute path'.format(name)
     elif not os.path.exists(name):
         ret = False
         msg = '{0}: file not found'.format(name)
@@ -184,13 +199,13 @@ def _clean_dir(root, keep, exclude_pat):
             while True:
                 fn_ = os.path.dirname(fn_)
                 real_keep.add(fn_)
-                if fn_ == '/':
+                if fn_ in ['/', ''.join([os.path.splitdrive(fn_)[0], '\\'])]:
                     break
 
     for roots, dirs, files in os.walk(root):
         for name in files:
             nfn = os.path.join(roots, name)
-            if not nfn in real_keep:
+            if nfn not in real_keep:
                 # -- check if this is a part of exclude_pat(only). No need to
                 # check include_pat
                 if not _check_include_exclude(nfn[len(root) + 1:], None,
@@ -201,7 +216,7 @@ def _clean_dir(root, keep, exclude_pat):
                     os.remove(nfn)
         for name in dirs:
             nfn = os.path.join(roots, name)
-            if not nfn in real_keep:
+            if nfn not in real_keep:
                 # -- check if this is a part of exclude_pat(only). No need to
                 # check include_pat
                 if not _check_include_exclude(nfn[len(root) + 1:], None,
@@ -262,20 +277,20 @@ def _check_directory(
         if not set(['user', 'group', 'mode']) >= set(recurse):
             return False, 'Types for "recurse" limited to "user", ' \
                           '"group" and "mode"'
-        if not 'user' in recurse:
+        if 'user' not in recurse:
             user = None
-        if not 'group' in recurse:
+        if 'group' not in recurse:
             group = None
-        if not 'mode' in recurse:
+        if 'mode' not in recurse:
             mode = None
         for root, dirs, files in os.walk(name):
             for fname in files:
                 fchange = {}
                 path = os.path.join(root, fname)
                 stats = __salt__['file.stats'](path, 'md5')
-                if not user is None and user != stats.get('user'):
+                if user is not None and user != stats.get('user'):
                     fchange['user'] = user
-                if not group is None and group != stats.get('group'):
+                if group is not None and group != stats.get('group'):
                     fchange['group'] = group
                 if fchange:
                     changes[path] = fchange
@@ -308,14 +323,14 @@ def _check_dir_meta(
     '''
     stats = __salt__['file.stats'](name)
     changes = {}
-    if not user is None and user != stats['user']:
+    if user is not None and user != stats['user']:
         changes['user'] = user
-    if not group is None and group != stats['group']:
+    if group is not None and group != stats['group']:
         changes['group'] = group
     # Normalize the dir mode
     smode = __salt__['config.manage_mode'](stats['mode'])
     mode = __salt__['config.manage_mode'](mode)
-    if not mode is None and mode != smode:
+    if mode is not None and mode != smode:
         changes['mode'] = mode
     return changes
 
@@ -327,10 +342,10 @@ def _check_touch(name, atime, mtime):
     if not os.path.exists(name):
         return None, 'File {0} is set to be created'.format(name)
     stats = __salt__['file.stats'](name)
-    if not atime is None:
+    if atime is not None:
         if str(atime) != str(stats['atime']):
             return None, 'Times set to be updated on file {0}'.format(name)
-    if not mtime is None:
+    if mtime is not None:
         if str(mtime) != str(stats['mtime']):
             return None, 'Times set to be updated on file {0}'.format(name)
     return True, 'File {0} exists and has the correct times'.format(name)
@@ -345,7 +360,7 @@ def _symlink_check(name, target, force):
             name, target
         )
     if os.path.islink(name):
-        if not os.readlink(name) == target:
+        if os.readlink(name) != target:
             return None, 'Link {0} target is set to be changed to {1}'.format(
                 name, target
             )
@@ -366,10 +381,10 @@ def _check_include_exclude(path_str, include_pat=None, exclude_pat=None):
      'path_str' string and return True/False conditions as follows.
       - Default: return 'True' if no include_pat or exclude_pat patterns are
         supplied
-      - If only include_pat or exclude_pat is supplied. Return 'True' if string
-        passes the include_pat test or failed exclude_pat test respectively
-      - If both include_pat and exclude_pat are supplied, return Ture if
-        include_pat matches 'AND' exclude_pat does not matches
+      - If only include_pat or exclude_pat is supplied: return 'True' if string
+        passes the include_pat test or fails exclude_pat test respectively
+      - If both include_pat and exclude_pat are supplied: return 'True' if
+        include_pat matches AND exclude_pat does not match
     '''
     ret = True  # -- default true
     # Before pattern match, check if it is regexp (E@'') or glob(default)
@@ -484,7 +499,7 @@ def symlink(
             )
     if os.path.islink(name):
         # The link exists, verify that it matches the target
-        if not os.readlink(name) == target:
+        if os.readlink(name) != target:
             # The target is wrong, delete the link
             os.remove(name)
         else:
@@ -564,8 +579,9 @@ def absent(name):
 def exists(name):
     '''
     Verify that the named file or directory is present or exists.
-    Ensures pre-requisites outside of salts purview have been previously
-    satisified (aka, keytabs, private keys, etc.) before deployment
+    Ensures pre-requisites outside of Salt's purview
+    (e.g., keytabs, private keys, etc.) have been previously satisfied before
+    deployment.
 
     name
         Absolute path which must exist
@@ -596,6 +612,7 @@ def managed(name,
             backup='',
             show_diff=True,
             create=True,
+            contents=None,
             **kwargs):
     '''
     Manage a given file, this function allows for a file to be downloaded from
@@ -656,7 +673,7 @@ def managed(name,
     replace
         If this file should be replaced.  If false, this command will
         not overwrite file contents but will enforce permissions if the file
-        exists already.  Default is true.
+        exists already.  Default is True.
 
     context
         Overrides default context variables passed to the template.
@@ -668,11 +685,16 @@ def managed(name,
         Overrides the default backup mode for this specific file.
 
     show_diff
-        If set to false, the diff will not be shown.
+        If set to False, the diff will not be shown.
 
     create
         Default is True, if create is set to False then the file will only be
         managed if the file already exists on the system.
+
+    contents
+        Default is None.  If specified, will use the given string as the
+        contents of the file.  Should not be used in conjunction with a source
+        file of any kind.  Ignores hashes and does not use a templating engine.
     '''
     user = _test_owner(kwargs, user=user)
     # Initial set up
@@ -693,8 +715,7 @@ def managed(name,
         return _error(ret, u_check)
     if not os.path.isabs(name):
         return _error(
-            ret, ('Specified file {0} is not an absolute'
-                  ' path').format(name))
+            ret, 'Specified file {0} is not an absolute path'.format(name))
     if env is None:
         env = kwargs.get('__env__', 'base')
 
@@ -702,6 +723,12 @@ def managed(name,
         ret['comment'] = 'Specified target {0} is a directory'.format(name)
         ret['result'] = False
         return ret
+
+    if context is None:
+        context = {}
+    elif not isinstance(context, dict):
+        return _error(
+            ret, 'Context must be formed as a dict')
 
     if not replace:
         if os.path.exists(name):
@@ -715,7 +742,7 @@ def managed(name,
                 ret['comment'] = 'File {0} not updated'.format(name)
             elif not ret['changes'] and ret['result']:
                 ret['comment'] = ('File {0} exists with proper permissions. '
-                                  'No changes made.').format(name)
+                                  'No changes made.'.format(name))
             return ret
         if not source:
             return touch(name, makedirs=makedirs)
@@ -727,18 +754,19 @@ def managed(name,
 
     if __opts__['test']:
         ret['result'], ret['comment'] = __salt__['file.check_managed'](
-            name,
-            source,
-            source_hash,
-            user,
-            group,
-            mode,
-            template,
-            makedirs,
-            context,
-            defaults,
-            env,
-            **kwargs
+                name,
+                source,
+                source_hash,
+                user,
+                group,
+                mode,
+                template,
+                makedirs,
+                context,
+                defaults,
+                env,
+                contents,
+                **kwargs
         )
         return ret
 
@@ -763,7 +791,7 @@ def managed(name,
         defaults,
         **kwargs
     )
-    if comment:
+    if comment and contents is not None:
         return _error(ret, comment)
     else:
         return __salt__['file.manage_file'](name,
@@ -777,7 +805,8 @@ def managed(name,
                                             env,
                                             backup,
                                             template,
-                                            show_diff)
+                                            show_diff,
+                                            contents)
 
 
 def directory(name,
@@ -798,11 +827,11 @@ def directory(name,
         The location to create or manage a directory
 
     user
-        The user to own the directory, this defaults to the user salt is
+        The user to own the directory; this defaults to the user salt is
         running as on the minion
 
     group
-        The group ownership set for the directory, this defaults to the group
+        The group ownership set for the directory; this defaults to the group
         salt is running as on the minion
 
     recurse
@@ -885,14 +914,20 @@ def directory(name,
     if not os.path.isdir(name):
         # The dir does not exist, make it
         if not os.path.isdir(os.path.dirname(name)):
+            # The parent directory does not exist, create them
             if makedirs:
-                __salt__['file.makedirs'](name, user=user,
-                                          group=group, mode=dir_mode)
+                __salt__['file.makedirs'](
+                    name, user=user, group=group, mode=dir_mode
+                )
             else:
                 return _error(
                     ret, 'No directory to create {0} in'.format(name))
-        os.makedirs(name)
+
+        __salt__['file.mkdir'](
+            name, user=user, group=group, mode=dir_mode
+        )
         ret['changes'][name] = 'New Dir'
+
     if not os.path.isdir(name):
         return _error(ret, 'Failed to create directory {0}'.format(name))
 
@@ -995,6 +1030,7 @@ def recurse(name,
             backup='',
             include_pat=None,
             exclude_pat=None,
+            maxdepth=None,
             **kwargs):
     '''
     Recurse through a subdirectory on the master and copy said subdirectory
@@ -1048,7 +1084,7 @@ def recurse(name,
 
     include_pat
         When copying, include only this pattern from the source. Default
-        is glob match , if prefixed with E@ then regexp match
+        is glob match; if prefixed with 'E@', then regexp match.
         Example::
 
           - include_pat: hello*       :: glob matches 'hello01', 'hello02'
@@ -1059,10 +1095,10 @@ def recurse(name,
     exclude_pat
         When copying, exclude this pattern from the source. If both
         include_pat and exclude_pat are supplied, then it will apply
-        conditions cumulatively. i.e. first select based on include_pat and
-        then with in that result, applies exclude_pat.
+        conditions cumulatively. i.e. first select based on include_pat, and
+        then within that result apply exclude_pat.
 
-        Also when 'clean=True', exclude this pattern from the removal
+        Also, when 'clean=True', exclude this pattern from the removal
         list and preserve in the destination.
         Example::
 
@@ -1070,6 +1106,16 @@ def recurse(name,
                                                APPDATA.02,.. for exclusion
           - exclude: E@(APPDATA)|(TEMPDATA) :: regexp matches APPDATA
                                                or TEMPDATA for exclusion
+
+    maxdepth
+        When copying, only copy paths which are depth maxdepth from the source
+        path.
+        Example::
+
+          - maxdepth: 0      :: Only include files located in the source
+                                directory
+          - maxdepth: 1      :: Only include files located in the source
+                                or immediate subdirectories
     '''
     user = _test_owner(kwargs, user=user)
     ret = {'name': name,
@@ -1138,6 +1184,7 @@ def recurse(name,
             ret['changes'][path] = _ret['changes']
 
     def manage_file(path, source):
+        source = '{0}|{1}'.format(source[:7], source[7:])
         if clean and os.path.exists(path) and os.path.isdir(path):
             _ret = {'name': name, 'changes': {}, 'result': True, 'comment': ''}
             if __opts__['test']:
@@ -1156,7 +1203,7 @@ def recurse(name,
         pass_kwargs = {}
         faults = ['mode', 'makedirs', 'replace']
         for key in kwargs:
-            if not key in faults:
+            if key not in faults:
                 pass_kwargs[key] = kwargs[key]
 
         _ret = managed(
@@ -1224,6 +1271,17 @@ def recurse(name,
 
         relname = os.path.relpath(fn_, srcpath)
 
+        # Check for maxdepth of the relative path
+        if maxdepth is not None:
+            # Since paths are all master, just use posix separator
+            relpieces = relname.split('/')
+            # Handle empty directories (include_empty==true) by removing the
+            # the last piece if it is an empty string
+            if not relpieces[-1]:
+                relpieces = relpieces[:-1]
+            if len(relpieces) > maxdepth + 1:
+                continue
+
         #- Check if it is to be excluded. Match only part of the path
         # relative to the target directory
         if not _check_include_exclude(relname, include_pat, exclude_pat):
@@ -1232,7 +1290,7 @@ def recurse(name,
         dirname = os.path.dirname(dest)
         keep.add(dest)
 
-        if not dirname in vdir:
+        if dirname not in vdir:
             # verify the directory perms if they are set
             manage_directory(dirname)
             vdir.add(dirname)
@@ -1284,11 +1342,9 @@ def sed(name, before, after, limit='', backup='.bak', options='-r -e',
     '''
     Maintain a simple edit to a file
 
-    The file will be searched for the ``before`` pattern before making the edit
-    and then searched for the ``after`` pattern to verify the edit was
-    successful using :mod:`salt.modules.file.contains`. In general the
-    ``limit`` pattern should be as specific as possible and ``before`` and
-    ``after`` should contain the minimal text to be changed.
+    The file will be searched for the ``before`` pattern before making the
+    edit.  In general the ``limit`` pattern should be as specific as possible
+    and ``before`` and ``after`` should contain the minimal text to be changed.
 
     Usage::
 
@@ -1314,49 +1370,60 @@ def sed(name, before, after, limit='', backup='.bak', options='-r -e',
     if not check_res:
         return _error(ret, check_msg)
 
-    # sed returns no output if the edit matches anything or not so we'll have
-    # to look for ourselves
-
     # Mandate that before and after are strings
     before = str(before)
     after = str(after)
 
     # Look for the pattern before attempting the edit
-    if not __salt__['file.contains_regex_multiline'](name, before):
-        # Pattern not found; try to guess why
-        if __salt__['file.contains'](name, after):
-            ret['comment'] = 'Edit already performed'
-            ret['result'] = True
-            return ret
-        else:
-            ret['comment'] = 'Pattern not matched'
-            return ret
+    if not __salt__['file.sed_contains'](name,
+                                         before,
+                                         limit=limit,
+                                         flags=flags):
+        # Pattern not found; don't try to guess why, just tell the user there
+        # were no changes made, as the changes should only be made once anyway.
+        # This makes it so users can use backreferences without the state
+        # coming back as failed all the time.
+        ret['comment'] = '"before" pattern not found, no changes made'
+        ret['result'] = True
+        return ret
 
     if __opts__['test']:
         ret['comment'] = 'File {0} is set to be updated'.format(name)
         ret['result'] = None
         return ret
+
     with salt.utils.fopen(name, 'rb') as fp_:
         slines = fp_.readlines()
+
     # should be ok now; perform the edit
-    __salt__['file.sed'](name, before, after, limit, backup, options, flags)
+    retcode = __salt__['file.sed'](name,
+                                   before,
+                                   after,
+                                   limit,
+                                   backup,
+                                   options,
+                                   flags)['retcode']
+
+    if retcode != 0:
+        ret['result'] = False
+        ret['comment'] = ('There was an error running sed.  '
+                          'Return code {0}').format(retcode)
+        return ret
+
     with salt.utils.fopen(name, 'rb') as fp_:
         nlines = fp_.readlines()
 
-    # check the result
-    ret['result'] = __salt__['file.contains_regex_multiline'](name, after)
     if slines != nlines:
         # Changes happened, add them
         ret['changes']['diff'] = ''.join(difflib.unified_diff(slines, nlines))
-
-    if ret['result']:
-        ret['comment'] = 'File successfully edited'
+        # Don't check the result -- sed is not designed to be able to check the
+        # result, because of backreferences and so forth.  Just report that sed
+        # was run, and assume it was successful (no error!)
+        ret['result'] = True
+        ret['comment'] = 'sed ran without error'
     else:
-        ret['comment'] = 'Expected edit does not appear in file'
-
-    # In this case, even if the `after` pattern doesn't appear in the file, we
-    # return True, as it's not necessarily an error
-    ret['result'] = True
+        ret['result'] = True
+        ret['comment'] = 'sed ran without error, but no changes were made'
 
     return ret
 
@@ -1476,12 +1543,13 @@ def uncomment(name, regex, char='#', backup='.bak'):
         return _error(ret, check_msg)
 
     # Make sure the pattern appears in the file
-    if __salt__['file.contains_regex_multiline'](name, '^[ \t]*' + regex.lstrip('^')):
+    if __salt__['file.contains_regex_multiline'](
+            name, '^[ \t]*{0}'.format(regex.lstrip('^'))):
         ret['comment'] = 'Pattern already uncommented'
         ret['result'] = True
         return ret
-    elif __salt__['file.contains_regex_multiline'](name,
-                                         char + '[ \t]*' + regex.lstrip('^')):
+    elif __salt__['file.contains_regex_multiline'](
+            name, '{0}[ \t]*{1}'.format(char, regex.lstrip('^'))):
         # Line exists and is commented
         pass
     else:
@@ -1502,8 +1570,9 @@ def uncomment(name, regex, char='#', backup='.bak'):
         nlines = fp_.readlines()
 
     # Check the result
-    ret['result'] = \
-        __salt__['file.contains_regex_multiline'](name, '^[ \t]*' + regex.lstrip('^'))
+    ret['result'] = __salt__['file.contains_regex_multiline'](
+        name, '^[ \t]*{0}'.format(regex.lstrip('^'))
+    )
 
     if slines != nlines:
         # Changes happened, add them
@@ -1552,7 +1621,7 @@ def append(name,
     '''
     ret = {'name': name, 'changes': {}, 'result': False, 'comment': ''}
 
-    if makedirs:
+    if makedirs is True:
         dirname = os.path.dirname(name)
         if not __salt__['file.directory_exists'](dirname):
             __salt__['file.makedirs'](name)
@@ -1752,9 +1821,10 @@ def touch(name, atime=None, mtime=None, makedirs=False):
         return _error(
             ret, 'Directory not present to touch file {0}'.format(name)
         )
-    exists = os.path.exists(name)
+
     ret['result'] = __salt__['file.touch'](name, atime, mtime)
 
+    exists = os.path.exists(name)
     if not exists and ret['result']:
         ret['comment'] = 'Created empty file {0}'.format(name)
         ret['changes']['new'] = name
@@ -1804,7 +1874,7 @@ def rename(name, source, force=False, makedirs=False):
     if os.path.lexists(source) and os.path.lexists(name):
         if not force:
             ret['comment'] = ('The target file "{0}" exists and will not be '
-                              'overwritten').format(name)
+                              'overwritten'.format(name))
             ret['result'] = False
             return ret
         elif not __opts__['test']:
@@ -1818,8 +1888,10 @@ def rename(name, source, force=False, makedirs=False):
                     shutil.rmtree(name)
             except (IOError, OSError):
                 return _error(
-                    ret, ('Failed to delete "{0}" in preparation for '
-                          'forced move').format(name))
+                    ret,
+                    'Failed to delete "{0}" in preparation for '
+                    'forced move'.format(name)
+                )
 
     if __opts__['test']:
         ret['comment'] = 'File "{0}" is set to be moved to "{1}"'.format(
@@ -1828,6 +1900,7 @@ def rename(name, source, force=False, makedirs=False):
         )
         ret['result'] = None
         return ret
+
     # Run makedirs
     dname = os.path.dirname(name)
     if not os.path.isdir(dname):
@@ -1864,7 +1937,7 @@ def accumulated(name, filename, text, **kwargs):
 
     filename
         Filename which would receive this accumulator (see file.managed state
-        documentation about ''name``)
+        documentation about ``name``)
 
     text
         String or list for adding in accumulator
@@ -1882,9 +1955,11 @@ def accumulated(name, filename, text, **kwargs):
     if not filter(lambda x: 'file' in x,
                   kwargs.get('require_in', []) + kwargs.get('watch_in', [])):
         ret['result'] = False
-        ret['comment'] = ('Orphaned accumulator {0} in '
-                          '{1}:{2}'.format(name, kwargs['__sls__'],
-                          kwargs['__id__']))
+        ret['comment'] = 'Orphaned accumulator {0} in {1}:{2}'.format(
+            name,
+            kwargs['__sls__'],
+            kwargs['__id__']
+        )
         return ret
     if isinstance(text, string_types):
         text = (text,)
@@ -1896,5 +1971,5 @@ def accumulated(name, filename, text, **kwargs):
         if chunk not in _ACCUMULATORS[filename][name]:
             _ACCUMULATORS[filename][name].append(chunk)
             ret['comment'] = ('Accumulator {0} for file {1} '
-                              'was charged by text').format(name, filename)
+                              'was charged by text'.format(name, filename))
     return ret

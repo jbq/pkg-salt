@@ -83,13 +83,31 @@ def zmq_version():
             sys.stderr.write('CRITICAL {0}\n'.format(msg))
     return False
 
+def lookup_family(hostname):
+    '''
+    Lookup a hostname and determine its address family. The first address returned
+    will be AF_INET6 if the system is IPv6-enabled, and AF_INET otherwise.
+    '''
+    # If lookups fail, fall back to AF_INET sockets (and v4 addresses).
+    fallback = socket.AF_INET
+    try:
+        hostnames = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC,
+                                       socket.SOCK_STREAM)
+        if not hostnames:
+            return fallback
+        h = hostnames[0]
+        return h[0]
+    except socket.gaierror:
+        return fallback
 
 def verify_socket(interface, pub_port, ret_port):
     '''
     Attempt to bind to the sockets to verify that they are available
     '''
-    pubsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    retsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    addr_family = lookup_family(interface)
+    pubsock = socket.socket(addr_family, socket.SOCK_STREAM)
+    retsock = socket.socket(addr_family, socket.SOCK_STREAM)
     try:
         pubsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         pubsock.bind((interface, int(pub_port)))
@@ -141,7 +159,7 @@ def verify_files(files, user):
             with salt.utils.fopen(fn_, 'w+') as fp_:
                 fp_.write('')
         stats = os.stat(fn_)
-        if not uid == stats.st_uid:
+        if uid != stats.st_uid:
             try:
                 os.chown(fn_, uid, -1)
             except OSError:
@@ -235,7 +253,7 @@ def verify_env(dirs, user, permissive=False, pki_dir=''):
         # by the user running the master
         if dir_ == pki_dir:
             smode = stat.S_IMODE(mode.st_mode)
-            if not smode == 448 and not smode == 488:
+            if smode != 448 and smode != 488:
                 if os.access(dir_, os.W_OK):
                     os.chmod(dir_, 448)
                 else:
@@ -332,7 +350,7 @@ def check_path_traversal(path, user='root'):
 def check_max_open_files(opts):
     mof_c = opts.get('max_open_files', 100000)
     if sys.platform.startswith('win'):
-        # Check the windows api for more detail on this
+        # Check the Windows API for more detail on this
         # http://msdn.microsoft.com/en-us/library/xt874334(v=vs.71).aspx
         # and the python binding http://timgolden.me.uk/pywin32-docs/win32file.html
         mof_s = mof_h = win32file._getmaxstdio()

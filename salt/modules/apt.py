@@ -9,34 +9,47 @@ import logging
 import urllib2
 import json
 
+# Import salt libs
+import salt.utils
+
+
+log = logging.getLogger(__name__)
+
+
 try:
     from aptsources import sourceslist
     apt_support = True
-except ImportError:
+except ImportError, e:
     apt_support = False
 
 try:
     import softwareproperties.ppa
     ppa_format_support = True
-except ImportError:
+except ImportError, e:
     ppa_format_support = False
-
-# Import salt libs
-import salt.utils
-
-log = logging.getLogger(__name__)
 
 # Source format for urllib fallback on PPA handling
 LP_SRC_FORMAT = 'deb http://ppa.launchpad.net/{0}/{1}/ubuntu {2} main'
 LP_PVT_SRC_FORMAT = 'deb https://{0}private-ppa.launchpad.net/{1}/{2}/ubuntu' \
                     ' {3} main'
 
+_MODIFY_OK = frozenset(['uri', 'comps', 'architectures', 'disabled',
+                        'file', 'dist'])
+
 
 def __virtual__():
     '''
     Confirm this module is on a Debian based system
     '''
-    return 'pkg' if __grains__['os_family'] == 'Debian' else False
+    if __grains__['os_family'] != 'Debian':
+        return False
+    if not apt_support:
+        err_str = 'Unable to import "sourceslist" from "aptsources" module: {0}'
+        log.error(err_str.format(str(e)))
+    if not ppa_format_support and __grains__['os'] == 'Ubuntu':
+        err_str = 'Unable to import "softwareproperties.ppa": {0}'
+        log.warning(err_str.format(str(e)))
+    return 'pkg'
 
 
 def __init__(opts):
@@ -279,7 +292,7 @@ def install(name=None,
         {'<package>': {'old': '<old-version>',
                        'new': '<new-version>'}}
     '''
-    if __salt__['config.is_true'](refresh):
+    if salt.utils.is_true(refresh):
         refresh_db()
 
     if debconf:
@@ -393,7 +406,7 @@ def purge(pkg, **kwargs):
         except Exception as e:
             log.exception(e)
 
-    # Remove inital package
+    # Remove initial package
     purge_cmd = 'apt-get -q -y purge {0}'.format(pkg)
     out = __salt__['cmd.run_all'](purge_cmd)
     if out['retcode'] != 0:
@@ -428,7 +441,7 @@ def upgrade(refresh=True, **kwargs):
 
         salt '*' pkg.upgrade
     '''
-    if __salt__['config.is_true'](refresh):
+    if salt.utils.is_true(refresh):
         refresh_db()
 
     ret_pkgs = {}
@@ -465,15 +478,15 @@ def list_pkgs(versions_as_list=False):
 
     External dependencies::
 
-        Virtual package resolution requires aptitude.
-        Without aptitude virtual packages will be reported as not installed.
+        Virtual package resolution requires dctrl-tools.
+        Without dctrl-tools virtual packages will be reported as not installed.
 
     CLI Example::
 
         salt '*' pkg.list_pkgs
         salt '*' pkg.list_pkgs httpd
     '''
-    versions_as_list = __salt__['config.is_true'](versions_as_list)
+    versions_as_list = salt.utils.is_true(versions_as_list)
     ret = {}
     cmd = 'dpkg-query --showformat=\'${Status} ${Package} ' \
           '${Version}\n\' -W'
@@ -499,19 +512,21 @@ def list_pkgs(versions_as_list=False):
                 'installed' in status:
             __salt__['pkg_resource.add_pkg'](ret, name, version)
 
-    # Check for virtual packages. We need aptitude for this.
-    if __salt__['cmd.has_exec']('aptitude'):
-        cmd = 'aptitude search "?name(^.+$) ?virtual ' \
-              '?reverse-provides(?installed)"'
-
+    # Check for virtual packages. We need dctrl-tools for this.
+    if __salt__['cmd.has_exec']('grep-available'):
+        cmd = 'grep-available -F Provides -s Package,Provides -e "^.+$"'
         out = __salt__['cmd.run_stdout'](cmd)
-        for line in out.splitlines():
-            # Setting all matching 'installed' virtual package versions to 1
-            try:
-                name = line.split()[1]
-            except IndexError:
-                continue
-            __salt__['pkg_resource.add_pkg'](ret, name, '1')
+
+        virtpkg_re = re.compile('Package: (\S+)\nProvides: ([\\S, ]+)')
+        virtpkgs = set()
+        for realpkg, provides in virtpkg_re.findall(out):
+            # grep-available returns info on all virtual packages. Ignore any
+            # virtual packages that do not have the real package installed.
+            if realpkg in ret:
+                virtpkgs.update(provides.split(', '))
+        for virtname in virtpkgs:
+            # Set virtual package versions to '1'
+            __salt__['pkg_resource.add_pkg'](ret, virtname, '1')
 
     __salt__['pkg_resource.sort_pkglist'](ret)
     if not versions_as_list:
@@ -563,7 +578,7 @@ def list_upgrades(refresh=True):
 
         salt '*' pkg.list_upgrades
     '''
-    if __salt__['config.is_true'](refresh):
+    if salt.utils.is_true(refresh):
         refresh_db()
     return _get_upgradable()
 
@@ -676,13 +691,13 @@ def list_repos():
         repo['dist'] = source.dist
         repo['type'] = source.type
         repo['uri'] = source.uri
-        repo['line'] = source.line
+        repo['line'] = source.line.strip()
         repo['architectures'] = getattr(source, 'architectures', [])
         repos.setdefault(source.uri, []).append(repo)
     return repos
 
 
-def get_repo(repo, ppa_auth=None):
+def get_repo(repo, **kwargs):
     '''
     Display a repo from the sources.list / sources.list.d
 
@@ -696,6 +711,7 @@ def get_repo(repo, ppa_auth=None):
         msg = 'Error: aptsources.sourceslist python module not found'
         raise Exception(msg)
 
+    ppa_auth = kwargs.get('ppa_auth', None)
     # we have to be clever about this since the repo definition formats
     # are a bit more "loose" than in some other distributions
     if repo.startswith('ppa:') and __grains__['os'] == 'Ubuntu':
@@ -771,8 +787,9 @@ def del_repo(repo, refresh=False, **kwargs):
         is_ppa = True
         dist = __grains__['lsb_codename']
         if not ppa_format_support:
-            warning_str = 'python-software-properties package not ' \
-                          'installed, making best guess at ppa format: {0}'
+            warning_str = 'Unable to use functions from ' \
+                          '"python-software-properties" package, making ' \
+                          'best guess at ppa format: {0}'
             log.warning(warning_str.format(repo))
             owner_name, ppa_name = repo[4:].split('/')
             if 'ppa_auth' in kwargs:
@@ -847,7 +864,7 @@ def del_repo(repo, refresh=False, **kwargs):
     return "Repo {0} doesn't exist in the sources.list(s)".format(repo)
 
 
-def mod_repo(repo, refresh=False, **kwargs):
+def mod_repo(repo, **kwargs):
     '''
     Modify one or more values for a repo.  If the repo does not exist, it will
     be created, so long as the definition is well formed.  For Ubuntu the
@@ -858,11 +875,15 @@ def mod_repo(repo, refresh=False, **kwargs):
 
         comps (a comma separated list of components for the repo, e.g. "main")
         file (a file name to be used)
-        refresh (refresh the apt sources db when the mod is done)
         keyserver (keyserver to get gpg key from)
         keyid (key id to load with the keyserver argument)
-        key_url (URl to a gpg key to add to the apt gpg keyring)
+        key_url (URL to a gpg key to add to the apt gpg keyring)
         consolidate (if true, will attempt to de-dup and consolidate sources)
+
+        * Note: Due to the way keys are stored for apt, there is a known issue
+                where the key wont be updated unless another change is made
+                at the same time.  Keys should be properly added on initial
+                configuration.
 
     CLI Examples::
 
@@ -872,19 +893,14 @@ def mod_repo(repo, refresh=False, **kwargs):
     if not apt_support:
         raise ImportError('Error: aptsources.sourceslist module not found')
 
-    is_ppa = False
-
     # to ensure no one sets some key values that _shouldn't_ be changed on the
     # object itself, this is just a white-list of "ok" to set properties
-    _MODIFY_OK = set(
-        ['uri', 'comps', 'architectures', 'disabled', 'file', 'dist'])
     if repo.startswith('ppa:'):
-        is_ppa = True
         if __grains__['os'] == 'Ubuntu':
             # secure PPAs cannot be supported as of the time of this code
             # implementation via apt-add-repository.  The code path for
             # secure PPAs should be the same as urllib method
-            if ppa_format_support and not 'ppa_auth' in kwargs:
+            if ppa_format_support and 'ppa_auth' not in kwargs:
                 cmd = 'apt-add-repository -y {0}'.format(repo)
                 out = __salt__['cmd.run_stdout'](cmd)
                 # explicit refresh when a repo is modified.
@@ -892,29 +908,38 @@ def mod_repo(repo, refresh=False, **kwargs):
                 return {repo: out}
             else:
                 if not ppa_format_support:
-                    log.warning('software-python-properties not installed, '
-                                'falling back to using urllib method for PPA.')
+                    warning_str = 'Unable to use functions from ' \
+                                  '"python-software-properties" package, ' \
+                                  'making best guess at ppa format: {0}'
+                    log.warning(warning_str.format(repo))
                 else:
                     log.info('falling back to urllib method for private PPA ')
                 #fall back to urllib style
-                owner_name, ppa_name = repo[4:].split('/')
+                try:
+                    owner_name, ppa_name = repo[4:].split('/', 1)
+                except ValueError:
+                    err_str = 'Unable to get PPA info from argument. ' \
+                              'Expected format "<PPA_OWNER>/<PPA_NAME>" ' \
+                              '(e.g. saltstack/salt) not found.  Received ' \
+                              '"{0}" instead.'
+                    raise Exception(err_str.format(repo[4:]))
                 dist = __grains__['lsb_codename']
                 # ppa has a lot of implicit arguments. Make them explicit.
                 # These will defer to any user-defined variants
                 kwargs['dist'] = dist
                 ppa_auth = ''
-                if not file in kwargs:
+                if file not in kwargs:
                     filename = '/etc/apt/sources.list.d/{0}-{1}-{2}.list'
                     kwargs['file'] = filename.format(owner_name, ppa_name,
                                                      dist)
                 try:
                     launchpad_ppa_info = _get_ppa_info_from_launchpad(
                         owner_name, ppa_name)
-                    if not 'ppa_auth' in kwargs:
+                    if 'ppa_auth' not in kwargs:
                         kwargs['keyid'] = launchpad_ppa_info[
                             'signing_key_fingerprint']
                     else:
-                        if not 'keyid' in kwargs:
+                        if 'keyid' not in kwargs:
                             error_str = 'Private PPAs require a ' \
                                         'keyid to be specified: {0}/{1}'
                             raise Exception(error_str.format(owner_name,
@@ -929,7 +954,7 @@ def mod_repo(repo, refresh=False, **kwargs):
                                 'manually: {2}'
                     raise Exception(error_str.format(owner_name, ppa_name, e))
 
-                if not 'keyserver' in kwargs:
+                if 'keyserver' not in kwargs:
                     kwargs['keyserver'] = 'keyserver.ubuntu.com'
                 if 'ppa_auth' in kwargs:
                     if not launchpad_ppa_info['private']:
@@ -965,125 +990,124 @@ def mod_repo(repo, refresh=False, **kwargs):
         sources = _consolidate_repo_sources(sources)
 
     repos = filter(lambda s: not s.invalid, sources)
-    if repos:
-        mod_source = None
-        try:
-            repo_type, repo_uri, repo_dist, repo_comps = _split_repo_str(
-                repo)
-        except SyntaxError:
-            error_str = 'Error: repo "{0}" not a well formatted definition'
-            raise SyntaxError(error_str.format(repo))
+    mod_source = None
+    try:
+        repo_type, repo_uri, repo_dist, repo_comps = _split_repo_str(
+            repo)
+    except SyntaxError:
+        error_str = 'Error: repo "{0}" not a well formatted definition'
+        raise SyntaxError(error_str.format(repo))
 
-        full_comp_list = set(repo_comps)
+    full_comp_list = set(repo_comps)
 
-        if 'keyid' in kwargs:
-            keyid = kwargs.pop('keyid', None)
-            ks = kwargs.pop('keyserver', None)
-            if not keyid or not ks:
-                error_str = 'both keyserver and keyid options required.'
-                raise NameError(error_str)
-            cmd = 'apt-key export {0}'.format(keyid)
-            output = __salt__['cmd.run_stdout'](cmd)
-            imported = output.startswith('-----BEGIN PGP')
-            if ks:
-                if not imported:
-                    cmd = ('apt-key adv --keyserver {0} --logger-fd 1 '
-                           '--recv-keys {1}')
-                    out = __salt__['cmd.run_stdout'](cmd.format(ks, keyid))
-                    if not out.find('imported') or out.find('not changed'):
-                        error_str = 'Error: key retrieval failed: {0}'
-                        raise Exception(
-                            error_str.format(
-                                cmd.format(
-                                    ks,
-                                    keyid
-                                )
+    if 'keyid' in kwargs:
+        keyid = kwargs.pop('keyid', None)
+        ks = kwargs.pop('keyserver', None)
+        if not keyid or not ks:
+            error_str = 'both keyserver and keyid options required.'
+            raise NameError(error_str)
+        cmd = 'apt-key export {0}'.format(keyid)
+        output = __salt__['cmd.run_stdout'](cmd)
+        imported = output.startswith('-----BEGIN PGP')
+        if ks:
+            if not imported:
+                cmd = ('apt-key adv --keyserver {0} --logger-fd 1 '
+                       '--recv-keys {1}')
+                out = __salt__['cmd.run_stdout'](cmd.format(ks, keyid))
+                if not (out.find('imported') or out.find('not changed')):
+                    error_str = 'Error: key retrieval failed: {0}'
+                    raise Exception(
+                        error_str.format(
+                            cmd.format(
+                                ks,
+                                keyid
                             )
                         )
-        elif 'key_url' in kwargs:
-            fn_ = __salt__['cp.cache_file'](kwargs['key_url'])
-            cmd = 'apt-key add {0}'.format(fn_)
-            out = __salt__['cmd.run_stdout'](cmd)
-            if not out.upper().startswith('OK'):
-                error_str = 'Error: key retrieval failed: {0}'
-                raise Exception(error_str.format(cmd.format(key_url)))
+                    )
+    elif 'key_url' in kwargs:
+        key_url = kwargs['key_url']
+        fn_ = __salt__['cp.cache_file'](key_url)
+        cmd = 'apt-key add {0}'.format(fn_)
+        out = __salt__['cmd.run_stdout'](cmd)
+        if not out.upper().startswith('OK'):
+            error_str = 'Error: key retrieval failed: {0}'
+            raise Exception(error_str.format(cmd.format(key_url)))
 
-        if 'comps' in kwargs:
-            kwargs['comps'] = kwargs['comps'].split(',')
-            full_comp_list.union(set(kwargs['comps']))
+    if 'comps' in kwargs:
+        kwargs['comps'] = kwargs['comps'].split(',')
+        full_comp_list.union(set(kwargs['comps']))
+    else:
+        kwargs['comps'] = list(full_comp_list)
+
+    if 'architectures' in kwargs:
+        kwargs['architectures'] = kwargs['architectures'].split(',')
+
+    if 'disabled' in kwargs:
+        kw_disabled = kwargs['disabled']
+        if kw_disabled is True or str(kw_disabled).lower() == 'true':
+            kwargs['disabled'] = True
         else:
-            kwargs['comps'] = list(full_comp_list)
+            kwargs['disabled'] = False
 
-        if 'architectures' in kwargs:
-            kwargs['architectures'] = kwargs['architectures'].split(',')
+    kw_type = kwargs.get('type')
+    kw_dist = kwargs.get('dist')
 
-        if 'disabled' in kwargs:
-            kw_disabled = kwargs['disabled']
-            if kw_disabled is True or str(kw_disabled).lower() == 'true':
-                kwargs['disabled'] = True
-            else:
-                kwargs['disabled'] = False
+    for source in repos:
+        # This series of checks will identify the starting source line
+        # and the resulting source line.  The idea here is to ensure
+        # we are not retuning bogus data because the source line
+        # has already been modified on a previous run.
+        if ((source.type == repo_type and source.uri == repo_uri
+             and source.dist == repo_dist) or
+            (source.dist == kw_dist and source.type == kw_type
+             and source.type == kw_type)):
 
-        kw_type = kwargs.get('type')
-        kw_dist = kwargs.get('dist')
-
-        for source in repos:
-            # This series of checks will identify the starting source line
-            # and the resulting source line.  The idea here is to ensure
-            # we are not retuning bogus data because the source line
-            # has already been modified on a previous run.
-            if ((source.type == repo_type and source.uri == repo_uri
-                 and source.dist == repo_dist) or
-                (source.dist == kw_dist and source.type == kw_type
-                 and source.type == kw_type)):
-
-                for comp in full_comp_list:
-                    if comp in getattr(source, 'comps', []):
-                        mod_source = source
-                if not source.comps:
+            for comp in full_comp_list:
+                if comp in getattr(source, 'comps', []):
                     mod_source = source
-                if mod_source:
-                    break
+            if not source.comps:
+                mod_source = source
+            if mod_source:
+                break
 
-        if not mod_source:
-            mod_source = sourceslist.SourceEntry(repo)
-            sources.list.append(mod_source)
+    if not mod_source:
+        mod_source = sourceslist.SourceEntry(repo)
+        sources.list.append(mod_source)
 
-        # if all comps aren't part of the disable
-        # match, it is important we keep the comps
-        # not destined to be disabled/enabled in
-        # the original state
-        if ('disabled' in kwargs and
-                mod_source.disabled != kwargs['disabled']):
+    # if all comps aren't part of the disable
+    # match, it is important we keep the comps
+    # not destined to be disabled/enabled in
+    # the original state
+    if ('disabled' in kwargs and
+            mod_source.disabled != kwargs['disabled']):
 
-            s_comps = set(mod_source.comps)
-            r_comps = set(repo_comps)
-            if s_comps.symmetric_difference(r_comps):
-                new_source = sourceslist.SourceEntry(source.line)
-                new_source.file = source.file
-                new_source.comps = list(r_comps.difference(s_comps))
-                source.comps = list(s_comps.difference(r_comps))
-                sources.insert(sources.index(source), new_source)
-                sources.save()
+        s_comps = set(mod_source.comps)
+        r_comps = set(repo_comps)
+        if s_comps.symmetric_difference(r_comps):
+            new_source = sourceslist.SourceEntry(source.line)
+            new_source.file = source.file
+            new_source.comps = list(r_comps.difference(s_comps))
+            source.comps = list(s_comps.difference(r_comps))
+            sources.insert(sources.index(source), new_source)
+            sources.save()
 
-        for key in kwargs:
-            if key in _MODIFY_OK and hasattr(mod_source, key):
-                if type(getattr(mod_source, key)) == type(kwargs[key]):
-                    setattr(mod_source, key, kwargs[key])
-        sources.save()
-        # on changes, explicitly refresh
-        refresh_db()
-        return {
-            repo: {
-                'architectures': getattr(mod_source, 'architectures', []),
-                'comps': mod_source.comps,
-                'disabled': mod_source.disabled,
-                'file': mod_source.file,
-                'type': mod_source.type,
-                'uri': mod_source.uri,
-                'line': mod_source.line
-            }
+    for key in kwargs:
+        if key in _MODIFY_OK and hasattr(mod_source, key):
+            setattr(mod_source, key, kwargs[key])
+    sources.save()
+    # on changes, explicitly refresh
+    refresh_db()
+    return {
+        repo: {
+            'architectures': getattr(mod_source, 'architectures', []),
+            'comps': mod_source.comps,
+            'disabled': mod_source.disabled,
+            'file': mod_source.file,
+            'type': mod_source.type,
+            'uri': mod_source.uri,
+            'line': mod_source.line
         }
+    }
 
 
 def file_list(*packages):
@@ -1114,3 +1138,55 @@ def file_dict(*packages):
         salt '*' pkg.file_list
     '''
     return __salt__['lowpkg.file_dict'](*packages)
+
+
+def expand_repo_def(repokwargs):
+    '''
+    Take a repository definition and expand it to the full pkg repository dict
+    that can be used for comparison.  This is a helper function to make
+    the Debian/Ubuntu apt sources sane for comparison in the pkgrepo states.
+
+    There is no use to calling this function via the CLI.
+    '''
+    sanitized = {}
+
+    if not apt_support:
+        msg = 'Error: aptsources.sourceslist python module not found'
+        raise Exception(msg)
+
+    repo = repokwargs['repo']
+
+    if repo.startswith('ppa:') and __grains__['os'] == 'Ubuntu':
+        dist = __grains__['lsb_codename']
+        owner_name, ppa_name = repo[4:].split('/', 1)
+        if 'ppa_auth' in repokwargs:
+            auth_info = '{0}@'.format(repokwargs['ppa_auth'])
+            repo = LP_PVT_SRC_FORMAT.format(auth_info, owner_name, ppa_name,
+                                            dist)
+        else:
+            if ppa_format_support:
+                repo = softwareproperties.ppa.expand_ppa_line(
+                    repo, dist)[0]
+            else:
+                repo = LP_SRC_FORMAT.format(owner_name, ppa_name, dist)
+
+        if file not in repokwargs:
+            filename = '/etc/apt/sources.list.d/{0}-{1}-{2}.list'
+            repokwargs['file'] = filename.format(owner_name, ppa_name,
+                                                 dist)
+
+    source_entry = sourceslist.SourceEntry(repo)
+    for kwarg in _MODIFY_OK:
+        if kwarg in repokwargs:
+            setattr(source_entry, kwarg, repokwargs[kwarg])
+
+    sanitized['file'] = source_entry.file
+    sanitized['comps'] = getattr(source_entry, 'comps', [])
+    sanitized['disabled'] = source_entry.disabled
+    sanitized['dist'] = source_entry.dist
+    sanitized['type'] = source_entry.type
+    sanitized['uri'] = source_entry.uri
+    sanitized['line'] = source_entry.line.strip()
+    sanitized['architectures'] = getattr(source_entry, 'architectures', [])
+
+    return sanitized

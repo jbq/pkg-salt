@@ -21,7 +21,7 @@ def nodegroup_comp(group, nodegroups, skip=None):
     '''
     if skip is None:
         skip = set([group])
-    if not group in nodegroups:
+    if group not in nodegroups:
         return ''
     gstr = nodegroups[group]
     ret = ''
@@ -92,7 +92,7 @@ class CkMinions(object):
             if not os.path.isdir(cdir):
                 return list(minions)
             for id_ in os.listdir(cdir):
-                if not id_ in minions:
+                if id_ not in minions:
                     continue
                 datap = os.path.join(cdir, id_, 'data.p')
                 if not os.path.isfile(datap):
@@ -108,6 +108,9 @@ class CkMinions(object):
                     minions.remove(id_)
                     continue
                 if isinstance(match, dict):
+                    if comps[1] == '*':
+                        # We are just checking that the key exists
+                        continue 
                     minions.remove(id_)
                     continue
                 if isinstance(match, list):
@@ -142,7 +145,7 @@ class CkMinions(object):
             if not os.path.isdir(cdir):
                 return list(minions)
             for id_ in os.listdir(cdir):
-                if not id_ in minions:
+                if id_ not in minions:
                     continue
                 datap = os.path.join(cdir, id_, 'data.p')
                 if not os.path.isfile(datap):
@@ -155,6 +158,9 @@ class CkMinions(object):
                     continue
                 if comps[0] not in grains:
                     minions.remove(id_)
+                if isinstance(grains[comps[0]], dict) and comps[1] == '*':
+                    # We are just checking that the key exists
+                    continue
                 if isinstance(grains[comps[0]], list):
                     # We are matching a single component to a single list member
                     found = False
@@ -242,7 +248,7 @@ class CkMinions(object):
         if v_matcher in infinite:
             # We can't be sure what the subset is, only match the identical
             # target
-            if not v_matcher == expr_form:
+            if v_matcher != expr_form:
                 return False
             return v_expr == expr
         v_minions = set(self.check_minions(v_expr, v_matcher))
@@ -309,7 +315,7 @@ class CkMinions(object):
 
     def wheel_check(self, auth_list, fun):
         '''
-        Check special api permissions
+        Check special API permissions
         '''
         comps = fun.split('.')
         if len(comps) != 2:

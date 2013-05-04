@@ -192,7 +192,7 @@ def disable(name, **kwargs):
 
 def enabled(name):
     '''
-    Return True if the named servioce is enabled, false otherwise
+    Return True if the named service is enabled, false otherwise
 
     name
         Service name
@@ -219,7 +219,7 @@ def enabled(name):
 
 def disabled(name):
     '''
-    Return True if the named servioce is enabled, false otherwise
+    Return True if the named service is enabled, false otherwise
 
     CLI Example::
 
@@ -292,7 +292,7 @@ def reload(name):
     return not __salt__['cmd.retcode'](cmd)
 
 
-def status(name, *args, **kwargs):
+def status(name, sig=None):
     '''
     Return the status for a service (True or False).
 

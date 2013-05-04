@@ -27,7 +27,19 @@ from salt.exceptions import (
 log = logging.getLogger(__name__)
 
 
-def gen_keys(keydir, keyname, keysize):
+def dropfile(cachedir):
+    '''
+    Set an aes dropfile to update the publish session key
+    '''
+    dfn = os.path.join(cachedir, '.dfn')
+    aes = Crypticle.generate_key_string()
+    mask = os.umask(191)
+    with open(dfn, 'w+') as fp_:
+        fp_.write(aes)
+    os.umask(mask)
+
+
+def gen_keys(keydir, keyname, keysize, user=None):
     '''
     Generate a keypair for use with salt
     '''
@@ -41,6 +53,16 @@ def gen_keys(keydir, keyname, keysize):
     os.umask(cumask)
     gen.save_pub_key(pub)
     os.chmod(priv, 256)
+    if user:
+        try:
+            import pwd
+            uid = pwd.getpwnam(user).pw_uid
+            os.chown(priv, uid, -1)
+            os.chown(pub, uid, -1)
+        except (KeyError, ImportError, OSError):
+            # The specified user was not found, allow the backup systems to
+            # report the error
+            pass
     return priv
 
 
@@ -50,6 +72,7 @@ class MasterKeys(dict):
     authentication by the master.
     '''
     def __init__(self, opts):
+        super(MasterKeys, self).__init__()
         self.opts = opts
         self.pub_path = os.path.join(self.opts['pki_dir'], 'master.pub')
         self.rsa_path = os.path.join(self.opts['pki_dir'], 'master.pem')
@@ -65,7 +88,11 @@ class MasterKeys(dict):
             log.debug('Loaded master key: {0}'.format(self.rsa_path))
         else:
             log.info('Generating keys: {0}'.format(self.opts['pki_dir']))
-            gen_keys(self.opts['pki_dir'], 'master', 4096)
+            gen_keys(
+                    self.opts['pki_dir'],
+                    'master',
+                    4096,
+                    self.opts.get('user'))
             key = RSA.load_key(self.rsa_path)
         return key
 
@@ -116,7 +143,11 @@ class Auth(object):
             log.debug('Loaded minion key: {0}'.format(self.rsa_path))
         else:
             log.info('Generating keys: {0}'.format(self.opts['pki_dir']))
-            gen_keys(self.opts['pki_dir'], 'minion', 4096)
+            gen_keys(
+                    self.opts['pki_dir'],
+                    'minion',
+                    4096,
+                    self.opts.get('user'))
             key = RSA.load_key(self.rsa_path)
         return key
 
@@ -165,7 +196,7 @@ class Auth(object):
                     return '', ''
                 digest = hashlib.sha256(key_str).hexdigest()
                 m_digest = mkey.public_decrypt(payload['sig'], 5)
-                if not m_digest == digest:
+                if m_digest != digest:
                     return '', ''
         else:
             return '', ''
@@ -193,7 +224,7 @@ class Auth(object):
                 return ''
             try:
                 aes, token = self.decrypt_aes(payload)
-                if not token == self.token:
+                if token != self.token:
                     log.error('The master failed to decrypt the random minion token')
                     return ''
             except Exception:
@@ -216,7 +247,8 @@ class Auth(object):
         try:
             self.opts['master_ip'] = salt.utils.dns_check(
                     self.opts['master'],
-                    True
+                    True,
+                    self.opts['ipv6']
                     )
         except SaltClientError:
             return 'retry'

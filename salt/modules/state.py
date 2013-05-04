@@ -57,6 +57,17 @@ def _filter_running(running):
     return ret
 
 
+def _set_retcode(ret):
+    '''
+    Set the return code based on the data back from the state system
+    '''
+    if isinstance(ret, list):
+        __context__['retcode'] = 1
+        return
+    if not salt.utils.check_state_result(ret):
+        __context__['retcode'] = 2
+
+
 def _check_pillar(kwargs):
     '''
     Check the pillar for errors, refuse to run the state it there are errors
@@ -104,12 +115,19 @@ def low(data):
     '''
     conflict = running()
     if conflict:
+        __context__['retcode'] = 1
         return conflict
     st_ = salt.state.State(__opts__)
     err = st_.verify_data(data)
     if err:
+        __context__['retcode'] = 1
         return err
-    return st_.call(data)
+    ret = st_.call(data)
+    if isinstance(ret, list):
+        __context__['retcode'] = 1
+    if salt.utils.check_state_result(ret):
+        __context__['retcode'] = 2
+    return ret
 
 
 def high(data):
@@ -123,9 +141,12 @@ def high(data):
     '''
     conflict = running()
     if conflict:
+        __context__['retcode'] = 1
         return conflict
     st_ = salt.state.State(__opts__)
-    return st_.call_high(data)
+    ret = st_.call_high(data)
+    _set_retcode(ret)
+    return ret
 
 
 def template(tem):
@@ -138,9 +159,12 @@ def template(tem):
     '''
     conflict = running()
     if conflict:
+        __context__['retcode'] = 1
         return conflict
     st_ = salt.state.State(__opts__)
-    return st_.call_template(tem)
+    ret = st_.call_template(tem)
+    _set_retcode(ret)
+    return ret
 
 
 def template_str(tem):
@@ -153,9 +177,12 @@ def template_str(tem):
     '''
     conflict = running()
     if conflict:
+        __context__['retcode'] = 1
         return conflict
     st_ = salt.state.State(__opts__)
-    return st_.call_template_str(tem)
+    ret = st_.call_template_str(tem)
+    _set_retcode(ret)
+    return ret
 
 
 def highstate(test=None, **kwargs):
@@ -168,6 +195,7 @@ def highstate(test=None, **kwargs):
     '''
     conflict = running()
     if conflict:
+        __context__['retcode'] = 1
         return conflict
     if not _check_pillar(kwargs):
         __context__['retcode'] = 5
@@ -176,10 +204,13 @@ def highstate(test=None, **kwargs):
         return err
     opts = copy.copy(__opts__)
 
-    if not test is None:
-        opts['test'] = test
+    if salt.utils.test_mode(test=test, **kwargs):
+        opts['test'] = True
     else:
         opts['test'] = None
+
+    if 'env' in kwargs:
+        opts['environment'] = kwargs['env']
 
     pillar = __resolve_struct(
             kwargs.get('pillar', ''),
@@ -188,7 +219,11 @@ def highstate(test=None, **kwargs):
     st_ = salt.state.HighState(opts, pillar)
     st_.push_active()
     try:
-        ret = st_.call_highstate(exclude=kwargs.get('exclude', []))
+        ret = st_.call_highstate(
+                exclude=kwargs.get('exclude', []),
+                cache=kwargs.get('cache', None),
+                cache_name=kwargs.get('cache_name', 'highstate')
+                )
     finally:
         st_.pop_active()
     if __salt__['config.option']('state_data', '') == 'terse' or kwargs.get('terse'):
@@ -205,6 +240,7 @@ def highstate(test=None, **kwargs):
         msg = 'Unable to write to "state.highstate" cache file {0}'
         log.error(msg.format(cache_file))
 
+    _set_retcode(ret)
     return ret
 
 
@@ -217,8 +253,10 @@ def sls(mods, env='base', test=None, exclude=None, **kwargs):
 
         salt '*' state.sls core,edit.vim dev
     '''
+
     conflict = running()
     if conflict:
+        __context__['retcode'] = 1
         return conflict
     if not _check_pillar(kwargs):
         __context__['retcode'] = 5
@@ -227,8 +265,8 @@ def sls(mods, env='base', test=None, exclude=None, **kwargs):
         return err
     opts = copy.copy(__opts__)
 
-    if not test is None:
-        opts['test'] = test
+    if salt.utils.test_mode(test=test, **kwargs):
+        opts['test'] = True
     else:
         opts['test'] = None
 
@@ -236,7 +274,19 @@ def sls(mods, env='base', test=None, exclude=None, **kwargs):
             kwargs.get('pillar', ''),
             kwargs.get('kwval_as', 'yaml'))
 
+    serial = salt.payload.Serial(__opts__)
+    cfn = os.path.join(
+            __opts__['cachedir'],
+            '{0}.cache.p'.format(kwargs.get('cache_name', 'highstate'))
+            )
+
     st_ = salt.state.HighState(opts, pillar)
+
+    if kwargs.get('cache'):
+        if os.path.isfile(cfn):
+            with open(cfn, 'r') as fp_:
+                high = serial.load(fp_)
+                return st_.state.call_high(high)
 
     if isinstance(mods, string_types):
         mods = mods.split(',')
@@ -246,6 +296,7 @@ def sls(mods, env='base', test=None, exclude=None, **kwargs):
         high, errors = st_.render_highstate({env: mods})
 
         if errors:
+            __context__['retcode'] = 1
             return errors
 
         if exclude:
@@ -260,7 +311,6 @@ def sls(mods, env='base', test=None, exclude=None, **kwargs):
         st_.pop_active()
     if __salt__['config.option']('state_data', '') == 'terse' or kwargs.get('terse'):
         ret = _filter_running(ret)
-    serial = salt.payload.Serial(__opts__)
     cache_file = os.path.join(__opts__['cachedir'], 'sls.p')
     try:
         with salt.utils.fopen(cache_file, 'w+') as fp_:
@@ -268,10 +318,13 @@ def sls(mods, env='base', test=None, exclude=None, **kwargs):
     except (IOError, OSError):
         msg = 'Unable to write to "state.sls" cache file {0}'
         log.error(msg.format(cache_file))
+    _set_retcode(ret)
+    with open(cfn, 'w+') as fp_:
+        serial.dump(high, fp_)
     return ret
 
 
-def top(topfn):
+def top(topfn, test=None, **kwargs):
     '''
     Execute a specific top file instead of the default
 
@@ -281,6 +334,7 @@ def top(topfn):
     '''
     conflict = running()
     if conflict:
+        __context__['retcode'] = 1
         return conflict
     if not _check_pillar(kwargs):
         __context__['retcode'] = 5
@@ -288,16 +342,22 @@ def top(topfn):
         err += __pillar__['_errors']
         return err
     if salt.utils.test_mode(test=test, **kwargs):
-        opts['test'] = True
+        __opts__['test'] = True
     else:
-        opts['test'] = None
+        __opts__['test'] = None
     st_ = salt.state.HighState(__opts__)
     st_.push_active()
     st_.opts['state_top'] = os.path.join('salt://', topfn)
     try:
-        return st_.call_highstate()
+        ret = st_.call_highstate(
+                exclude=kwargs.get('exclude', []),
+                cache=kwargs.get('cache', None),
+                cache_name=kwargs.get('cache_name', 'highstate')
+                )
     finally:
         st_.pop_active()
+    _set_retcode(ret)
+    return ret
 
 
 def show_highstate():
@@ -309,7 +369,10 @@ def show_highstate():
         salt '*' state.show_highstate
     '''
     st_ = salt.state.HighState(__opts__)
-    return st_.compile_highstate()
+    ret = st_.compile_highstate()
+    if isinstance(ret, list):
+        __context__['retcode'] = 1
+    return ret
 
 
 def show_lowstate():
@@ -321,7 +384,10 @@ def show_lowstate():
         salt '*' state.show_lowstate
     '''
     st_ = salt.state.HighState(__opts__)
-    return st_.compile_low_chunks()
+    ret = st_.compile_low_chunks()
+    if isinstance(ret, list):
+        __context__['retcode'] = 1
+    return ret
 
 
 def show_sls(mods, env='base', test=None, **kwargs):
@@ -334,16 +400,19 @@ def show_sls(mods, env='base', test=None, **kwargs):
         salt '*' state.show_sls core,edit.vim dev
     '''
     opts = copy.copy(__opts__)
-    if not test is None:
-        opts['test'] = test
+    if salt.utils.test_mode(test=test, **kwargs):
+        opts['test'] = True
     else:
         opts['test'] = None
+    log.critical('BAR')
+    log.critical(opts)
     st_ = salt.state.HighState(opts)
     if isinstance(mods, string_types):
         mods = mods.split(',')
     high, errors = st_.render_highstate({env: mods})
     errors += st_.state.verify_high(high)
     if errors:
+        __context__['retcode'] = 1
         return errors
     return high
 
@@ -362,11 +431,11 @@ def show_top():
     ext = st_.client.ext_nodes()
     for top in [static, ext]:
         for env in top:
-            if not env in ret:
+            if env not in ret:
                 ret[env] = top[env]
             else:
                 for match in top[env]:
-                    if not match in ret[env]:
+                    if match not in ret[env]:
                         ret[env][match] = top[env][match]
                     else:
                         ret[env][match].extend(top[env][match])
@@ -402,22 +471,25 @@ def single(fun, name, test=None, kwval_as='yaml', **kwargs):
     '''
     conflict = running()
     if conflict:
+        __context__['retcode'] = 1
         return conflict
     comps = fun.split('.')
     if len(comps) < 2:
+        __context__['retcode'] = 1
         return 'Invalid function passed'
     kwargs.update({'state': comps[0],
                    'fun': comps[1],
                    '__id__': name,
                    'name': name})
     opts = copy.copy(__opts__)
-    if not test is None:
-        opts['test'] = test
+    if salt.utils.test_mode(test=test, **kwargs):
+        opts['test'] = True
     else:
         opts['test'] = None
     st_ = salt.state.State(opts)
     err = st_.verify_data(kwargs)
     if err:
+        __context__['retcode'] = 1
         return err
 
     if kwval_as == 'yaml':
@@ -429,6 +501,7 @@ def single(fun, name, test=None, kwval_as='yaml', **kwargs):
     elif kwval_as is None or kwval_as == 'verbatim':
         parse_kwval = lambda value: value
     else:
+        __context__['retcode'] = 1
         return 'Unknown format({0}) for state keyword arguments!'.format(
                 kwval_as)
 
@@ -436,5 +509,30 @@ def single(fun, name, test=None, kwval_as='yaml', **kwargs):
         if not key.startswith('__pub_'):
             kwargs[key] = parse_kwval(value)
 
-    return {'{0[state]}_|-{0[__id__]}_|-{0[name]}_|-{0[fun]}'.format(kwargs):
+    ret = {'{0[state]}_|-{0[__id__]}_|-{0[name]}_|-{0[fun]}'.format(kwargs):
             st_.call(kwargs)}
+    _set_retcode(ret)
+    return ret
+
+
+def clear_cache():
+    '''
+    Clear out cached state files, forcing even cache runs to refresh the cache
+    on the next state execution.
+
+    Remember that the state cache is completely disabled by default, this
+    execution only applies if cache=True is used in states
+
+    CLI Example::
+
+        salt '*' state.clear_cache
+    '''
+    ret = []
+    for fn_ in os.listdir(__opts__['cachedir']):
+        if fn_.endswith('.cache.p'):
+            path = os.path.join(__opts__['cachedir'], fn_)
+            if not os.path.isfile(path):
+                continue
+            os.remove(path)
+            ret.append(fn_)
+    return ret

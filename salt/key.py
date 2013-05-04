@@ -1,6 +1,6 @@
 '''
-The Salt Key backend api and interface used by the CLI. The Key class can be
-used to manage salt keys directly without interfacing with the cli.
+The Salt Key backend API and interface used by the CLI. The Key class can be
+used to manage salt keys directly without interfacing with the CLI.
 '''
 
 # Import python libs
@@ -16,7 +16,7 @@ import salt.utils.event
 
 class KeyCLI(object):
     '''
-    Manage key cli operations
+    Manage key CLI operations
     '''
     def __init__(self, opts):
         self.opts = opts
@@ -239,7 +239,7 @@ class Key(object):
             return
         keys = self.list_keys()
         for minion in os.listdir(m_cache):
-            if not minion in keys['minions']:
+            if minion not in keys['minions']:
                 shutil.rmtree(os.path.join(m_cache, minion))
 
     def check_master(self):
@@ -267,7 +267,7 @@ class Key(object):
         for status, keys in matches.items():
             for key in salt.utils.isorted(keys):
                 if fnmatch.fnmatch(key, match):
-                    if not status in ret:
+                    if status not in ret:
                         ret[status] = []
                     ret[status].append(key)
         return ret
@@ -398,6 +398,7 @@ class Key(object):
                 except (OSError, IOError):
                     pass
         self.check_minion_cache()
+        salt.crypt.dropfile(self.opts['cachedir'])
         return self.list_keys()
 
     def delete_all(self):
@@ -415,6 +416,7 @@ class Key(object):
                 except (OSError, IOError):
                     pass
         self.check_minion_cache()
+        salt.crypt.dropfile(self.opts['cachedir'])
         return self.list_keys()
 
     def reject(self, match):
@@ -442,6 +444,7 @@ class Key(object):
                 except (IOError, OSError):
                     pass
         self.check_minion_cache()
+        salt.crypt.dropfile(self.opts['cachedir'])
         return self.name_match(match)
 
     def reject_all(self):
@@ -468,6 +471,7 @@ class Key(object):
             except (IOError, OSError):
                 pass
         self.check_minion_cache()
+        salt.crypt.dropfile(self.opts['cachedir'])
         return self.list_keys()
 
     def finger(self, match):

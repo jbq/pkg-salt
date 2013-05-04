@@ -154,7 +154,7 @@ class Pillar(object):
         # Search initial top files for includes
         for env, ctops in tops.items():
             for ctop in ctops:
-                if not 'include' in ctop:
+                if 'include' not in ctop:
                     continue
                 for sls in ctop['include']:
                     include[env].append(sls)
@@ -197,13 +197,13 @@ class Pillar(object):
         Cleanly merge the top files
         '''
         top = collections.defaultdict(dict)
-        for sourceenv, ctops in tops.items():
+        for ctops in tops.values():
             for ctop in ctops:
                 for env, targets in ctop.items():
                     if env == 'include':
                         continue
                     for tgt in targets:
-                        if not tgt in top[env]:
+                        if tgt not in top[env]:
                             top[env][tgt] = ctop[env][tgt]
                             continue
                         matches = []
@@ -235,7 +235,7 @@ class Pillar(object):
         matches = {}
         for env, body in top.items():
             if self.opts['environment']:
-                if not env == self.opts['environment']:
+                if env != self.opts['environment']:
                     continue
             for match, data in body.items():
                 if self.matcher.confirm_top(

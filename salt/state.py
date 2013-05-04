@@ -372,7 +372,7 @@ class Compiler(object):
                 if chunk['order'] > cap - 1 and chunk['order'] > 0:
                     cap = chunk['order'] + 100
         for chunk in chunks:
-            if not 'order' in chunk:
+            if 'order' not in chunk:
                 chunk['order'] = cap
             else:
                 if not isinstance(chunk['order'], int):
@@ -394,7 +394,7 @@ class Compiler(object):
 
     def compile_high_data(self, high):
         '''
-        "Compile" the high data as it is retrieved from the cli or yaml into
+        "Compile" the high data as it is retrieved from the CLI or YAML into
         the individual state executor structures
         '''
         chunks = []
@@ -511,7 +511,7 @@ class State(object):
         mod_init function in the state module.
         '''
         minit = '{0}.mod_init'.format(low['state'])
-        if not low['state'] in self.mod_init:
+        if low['state'] not in self.mod_init:
             if minit in self.states:
                 mret = self.states[minit](low)
                 if not mret:
@@ -588,7 +588,7 @@ class State(object):
                     )
         bad = []
         for val in ['name', 'result', 'changes', 'comment']:
-            if not val in ret:
+            if val not in ret:
                 bad.append(val)
         if bad:
             raise SaltException(
@@ -653,7 +653,7 @@ class State(object):
             # to just require extend the require statement with the contents
             # of watch so that the mod_watch function is not called and the
             # requisite capability is still used
-            if not '{0}.mod_watch'.format(data['state']) in self.states:
+            if '{0}.mod_watch'.format(data['state']) not in self.states:
                 if 'require' in data:
                     data['require'].extend(data.pop('watch'))
                 else:
@@ -822,7 +822,7 @@ class State(object):
                 if chunk['order'] > cap - 1 and chunk['order'] > 0:
                     cap = chunk['order'] + 100
         for chunk in chunks:
-            if not 'order' in chunk:
+            if 'order' not in chunk:
                 chunk['order'] = cap
             else:
                 if not isinstance(chunk['order'], int):
@@ -891,7 +891,7 @@ class State(object):
 
     def compile_high_data(self, high):
         '''
-        "Compile" the high data as it is retrieved from the cli or yaml into
+        "Compile" the high data as it is retrieved from the CLI or YAML into
         the individual state executor structures
         '''
         chunks = []
@@ -952,9 +952,10 @@ class State(object):
                 if name not in high:
                     errors.append(
                         'Cannot extend ID {0} in "{1}:{2}". It is not part '
-                        'of the high state.'.format(name,
-                                                    body['__env__'],
-                                                    body['__sls__'])
+                        'of the high state.'.format(
+                            name,
+                            body.get('__env__', 'base'),
+                            body.get('__sls__', 'base'))
                         )
                     continue
                 for state, run in body.items():
@@ -1060,7 +1061,7 @@ class State(object):
                             continue
                         # Split out the components
                         key = next(iter(arg))
-                        if not key in req_in:
+                        if key not in req_in:
                             continue
                         rkey = key.split('_')[0]
                         items = arg[key]
@@ -1070,9 +1071,9 @@ class State(object):
 
                                 # Not a use requisite_in
                                 found = False
-                                if not name in extend:
+                                if name not in extend:
                                     extend[name] = {}
-                                if not _state in extend[name]:
+                                if _state not in extend[name]:
                                     extend[name][_state] = []
                                 extend[name]['__env__'] = body['__env__']
                                 extend[name]['__sls__'] = body['__sls__']
@@ -1108,9 +1109,9 @@ class State(object):
                                     if not ext_id:
                                         continue
                                     ext_args = state_args(ext_id, _state, high)
-                                    if not ext_id in extend:
+                                    if ext_id not in extend:
                                         extend[ext_id] = {}
-                                    if not _state in extend[ext_id]:
+                                    if _state not in extend[ext_id]:
                                         extend[ext_id][_state] = []
                                     ignore_args = req_in_all.union(ext_args)
                                     for arg in high[id_][state]:
@@ -1134,9 +1135,9 @@ class State(object):
                                     if not ext_id:
                                         continue
                                     loc_args = state_args(id_, state, high)
-                                    if not id_ in extend:
+                                    if id_ not in extend:
                                         extend[id_] = {}
-                                    if not state in extend[id_]:
+                                    if state not in extend[id_]:
                                         extend[id_][state] = []
                                     ignore_args = req_in_all.union(loc_args)
                                     for arg in high[ext_id][_state]:
@@ -1154,9 +1155,9 @@ class State(object):
                                         extend[id_][state].append(arg)
                                     continue
                                 found = False
-                                if not name in extend:
+                                if name not in extend:
                                     extend[name] = {}
-                                if not _state in extend[name]:
+                                if _state not in extend[name]:
                                     extend[name][_state] = []
                                 extend[name]['__env__'] = body['__env__']
                                 extend[name]['__sls__'] = body['__sls__']
@@ -1221,7 +1222,7 @@ class State(object):
                 'result': False,
                 'name': cdata['args'][0],
                 'changes': {},
-                'comment': 'An exception occured in this state: {0}'.format(
+                'comment': 'An exception occurred in this state: {0}'.format(
                     trb)
                 }
         ret['__run_num__'] = self.__run_num
@@ -1266,7 +1267,7 @@ class State(object):
         '''
         present = False
         if 'watch' in low:
-            if not '{0}.mod_watch'.format(low['state']) in self.states:
+            if '{0}.mod_watch'.format(low['state']) not in self.states:
                 if 'require' in low:
                     low['require'].extend(low.pop('watch'))
                 else:
@@ -1331,7 +1332,7 @@ class State(object):
             lost = {'require': [], 'watch': []}
             reqs = []
             for requisite in requisites:
-                if not requisite in low:
+                if requisite not in low:
                     continue
                 for req in low[requisite]:
                     req = trim_req(req)
@@ -1366,7 +1367,7 @@ class State(object):
                 if ctag not in running:
                     if ctag in self.active:
                         log.error('Recursive requisite found')
-                        if not ctag in running:
+                        if ctag not in running:
                             running[tag] = {
                                     'changes': {},
                                     'result': False,
@@ -1535,6 +1536,7 @@ class BaseHighState(object):
     def __init__(self, opts):
         self.opts = self.__gen_opts(opts)
         self.avail = self.__gather_avail()
+        self.serial = salt.payload.Serial(self.opts)
 
     def __gather_avail(self):
         '''
@@ -1616,7 +1618,7 @@ class BaseHighState(object):
         # Search initial top files for includes
         for env, ctops in tops.items():
             for ctop in ctops:
-                if not 'include' in ctop:
+                if 'include' not in ctop:
                     continue
                 for sls in ctop['include']:
                     include[env].append(sls)
@@ -1660,7 +1662,7 @@ class BaseHighState(object):
                     if env == 'include':
                         continue
                     for tgt in targets:
-                        if not tgt in top[env]:
+                        if tgt not in top[env]:
                             top[env][tgt] = ctop[env][tgt]
                             continue
                         matches = []
@@ -1736,7 +1738,7 @@ class BaseHighState(object):
         matches = {}
         for env, body in top.items():
             if self.opts['environment']:
-                if not env == self.opts['environment']:
+                if env != self.opts['environment']:
                     continue
             for match, data in body.items():
                 if self.matcher.confirm_top(
@@ -1782,16 +1784,25 @@ class BaseHighState(object):
         state = None
         try:
             state = compile_template(
-                fn_, self.state.rend, self.state.opts['renderer'], env, sls, rendered_sls=mods)
+                fn_, self.state.rend, self.state.opts['renderer'], env, sls,
+                rendered_sls=mods
+            )
         except Exception as exc:
-            import traceback
-            errors.append(('Rendering SLS {0} failed, render error:\n{1}\n{2}'
-                           .format(sls, traceback.format_exc(), exc)))
+            msg = 'Rendering SLS {0} failed, render error: {1}'.format(
+                sls, exc
+            )
+            log.error(
+                msg,
+                # Show the traceback if the debug logging level is enabled
+                exc_info=log.isEnabledFor(logging.DEBUG)
+            )
+            errors.append('{0}\n{1}'.format(msg, traceback.format_exc()))
         mods.add(sls)
         if state:
             if not isinstance(state, dict):
-                errors.append(('SLS {0} does not render to a dictionary'
-                               .format(sls)))
+                errors.append(
+                    'SLS {0} does not render to a dictionary'.format(sls)
+                )
             else:
                 include = []
                 if 'include' in state:
@@ -1925,6 +1936,10 @@ class BaseHighState(object):
     def _handle_extend(self, state, sls, env, errors):
         if 'extend' in state:
             ext = state.pop('extend')
+            if not isinstance(ext, dict):
+                errors.append(('Extension value in sls {0} is not a '
+                               'dictionary').format(sls))
+                return
             for name in ext:
                 if not isinstance(ext[name], dict):
                     errors.append(('Extension name {0} in sls {1} is '
@@ -2014,7 +2029,7 @@ class BaseHighState(object):
 
 
 
-    def call_highstate(self, exclude=None):
+    def call_highstate(self, exclude=None, cache=None, cache_name='highstate'):
         '''
         Run the sequence to execute the salt highstate for this minion
         '''
@@ -2028,7 +2043,16 @@ class BaseHighState(object):
                    '__run_num__': 0,
                    }
               }
+        cfn = os.path.join(
+                self.opts['cachedir'],
+                '{0}.cache.p'.format(cache_name)
+                )
 
+        if cache:
+            if os.path.isfile(cfn):
+                with open(cfn, 'r') as fp_:
+                    high = self.serial.load(fp_)
+                    return self.state.call_high(high)
         #File exists so continue
         err = []
         try:
@@ -2057,6 +2081,8 @@ class BaseHighState(object):
             return err
         if not high:
             return ret
+        with open(cfn, 'w+') as fp_:
+            self.serial.dump(high, fp_)
         return self.state.call_high(high)
 
     def compile_highstate(self):
