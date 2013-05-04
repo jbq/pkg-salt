@@ -13,6 +13,7 @@ import subprocess
 import functools
 import sys
 import json
+import yaml
 
 # Import salt libs
 import salt.utils
@@ -59,7 +60,7 @@ def _chugid(runas):
     # 08:46:17,481 [salt.loaded.int.module.cmdmod:59  ][DEBUG   ] Switching user 0 -> 1008 and group 0 -> 1012 if needed
     #
     # apparently because we closed fd's on Popen, though if not closed, output
-    # would also go to it's stderr
+    # would also go to its stderr
 
     if os.getgid() != uinfo.pw_gid:
         try:
@@ -158,7 +159,6 @@ def _run(cmd,
          stderr=subprocess.PIPE,
          quiet=False,
          runas=None,
-         with_env=True,
          shell=DEFAULT_SHELL,
          env=(),
          rstrip=True,
@@ -197,6 +197,19 @@ def _run(cmd,
 
     ret = {}
 
+    if not env:
+        env = {}
+    elif isinstance(env, basestring):
+        try:
+            env = yaml.safe_load(env)
+        except yaml.parser.ParserError as err:
+            log.error(err)
+            env = {}
+    if not isinstance(env, dict):
+        log.error('Invalid input: {0}, must be a dict or '
+                  'string - yaml represented dict'.format(env))
+        env = {}
+
     if runas and __grains__['os'] in disable_runas:
         msg = 'Sorry, {0} does not support runas functionality'
         raise CommandExecutionError(msg.format(__grains__['os']))
@@ -211,15 +224,28 @@ def _run(cmd,
         try:
             # Getting the environment for the runas user
             # There must be a better way to do this.
-            env_cmd = ('su -s {0} - {1} -c "{2} -c \'import os, json;'
-                       'print(json.dumps(os.environ.__dict__))\'"').format(
-                               shell, runas, sys.executable)
-            env = json.loads(
-                    subprocess.Popen(
-                        env_cmd,
-                        shell=True,
-                        stdout=subprocess.PIPE
-                        ).communicate()[0])['data']
+            py_code = 'import os, json;' \
+                      'print(json.dumps(os.environ.__dict__))'
+            if __grains__['os'] in ['MacOS', 'Darwin']:
+                env_cmd = ('sudo -i -u {1} -- "{2}"'
+                           ).format(shell, runas, sys.executable)
+            elif __grains__['os'] in ['FreeBSD']:
+                env_cmd = ('su - {1} -c "{0} -c \'{2}\'"'
+                           ).format(shell, runas, sys.executable)
+            else:
+                env_cmd = ('su -s {0} - {1} -c "{2}"'
+                           ).format(shell, runas, sys.executable)
+            env_json = subprocess.Popen(
+                env_cmd,
+                shell=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE
+            ).communicate(py_code)[0]
+            env_json = (filter(lambda x: x.startswith('{') and x.endswith('}'),
+                               env_json.splitlines()) or ['{}']).pop()
+            env_runas = json.loads(env_json).get('data', {})
+            env_runas.update(env)
+            env = env_runas
         except ValueError:
             msg = 'Environment could not be retrieved for User \'{0}\''.format(runas)
             raise CommandExecutionError(msg)
@@ -232,9 +258,6 @@ def _run(cmd,
                 cmd, 'as user {0!r} '.format(runas) if runas else '', cwd
             )
         )
-
-    if not env:
-        env = {}
 
     if not salt.utils.is_windows():
         # Default to C!
@@ -265,7 +288,10 @@ def _run(cmd,
         _umask = None
 
     if runas or umask:
-        kwargs['preexec_fn'] = functools.partial(_chugid_and_umask, runas, _umask)
+        kwargs['preexec_fn'] = functools.partial(
+                _chugid_and_umask,
+                runas,
+                _umask)
 
     if not salt.utils.is_windows():
         # close_fds is not supported on Windows platforms if you redirect
@@ -275,9 +301,9 @@ def _run(cmd,
 
     # Setting stdout to None seems to cause the Process to fail.
     # See bug #2640 for more info
-    if retcode:
+    #if retcode:
         #kwargs['stdout'] = None
-        kwargs['stderr'] = None
+        #kwargs['stderr'] = None
 
     # This is where the magic happens
     proc = subprocess.Popen(cmd, **kwargs)
@@ -286,7 +312,6 @@ def _run(cmd,
     if rstrip:
         if out is not None:
             out = out.rstrip()
-        # None lacks a rstrip() method
         if err is not None:
             err = err.rstrip()
 
@@ -297,24 +322,57 @@ def _run(cmd,
     return ret
 
 
-def _run_quiet(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(), template=None, umask=None):
+def _run_quiet(cmd,
+               cwd=None,
+               runas=None,
+               shell=DEFAULT_SHELL,
+               env=(),
+               template=None,
+               umask=None):
     '''
     Helper for running commands quietly for minion startup
     '''
-    return _run(cmd, runas=runas, cwd=cwd, stderr=subprocess.STDOUT,
-                quiet=True, shell=shell, env=env, template=template, umask=umask)['stdout']
+    return _run(cmd,
+                runas=runas,
+                cwd=cwd,
+                stderr=subprocess.STDOUT,
+                quiet=True,
+                shell=shell,
+                env=env,
+                template=template,
+                umask=umask)['stdout']
 
 
-def _run_all_quiet(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(), template=None, umask=None):
+def _run_all_quiet(cmd,
+                   cwd=None,
+                   runas=None,
+                   shell=DEFAULT_SHELL,
+                   env=(),
+                   template=None,
+                   umask=None):
     '''
     Helper for running commands quietly for minion startup.
     Returns a dict of return data
     '''
-    return _run(cmd, runas=runas, cwd=cwd, shell=shell, env=env, quiet=True, template=template, umask=umask)
+    return _run(cmd,
+                runas=runas,
+                cwd=cwd,
+                shell=shell,
+                env=env,
+                quiet=True,
+                template=template,
+                umask=umask)
 
 
-def run(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
-        template=None, rstrip=True, umask=None):
+def run(cmd,
+        cwd=None,
+        runas=None,
+        shell=DEFAULT_SHELL,
+        env=(),
+        template=None,
+        rstrip=True,
+        umask=None,
+        quiet=False):
     '''
     Execute the passed command and return the output as a string
 
@@ -329,15 +387,30 @@ def run(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
         salt '*' cmd.run template=jinja "ls -l /tmp/{{grains.id}} | awk '/foo/{print $2}'"
 
     '''
-    out = _run(cmd, runas=runas, shell=shell, cwd=cwd,
-               stderr=subprocess.STDOUT, env=env, template=template,
-               rstrip=rstrip, umask=umask)['stdout']
-    log.debug('output: {0}'.format(out))
+    out = _run(cmd,
+               runas=runas,
+               shell=shell,
+               cwd=cwd,
+               stderr=subprocess.STDOUT,
+               env=env,
+               template=template,
+               rstrip=rstrip,
+               umask=umask,
+               quiet=quiet)['stdout']
+    if not quiet:
+        log.debug('output: {0}'.format(out))
     return out
 
 
-def run_stdout(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
-               template=None, rstrip=True, umask=None):
+def run_stdout(cmd,
+               cwd=None,
+               runas=None,
+               shell=DEFAULT_SHELL,
+               env=(),
+               template=None,
+               rstrip=True,
+               umask=None,
+               quiet=False):
     '''
     Execute a command, and only return the standard out
 
@@ -352,14 +425,29 @@ def run_stdout(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
         salt '*' cmd.run_stdout template=jinja "ls -l /tmp/{{grains.id}} | awk '/foo/{print $2}'"
 
     '''
-    stdout = _run(cmd, runas=runas, cwd=cwd, shell=shell, env=env,
-                  template=template, rstrip=rstrip, umask=umask)["stdout"]
-    log.debug('stdout: {0}'.format(stdout))
+    stdout = _run(cmd,
+                  runas=runas,
+                  cwd=cwd,
+                  shell=shell,
+                  env=env,
+                  template=template,
+                  rstrip=rstrip,
+                  umask=umask,
+                  quiet=quiet)["stdout"]
+    if not quiet:
+        log.debug('stdout: {0}'.format(stdout))
     return stdout
 
 
-def run_stderr(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
-               template=None, rstrip=True, umask=None):
+def run_stderr(cmd,
+               cwd=None,
+               runas=None,
+               shell=DEFAULT_SHELL,
+               env=(),
+               template=None,
+               rstrip=True,
+               umask=None,
+               quiet=False):
     '''
     Execute a command and only return the standard error
 
@@ -374,14 +462,29 @@ def run_stderr(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
         salt '*' cmd.run_stderr template=jinja "ls -l /tmp/{{grains.id}} | awk '/foo/{print $2}'"
 
     '''
-    stderr = _run(cmd, runas=runas, cwd=cwd, shell=shell, env=env,
-                  template=template, rstrip=rstrip, umask=umask)["stderr"]
-    log.debug('stderr: {0}'.format(stderr))
+    stderr = _run(cmd,
+                  runas=runas,
+                  cwd=cwd,
+                  shell=shell,
+                  env=env,
+                  template=template,
+                  rstrip=rstrip,
+                  umask=umask,
+                  quiet=quiet)["stderr"]
+    if not quiet:
+        log.debug('stderr: {0}'.format(stderr))
     return stderr
 
 
-def run_all(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
-            template=None, rstrip=True, umask=None):
+def run_all(cmd,
+            cwd=None,
+            runas=None,
+            shell=DEFAULT_SHELL,
+            env=(),
+            template=None,
+            rstrip=True,
+            umask=None,
+            quiet=False):
     '''
     Execute the passed command and return a dict of return data
 
@@ -396,29 +499,43 @@ def run_all(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
         salt '*' cmd.run_all template=jinja "ls -l /tmp/{{grains.id}} | awk '/foo/{print $2}'"
 
     '''
-    ret = _run(cmd, runas=runas, cwd=cwd, shell=shell, env=env,
-               template=template, rstrip=rstrip, umask=umask)
+    ret = _run(cmd,
+               runas=runas,
+               cwd=cwd,
+               shell=shell,
+               env=env,
+               template=template,
+               rstrip=rstrip,
+               umask=umask,
+               quiet=quiet)
 
-    if ret['retcode'] != 0:
-        rcode = ret['retcode']
-        msg = 'Command \'{0}\' failed with return code: {1}'
-        log.error(msg.format(cmd, rcode))
-        # Don't log a blank line if there is no stderr or stdout
-        if ret['stdout']:
-            log.error('stdout: {0}'.format(ret['stdout']))
-        if ret['stderr']:
-            log.error('stderr: {0}'.format(ret['stderr']))
-    else:
-        # No need to always log output on success to the logs
-        if ret['stdout']:
-            log.debug('stdout: {0}'.format(ret['stdout']))
-        if ret['stderr']:
-            log.debug('stderr: {0}'.format(ret['stderr']))
+    if not quiet:
+        if ret['retcode'] != 0:
+            rcode = ret['retcode']
+            msg = 'Command \'{0}\' failed with return code: {1}'
+            log.error(msg.format(cmd, rcode))
+            # Don't log a blank line if there is no stderr or stdout
+            if ret['stdout']:
+                log.error('stdout: {0}'.format(ret['stdout']))
+            if ret['stderr']:
+                log.error('stderr: {0}'.format(ret['stderr']))
+        else:
+            # No need to always log output on success to the logs
+            if ret['stdout']:
+                log.debug('stdout: {0}'.format(ret['stdout']))
+            if ret['stderr']:
+                log.debug('stderr: {0}'.format(ret['stderr']))
     return ret
 
 
-def retcode(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
-            template=None, umask=None):
+def retcode(cmd,
+            cwd=None,
+            runas=None,
+            shell=DEFAULT_SHELL,
+            env=(),
+            template=None,
+            umask=None,
+            quiet=False):
     '''
     Execute a shell command and return the command's return code.
 
@@ -441,8 +558,8 @@ def retcode(cmd, cwd=None, runas=None, shell=DEFAULT_SHELL, env=(),
             env=env,
             retcode=True,
             template=template,
-            umask=umask
-            )['retcode']
+            umask=umask,
+            quiet=quiet)['retcode']
 
 
 def script(
@@ -471,12 +588,16 @@ def script(
         salt '*' cmd.script salt://scripts/runme.sh
         salt '*' cmd.script salt://scripts/runme.sh 'arg1 arg2 "arg 3"'
     '''
-    path = salt.utils.mkstemp(dir=cwd)
+    if not salt.utils.is_windows():
+        path = salt.utils.mkstemp(dir=cwd)
+    else:
+        path = __salt__['cp.cache_file'](source, env)
     if template:
         __salt__['cp.get_template'](source, path, template, env, **kwargs)
     else:
-        fn_ = __salt__['cp.cache_file'](source, env)
-        shutil.copyfile(fn_, path)
+        if not salt.utils.is_windows():
+            fn_ = __salt__['cp.cache_file'](source, env)
+            shutil.copyfile(fn_, path)
     if not salt.utils.is_windows():
         os.chmod(path, 320)
         os.chown(path, __salt__['file.user_to_uid'](runas), -1)

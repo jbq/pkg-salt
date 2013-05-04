@@ -40,7 +40,7 @@ def present(name,
            'result': True,
            'comment': 'User {0} is already present'.format(name)}
     # check if user exists
-    if __salt__['mongodb.user_exists'](name, user, password, host, port, database):
+    if __salt__['mongodb.user_exists'](name, user, password, host, port):
         return ret
 
     if __opts__['test']:

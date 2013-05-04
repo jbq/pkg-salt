@@ -35,6 +35,13 @@ import salt.utils
 from salt._compat import string_types
 log = logging.getLogger(__name__)
 
+# The SUB_EVENT set is for functions that require events fired based on
+# component executions, like the state system
+SUB_EVENT = set([
+            'state.highstate',
+            'state.sls',
+            ])
+
 
 class SaltEvent(object):
     '''
@@ -182,8 +189,8 @@ class SaltEvent(object):
         if self.cpush is True and self.push.closed is False:
             self.push.setsockopt(zmq.LINGER, 1)
             self.push.close()
-        # If socket's are not unregistered from a poller, nothing which touches
-        # that poller get's garbage collected. The Poller itself, it's
+        # If sockets are not unregistered from a poller, nothing which touches
+        # that poller gets garbage collected. The Poller itself, its
         # registered sockets and the Context
         for socket in self.poller.sockets.keys():
             if socket.closed is False:
@@ -338,7 +345,7 @@ class Reactor(multiprocessing.Process, salt.state.Compiler):
         Take in the tag from an event and return a list of the reactors to
         process
         '''
-        log.debug('Gathering rections for tag {0}'.format(tag))
+        log.debug('Gathering reactors for tag {0}'.format(tag))
         reactors = []
         if isinstance(self.opts['reactor'], basestring):
             try:
@@ -352,7 +359,7 @@ class Reactor(multiprocessing.Process, salt.state.Compiler):
                     )
             except Exception:
                 log.error(
-                    'Failed to parse yaml in reactor map: "{0}"'.format(
+                    'Failed to parse YAML in reactor map: "{0}"'.format(
                         self.opts['reactor']
                         )
                     )
@@ -423,8 +430,14 @@ class ReactWrap(object):
         '''
         l_fun = getattr(self, low['state'])
         f_call = salt.utils.format_call(l_fun, low)
-
-        ret = l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))
+        try:
+            ret = l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))
+        except Exception:
+            log.error(
+                    'Failed to execute {0}: {1}\n'.format(low['state'], l_fun),
+                    exc_info=True
+                    )
+            return ret
         return ret
 
     def cmd(self, *args, **kwargs):
@@ -486,7 +499,7 @@ class StateFire(object):
     def fire_running(self, running):
         '''
         Pass in a state "running" dict, this is the return dict from a state
-        call. The dict will be processesd and fire events.
+        call. The dict will be processed and fire events.
 
         By default yellows and reds fire events on the master and minion, but
         this can be configured.

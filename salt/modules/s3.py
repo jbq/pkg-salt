@@ -25,12 +25,6 @@ Connection module for Amazon S3
 '''
 
 # Import Python libs
-import hmac
-import hashlib
-import binascii
-import datetime
-import urllib
-import urllib2
 import logging
 
 # Import Salt libs
@@ -67,14 +61,15 @@ def delete(bucket, path=None, action=None, key=None, keyid=None,
                                path=path,
                                action=action,
                                key=key,
-                               keyid=keyid)
+                               keyid=keyid,
+                               service_url=service_url)
 
 
 def get(bucket=None, path=None, return_bin=False, action=None,
         local_file=None, key=None, keyid=None, service_url=None):
     '''
     List the contents of a bucket, or return an object from a bucket. Set
-    return_bin to True in order to retreive an object wholesale. Otherwise,
+    return_bin to True in order to retrieve an object wholesale. Otherwise,
     Salt will attempt to parse an XML response.
 
     CLI Example to list buckets::
@@ -122,7 +117,8 @@ def get(bucket=None, path=None, return_bin=False, action=None,
                                local_file=local_file,
                                action=action,
                                key=key,
-                               keyid=keyid)
+                               keyid=keyid,
+                               service_url=service_url)
 
 
 def head(bucket, path=None, key=None, keyid=None, service_url=None):
@@ -138,8 +134,10 @@ def head(bucket, path=None, key=None, keyid=None, service_url=None):
 
     return salt.utils.s3.query(method='HEAD',
                                bucket=bucket,
+                               path=path,
                                key=key,
-                               keyid=keyid)
+                               keyid=keyid,
+                               service_url=service_url)
 
 
 def put(bucket, path=None, return_bin=False, action=None, local_file=None,
@@ -164,7 +162,8 @@ def put(bucket, path=None, return_bin=False, action=None, local_file=None,
                                local_file=local_file,
                                action=action,
                                key=key,
-                               keyid=keyid)
+                               keyid=keyid,
+                               service_url=service_url)
 
 
 def _get_key(key, keyid, service_url):

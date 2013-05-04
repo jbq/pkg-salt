@@ -78,27 +78,6 @@ def manage_mode(mode):
     return mode
 
 
-def is_true(value=None):
-    '''
-    Returns a boolean value representing the "truth" of the value passed. The
-    rules for what is a ``True`` value are:
-
-        1. Numeric values greater than :strong:`0`
-        2. The string values :strong:`True` and :strong:`true`
-        3. Any object for which ``bool(obj)`` returns ``True``
-
-    CLI Example::
-
-        salt '*' config.is_true true
-    '''
-    if isinstance(value, (int, float)):
-        return value > 0
-    elif isinstance(value, basestring):
-        return str(value).lower() == 'true'
-    else:
-        return bool(value)
-
-
 def valid_fileproto(uri):
     '''
     Returns a boolean value based on whether or not the URI passed has a valid
@@ -145,7 +124,7 @@ def get(key, default=''):
     '''
     .. versionadded: 0.14
 
-    Attempt to retrive the named value from opts, pillar, grains of the master
+    Attempt to retrieve the named value from opts, pillar, grains of the master
     config, if the named value is not available return the passed default.
     The default return is an empty string.
 
@@ -154,7 +133,7 @@ def get(key, default=''):
 
     {'pkg': {'apache': 'httpd'}}
 
-    To retrive the value associated with the apache key in the pkg dict this
+    To retrieve the value associated with the apache key in the pkg dict this
     key can be passed:
 
     pkg:apache
@@ -171,16 +150,16 @@ def get(key, default=''):
         salt '*' pillar.get pkg:apache
     '''
     ret = salt.utils.traverse_dict(__opts__, key, '_|-')
-    if not ret == '_|-':
+    if ret != '_|-':
         return ret
     ret = salt.utils.traverse_dict(__grains__, key, '_|-')
-    if not ret == '_|-':
+    if ret != '_|-':
         return ret
     ret = salt.utils.traverse_dict(__pillar__, key, '_|-')
-    if not ret == '_|-':
+    if ret != '_|-':
         return ret
     ret = salt.utils.traverse_dict(__pillar__.get('master', {}), key, '_|-')
-    if not ret == '_|-':
+    if ret != '_|-':
         return ret
     return default
 

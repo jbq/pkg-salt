@@ -3,7 +3,7 @@
     salt.utils.parsers
     ~~~~~~~~~~~~~~~~~~
 
-    This is were all the black magic happens on all of salt's cli tools.
+    This is were all the black magic happens on all of salt's CLI tools.
 
     :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
     :copyright: © 2012 by the SaltStack Team, see AUTHORS for more details.
@@ -60,7 +60,8 @@ class OptionParserMeta(MixInMeta):
                 instance._mixin_setup_funcs.append(func)
 
             func = getattr(base, '_mixin_after_parsed', None)
-            if func is not None and func not in instance._mixin_after_parsed_funcs:
+            if func is not None and func not in \
+                    instance._mixin_after_parsed_funcs:
                 instance._mixin_after_parsed_funcs.append(func)
 
             # Mark process_<opt> functions with the base priority for sorting
@@ -109,6 +110,13 @@ class OptionParser(optparse.OptionParser):
 
         self.options, self.args = options, args
 
+        # Let's get some proper sys.stderr logging as soon as possible!!!
+        # This logging handler will be removed once the proper console or
+        # logfile logging is setup.
+        log.setup_temp_logger(
+            getattr(self.options, 'log_level', 'error')
+        )
+
         # Gather and run the process_<option> functions in the proper order
         process_option_funcs = []
         for option_key in options.__dict__.keys():
@@ -122,9 +130,11 @@ class OptionParser(optparse.OptionParser):
             try:
                 process_option_func()
             except Exception, err:
-                self.error('Error while processing {0}: {1}'.format(
-                    process_option_func, traceback.format_exc(err)
-                ))
+                self.error(
+                    'Error while processing {0}: {1}'.format(
+                        process_option_func, traceback.format_exc(err)
+                    )
+                )
 
         # Run the functions on self._mixin_after_parsed_funcs
         for mixin_after_parsed_func in self._mixin_after_parsed_funcs:
@@ -160,7 +170,7 @@ class OptionParser(optparse.OptionParser):
 
 class MergeConfigMixIn(object):
     '''
-    This mix-in will simply merge the cli passed options, by overriding the
+    This mix-in will simply merge the CLI-passed options, by overriding the
     configuration file loaded settings.
 
     This mix-in should run last.
@@ -259,7 +269,7 @@ class ConfigDirMixIn(object):
 class LogLevelMixIn(object):
     __metaclass__ = MixInMeta
     _mixin_prio_ = 10
-    _default_logging_level_ = "warning"
+    _default_logging_level_ = 'warning'
     _skip_console_logging_config_ = False
 
     def _mixin_setup(self):
@@ -718,7 +728,7 @@ class SyndicOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
         # Some of the opts need to be changed to match the needed opts
         # in the minion class.
         opts['master'] = opts['syndic_master']
-        opts['master_ip'] = utils.dns_check(opts['master'])
+        opts['master_ip'] = utils.dns_check(opts['master'], ipv6=opts['ipv6'])
 
         opts['master_uri'] = 'tcp://{0}:{1}'.format(
             opts['master_ip'], str(opts['master_port'])
@@ -1119,7 +1129,8 @@ class SaltCallOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
         )
 
     def _mixin_after_parsed(self):
-        if not self.args and not self.options.grains_run and not self.options.doc:
+        if not self.args and not self.options.grains_run \
+                and not self.options.doc:
             self.print_help()
             self.exit(1)
 
@@ -1142,10 +1153,9 @@ class SaltCallOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
             # delimited format
             if ',' in module_dir:
                 self.config.setdefault('module_dirs', []).extend(
-                    module_dir.split(',')
-                )
+                    os.path.abspath(x) for x in module_dir.split(','))
                 continue
-            self.config.setdefault('module_dirs', []).append(module_dir)
+            self.config.setdefault('module_dirs', []).append(os.path.abspath(module_dir))
 
 
 class SaltRunOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,

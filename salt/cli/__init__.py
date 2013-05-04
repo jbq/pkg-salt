@@ -126,6 +126,8 @@ class SaltCMD(parsers.SaltCMDOptionParser):
         else:
             # Determine the proper output method and run it
             salt.output.display_output(ret, out, self.config)
+        if not ret:
+            sys.exit(2)
 
     def _format_ret(self, full_ret):
         '''
@@ -268,7 +270,7 @@ class SaltRun(parsers.SaltRunOptionParser):
             runner._print_docs()
         else:
             # Run this here so SystemExit isn't raised anywhere else when
-            # someone tries to use the runners via the python api
+            # someone tries to use the runners via the python API
             try:
                 runner.run()
             except SaltClientError as exc:

@@ -33,11 +33,15 @@ Full list of builtin execution modules
     cp
     cron
     daemontools
+    darwin_sysctl
     data
     debconfmod
     debian_service
     disk
     djangomod
+    dnsmasq
+    dnsutil
+    dpkg
     ebuild
     eix
     event
@@ -56,10 +60,13 @@ Full list of builtin execution modules
     grains
     groupadd
     grub_legacy
+    guestfs
     hg
     hosts
+    img
     iptables
     keyboard
+    key
     keystone
     kmod
     kvm_hyper
@@ -70,16 +77,23 @@ Full list of builtin execution modules
     linux_lvm
     linux_sysctl
     locale
+    locate
+    logrotate
     makeconf
+    match
     mdadm
+    mine
     mongodb
     monit
     moosefs
     mount
+    munin
     mysql
     network
+    nfs3
     nginx
     nova
+    npm
     nzbget
     openbsdpkg
     openbsdservice
@@ -100,12 +114,17 @@ Full list of builtin execution modules
     puppet
     pw_group
     pw_user
+    qemu_img
+    qemu_nbd
+    quota
     rabbitmq
     reg
     ret
     rh_ip
     rh_service
+    rpm
     rvm
+    s3
     saltutil
     selinux
     service
@@ -125,6 +144,7 @@ Full list of builtin execution modules
     sysbench
     sysmod
     systemd
+    system
     test
     timezone
     tls

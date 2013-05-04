@@ -5,15 +5,8 @@ Execution of arbitrary commands.
 The cmd state module manages the enforcement of executed commands, this
 state can tell a command to run under certain circumstances.
 
-Available Functions
--------------------
 
-The ``run`` function
-
-run
-    Execute a command given certain conditions
-
-    A simple example:
+A simple example to execute a command:
 
     .. code-block:: yaml
 
@@ -30,8 +23,8 @@ syslog if there is no disk space:
       cmd.run:
         - unless: echo 'foo' > /tmp/.test
 
-Note that when executing a command or script, the state(ie, changed or not) of
-the command is unknown to Salt's state system. Therefore, by default, the
+Note that when executing a command or script, the state (i.e., changed or not)
+of the command is unknown to Salt's state system. Therefore, by default, the
 ``cmd`` state assumes that any command execution results in a changed state.
 
 This means that if a ``cmd`` state is watched by another state then the
@@ -48,14 +41,14 @@ a simple protocol described below:
     must be a string of key=value pairs delimited by spaces(no spaces on the
     sides of ``=``).
 
-    If it's JSON then it must be a JSON object(ie, {}).
+    If it's JSON then it must be a JSON object (e.g., {}).
     If it's key=value pairs then quoting may be used to include spaces.
     (Python's shlex module is used to parse the key=value string)
 
     Two special keys or attributes are recognized in the output::
 
-      changed: bool (ie, 'yes', 'no', 'true', 'false', case-insensitive)
-      comment: str  (ie, any string)
+      changed: bool (i.e., 'yes', 'no', 'true', 'false', case-insensitive)
+      comment: str  (i.e., any string)
 
     So, only if 'changed' is true then assume the command execution has changed
     the state, and any other key values or attributes in the output will be set
@@ -90,7 +83,7 @@ a simple protocol described below:
             - watch:
               - cmd: Run myscript
 
-    Note that if the ``cmd.wait`` state also specfies ``stateful: true``
+    Note that if the ``cmd.wait`` state also specifies ``stateful: true``
     it can then be watched by some other states as well.
 
 ``cmd.wait`` is not restricted to watching only cmd states. For example
@@ -126,6 +119,7 @@ import copy
 import json
 import shlex
 import logging
+import yaml
 
 # Import salt libs
 from salt.exceptions import CommandExecutionError
@@ -135,7 +129,7 @@ log = logging.getLogger(__name__)
 
 def _reinterpreted_state(state):
     '''
-    Re-interpret the state return by salt.sate.run using our protocol.
+    Re-interpret the state returned by salt.sate.run using our protocol.
     '''
     ret = state['changes']
     state['changes'] = {}
@@ -152,7 +146,7 @@ def _reinterpreted_state(state):
         data = json.loads(out)
         if not isinstance(data, dict):
             return _failout(state,
-                       'script JSON output must be a JSON object(ie, {})!')
+                       'script JSON output must be a JSON object (e.g., {})!')
         is_json = True
     except Exception:
         idx = out.rstrip().rfind('\n')
@@ -178,7 +172,7 @@ def _reinterpreted_state(state):
         for key in ret:
             data.setdefault(key, ret[key])
 
-        # if stdout is the state output in json, don't show it.
+        # if stdout is the state output in JSON, don't show it.
         # otherwise it contains the one line name=value pairs, strip it.
         data['stdout'] = '' if is_json else data.get('stdout', '')[:idx]
         state['changes'] = data
@@ -235,15 +229,15 @@ def _run_check(cmd_kwargs, onlyif, unless, cwd, user, group, shell):
 
 
 def wait(name,
-        onlyif=None,
-        unless=None,
-        cwd=None,
-        user=None,
-        group=None,
-        shell=None,
-        stateful=False,
-        umask=None,
-        **kwargs):
+         onlyif=None,
+         unless=None,
+         cwd=None,
+         user=None,
+         group=None,
+         shell=None,
+         stateful=False,
+         umask=None,
+         **kwargs):
     '''
     Run the given command only if the watch statement calls it
 
@@ -286,18 +280,18 @@ def wait(name,
 
 
 def wait_script(name,
-        source=None,
-        template=None,
-        onlyif=None,
-        unless=None,
-        cwd=None,
-        user=None,
-        group=None,
-        shell=None,
-        env=None,
-        stateful=False,
-        umask=None,
-        **kwargs):
+                source=None,
+                template=None,
+                onlyif=None,
+                unless=None,
+                cwd=None,
+                user=None,
+                group=None,
+                shell=None,
+                env=None,
+                stateful=False,
+                umask=None,
+                **kwargs):
     '''
     Download a script from a remote source and execute it only if a watch
     statement calls it.
@@ -365,6 +359,7 @@ def run(name,
         env=(),
         stateful=False,
         umask=None,
+        quiet=False,
         **kwargs):
     '''
     Run a command if certain circumstances are met
@@ -399,7 +394,11 @@ def run(name,
         environments are defined in the master config file.
 
     umask
-         The umask (in octal) to use when running the command.
+        The umask (in octal) to use when running the command.
+
+    quiet
+        The command will be executed quietly, meaning no log entries of the
+        actual command or its return data
 
     stateful
         The command being executed is expected to return data about executing
@@ -415,15 +414,46 @@ def run(name,
         return ret
 
     if env:
-        _env = {}
-        for var in env.split():
+        if isinstance(env, basestring):
             try:
-                key, val = var.split('=')
-                _env[key] = val
-            except ValueError:
-                ret['comment'] = 'Invalid enviromental var: "{0}"'.format(var)
-                return ret
-        env = _env
+                env = yaml.safe_load(env)
+            except Exception:
+                _env = {}
+                for var in env.split():
+                    try:
+                        key, val = var.split('=')
+                        _env[key] = val
+                    except ValueError:
+                        ret['comment'] = 'Invalid environmental var: "{0}"'.format(
+                                var)
+                        return ret
+                env = _env
+        elif isinstance(env, dict):
+            pass
+
+        elif isinstance(env, list):
+            _env = {}
+            for comp in env:
+                try:
+                    if isinstance(comp, basestring):
+                        _env.update(yaml.safe_load(comp))
+                    if isinstance(comp, dict):
+                        _env.update(comp)
+                    else:
+                        ret['comment'] = 'Invalid environmental var: "{0}"'.format(
+                                env)
+                        return ret
+                except Exception:
+                    _env = {}
+                    for var in comp.split():
+                        try:
+                            key, val = var.split('=')
+                            _env[key] = val
+                        except ValueError:
+                            ret['comment'] = 'Invalid environmental var: "{0}"'.format(
+                                    var)
+                            return ret
+            env = _env
 
     if HAS_GRP:
         pgid = os.getegid()
@@ -432,7 +462,8 @@ def run(name,
                   'runas': user,
                   'shell': shell or __grains__['shell'],
                   'env': env,
-                  'umask': umask}
+                  'umask': umask,
+                  'quiet': quiet}
 
     try:
         cret = _run_check(cmd_kwargs, onlyif, unless, cwd, user, group, shell)
@@ -462,18 +493,18 @@ def run(name,
 
 
 def script(name,
-        source=None,
-        template=None,
-        onlyif=None,
-        unless=None,
-        cwd=None,
-        user=None,
-        group=None,
-        shell=None,
-        env=None,
-        stateful=False,
-        umask=None,
-        **kwargs):
+           source=None,
+           template=None,
+           onlyif=None,
+           unless=None,
+           cwd=None,
+           user=None,
+           group=None,
+           shell=None,
+           env=None,
+           stateful=False,
+           umask=None,
+           **kwargs):
     '''
     Download a script from a remote source and execute it. The name can be the
     source or the source value can be defined.
@@ -599,21 +630,22 @@ def call(name, func, args=(), kws=None,
          **kwargs):
     '''
     Invoke a pre-defined Python function with arguments specified in the state
-    declaration. This function is mainly used by the :mod:`salt.renderers.pydsl`
-    renderer.
+    declaration. This function is mainly used by the
+    :mod:`salt.renderers.pydsl` renderer.
 
-    The intepretation of `onlyif` and `unless` arguments are identical to those
-    of :func:`salt.states.cmd.run`, and all other arguments(`cwd`, `runas`, ...)
-    allowed by `cmd.run` are allowed here, except that their effects apply only
-    to the commands specified in `onlyif` and `unless` rather than to the function
-    to be invoked.
+    The interpretation of `onlyif` and `unless` arguments are identical to
+    those of :func:`salt.states.cmd.run`, and all other arguments(`cwd`,
+    `runas`, ...) allowed by `cmd.run` are allowed here, except that their
+    effects apply only to the commands specified in `onlyif` and `unless`
+    rather than to the function to be invoked.
 
     In addition the `stateful` argument has no effects here.
 
     The return value of the invoked function will be interpreted as follows.
 
-    If it's a dictionary then it will be passed through to the state system, which
-    expects it to have the usual structure returned by any salt state function.
+    If it's a dictionary then it will be passed through to the state system,
+    which expects it to have the usual structure returned by any salt state
+    function.
 
     Otherwise, the return value(denoted as ``result`` in the code below) is
     expected to be a JSON serializable object, and this dictionary is returned:
@@ -653,14 +685,18 @@ def call(name, func, args=(), kws=None,
         ret.update(result)
         return ret
     else:
-        # result must be json serializable else we get an error
+        # result must be JSON serializable else we get an error
         ret['changes'] = {'retval': result}
         ret['result'] = True if result is None else bool(result)
         if isinstance(result, basestring):
             ret['comment'] = result
         return ret
 
-def wait_call(name, func, args=(), kws=None,
+
+def wait_call(name,
+              func,
+              args=(),
+              kws=None,
               onlyif=None,
               unless=None,
               stateful=False,
@@ -669,6 +705,7 @@ def wait_call(name, func, args=(), kws=None,
             'changes': {},
             'result': True,
             'comment': ''}
+
 
 def mod_watch(name, **kwargs):
     '''
@@ -693,7 +730,7 @@ def mod_watch(name, **kwargs):
     return {'name': name,
             'changes': {},
             'comment': ('cmd.{0} does not work with the watch requisite, '
-                       'please use cmd.wait of cmd.wait_script').format(
+                       'please use cmd.wait or cmd.wait_script').format(
                            kwargs['sfun']
                            ),
             'result': False}

@@ -48,7 +48,7 @@ def _pretty_size(size):
     while len(units) and size >= 1000:
         size = size / 1024.0
         units.pop()
-    return '{0}{1}'.format(round(size,1), units[-1])
+    return '{0}{1}'.format(round(size, 1), units[-1])
 
 def _parse_exclude(exclude_file):
     '''
@@ -110,12 +110,12 @@ def eclean_dist(destructive=False, package_names=False, size_limit=0,
         if exclude_file is not None:
             exclude = _parse_exclude(exclude_file)
 
-        if time_limit is not 0:
+        if time_limit != 0:
             time_limit = cli.parseTime(time_limit)
-        if size_limit is not 0:
+        if size_limit != 0:
             size_limit = cli.parseSize(size_limit)
 
-        clean_size=0
+        clean_size = 0
         engine = search.DistfilesSearch(lambda x: None)
         clean_me, saved, deprecated = engine.findDistfiles(
             destructive=destructive, package_names=package_names,
@@ -174,10 +174,10 @@ def eclean_pkg(destructive=False, package_names=False, time_limit=0,
         if exclude_file is not None:
             exclude = _parse_exclude(exclude_file)
 
-        if time_limit is not 0:
+        if time_limit != 0:
             time_limit = cli.parseTime(time_limit)
 
-        clean_size=0
+        clean_size = 0
         # findPackages requires one arg, but does nothing with it.
         # So we will just pass None in for the required arg
         clean_me = search.findPackages(None, destructive=destructive,

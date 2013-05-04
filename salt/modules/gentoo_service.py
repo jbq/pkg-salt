@@ -3,9 +3,6 @@ Top level package command wrapper, used to translate the os detected by the
 grains to the correct service manager
 '''
 
-# Import salt libs
-import salt.utils
-
 def __virtual__():
     '''
     Only work on systems which default to systemd
@@ -137,7 +134,7 @@ def disable(name, **kwargs):
 
 def enabled(name):
     '''
-    Return True if the named servioce is enabled, false otherwise
+    Return True if the named service is enabled, false otherwise
 
     CLI Example::
 
@@ -147,7 +144,7 @@ def enabled(name):
 
 def disabled(name):
     '''
-    Return True if the named servioce is enabled, false otherwise
+    Return True if the named service is enabled, false otherwise
 
     CLI Example::
 

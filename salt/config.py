@@ -22,6 +22,7 @@ except Exception:
 import salt.crypt
 import salt.loader
 import salt.utils
+import salt.utils.socket_util
 import salt.pillar
 
 log = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ DEFAULT_MINION_OPTS = {
     'user': 'root',
     'root_dir': '/',
     'pki_dir': '/etc/salt/pki/minion',
-    'id': socket.getfqdn(),
+    'id': None,
     'cachedir': '/var/cache/salt/minion',
     'cache_jobs': False,
     'conf_file': '/etc/salt/minion',
@@ -76,7 +77,10 @@ DEFAULT_MINION_OPTS = {
     'clean_dynamic_modules': True,
     'open_mode': False,
     'multiprocessing': True,
+    'mine_interval': 60,
     'ipc_mode': 'ipc',
+    'ipv6': False,
+    'file_buffer_size': 262144,
     'tcp_pub_port': 4510,
     'tcp_pull_port': 4511,
     'log_file': '/var/log/salt/minion',
@@ -92,7 +96,7 @@ DEFAULT_MINION_OPTS = {
     'state_verbose': True,
     'state_output': 'full',
     'acceptance_wait_time': 10,
-    'loop_interval': 60,
+    'loop_interval': 0.05,
     'dns_check': True,
     'verify_env': True,
     'grains': {},
@@ -104,6 +108,7 @@ DEFAULT_MINION_OPTS = {
     'recon_max': 5000,
     'win_repo_cachefile': 'salt://win/repo/winrepo.p',
     'pidfile': '/var/run/salt-minion.pid',
+    'range_server': 'range:80',
     'tcp_keepalive': True,
     'tcp_keepalive_idle': 300,
     'tcp_keepalive_cnt': -1,
@@ -136,6 +141,7 @@ DEFAULT_MASTER_OPTS = {
     'ext_pillar': [],
     'pillar_version': 2,
     'pillar_opts': True,
+    'peer': {},
     'syndic_master': '',
     'runner_dirs': [],
     'outputter_dirs': [],
@@ -162,6 +168,7 @@ DEFAULT_MASTER_OPTS = {
     'ext_job_cache': '',
     'master_ext_job_cache': '',
     'minion_data_cache': True,
+    'ipv6': False,
     'log_file': '/var/log/salt/master',
     'log_level': None,
     'log_level_logfile': None,
@@ -171,6 +178,7 @@ DEFAULT_MASTER_OPTS = {
     'log_fmt_logfile': _DFLT_LOG_FMT_LOGFILE,
     'log_granular_levels': {},
     'pidfile': '/var/run/salt-master.pid',
+    'publish_session': 86400,
     'cluster_masters': [],
     'cluster_mode': 'paranoid',
     'range_server': 'range:80',
@@ -360,6 +368,62 @@ def minion_config(path,
     return apply_minion_config(overrides, check_dns, defaults)
 
 
+def get_id():
+    '''
+    Guess the id of the minion.
+
+    - If socket.getfqdn() returns us something other than localhost, use it
+    - Check /etc/hosts for something that isn't localhost that maps to 127.*
+    - Look for a routeable / public IP
+    - A private IP is better than a loopback IP
+    - localhost may be better than killing the minion
+    '''
+
+    log.debug('Guessing ID. The id can be explicitly in set {0}'.format(
+            '/etc/salt/minion')
+            )
+    fqdn = socket.getfqdn()
+    if 'localhost' != fqdn:
+        log.info('Found minion id from getfqdn(): {0}'.format(fqdn))
+        return fqdn, False
+
+    # Can /etc/hosts help us?
+    try:
+        # TODO Add Windows host file support
+        with open('/etc/hosts') as f:
+            line = f.readline()
+            while line:
+                names = line.split()
+                ip = names.pop(0)
+                if ip.startswith('127.'):
+                    for name in names:
+                        if name != 'localhost':
+                            log.info(('Found minion id in hosts file: {0}'
+                                ).format(name))
+                            return name, False
+                line = f.readline()
+    except Exception:
+        pass
+
+    # What IP addresses do we have?
+    ip_addresses = [salt.utils.socket_util.IPv4Address(a) for a
+                    in salt.utils.socket_util.ip4_addrs()
+                    if not a.startswith('127.')]
+
+    for a in ip_addresses:
+        if not a.is_private:
+            log.info('Using public ip address for id: {0}'.format(a))
+            return a, True
+
+    if ip_addresses:
+        a = ip_addresses.pop(0)
+        log.info('Using private ip address for id: {0}'.format(a))
+        return a, True
+
+    log.error('No id found, falling back to localhost')
+    return 'localhost', False
+
+
 def apply_minion_config(overrides=None, check_dns=True, defaults=None):
     '''
     Returns minion configurations dict.
@@ -374,7 +438,13 @@ def apply_minion_config(overrides=None, check_dns=True, defaults=None):
     if len(opts['sock_dir']) > len(opts['cachedir']) + 10:
         opts['sock_dir'] = os.path.join(opts['cachedir'], '.salt-unix')
 
-    if 'append_domain' in opts:
+    # No ID provided. Will getfqdn save us?
+    using_ip_for_id = False
+    if opts['id'] is None:
+        opts['id'], using_ip_for_id = get_id()
+
+    # it does not make sense to append a domain to an IP based id
+    if not using_ip_for_id and 'append_domain' in opts:
         opts['id'] = _append_domain(opts)
 
     # Enabling open mode requires that the value be set to True, and
@@ -398,6 +468,16 @@ def apply_minion_config(overrides=None, check_dns=True, defaults=None):
             prepend_root_dirs.append(config_key)
 
     prepend_root_dir(opts, prepend_root_dirs)
+    if '__mine_interval' not in opts.get('schedule', {}):
+        if not 'schedule' in opts:
+            opts['schedule'] = {}
+        opts['schedule'] = {
+                '__mine_interval':
+                {
+                    'function': 'mine.update',
+                    'minutes': opts['mine_interval']
+                    }
+                }
     return opts
 
 
@@ -490,6 +570,16 @@ def apply_master_config(overrides=None, defaults=None):
         if isinstance(opts['file_ignore_glob'], str):
             opts['file_ignore_glob'] = [opts['file_ignore_glob']]
 
+    # Let's make sure `worker_threads` does not drop bellow 3 which has proven
+    # to make `salt.modules.publish` not work under the test-suite.
+    if opts['worker_threads'] < 3 and opts.get('peer', None):
+        log.warning(
+            'The \'worker_threads\' setting on {0!r} cannot be lower than 3. '
+            'Resetting it to the default value of 3.'.format(
+                opts['conf_file']
+            )
+        )
+        opts['worker_threads'] = 3
     return opts
 
 

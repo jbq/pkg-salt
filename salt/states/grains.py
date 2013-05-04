@@ -40,13 +40,13 @@ def present(name, value):
         return ret
     if __opts__['test']:
         ret['result'] = None
-        if not name in __grains__:
+        if name not in __grains__:
             ret['comment'] = 'Grain {0} is set to be added'.format(name)
         else:
             ret['comment'] = 'Grain {0} is set to be changed'.format(name)
         return ret
     grain = __salt__['grains.setval'](name, value)
-    if not grain == {name: value}:
+    if grain != {name: value}:
         ret['result'] = False
         ret['comment'] = 'Failed to set grain {0}'.format(name)
         return ret

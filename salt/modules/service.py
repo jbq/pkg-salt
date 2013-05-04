@@ -6,12 +6,10 @@ to this basic module
 # Import python libs
 import os
 
-# Import salt libs
-import salt.utils
-
 
 GRAINMAP = {
            'Arch': '/etc/rc.d',
+           'Arch ARM': '/etc/rc.d',
            'Debian': '/etc/init.d',
            'Fedora': '/etc/init.d',
            'RedHat': '/etc/init.d',
@@ -22,6 +20,7 @@ GRAINMAP = {
            'Amazon': '/etc/init.d',
            'SunOS': '/etc/init.d',
            'SUSE  Enterprise Server': '/etc/init.d',
+           'openSUSE': '/etc/init.d',
            'OEL': '/etc/init.d',
           }
 
@@ -41,6 +40,7 @@ def __virtual__():
                'Ubuntu',
                'Debian',
                'Arch',
+               'Arch ARM',
                'ALT',
                'OEL',
               ]
@@ -123,7 +123,7 @@ def get_all():
 
     CLI Example::
 
-        salt '*' service.get_al
+        salt '*' service.get_all
     '''
     if not os.path.isdir(GRAINMAP[__grains__['os']]):
         return []

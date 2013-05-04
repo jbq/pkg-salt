@@ -122,9 +122,6 @@ html, body, div, span, applet, object, iframe, h1, h2, h3, h4, h5, h6, p, blockq
 	-o-transition: all 0.2s ease; 
 	transition: all 0.2s ease; 
 }
-body {
-	font-family: 'Nexa Light'; 
-}
 .navbar .nav { 
 	float:right; 
 	margin: 0; 
@@ -232,6 +229,10 @@ h2.homeSecTitles {
 	width: auto; 
 }
 
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Nexa Light';
+}
+
 h2 {
 	font: 14px/24px 'Nexa XBold'; 
 	text-transform: uppercase; 
@@ -239,7 +240,7 @@ h2 {
 	margin-bottom: 0; 
 }
 p {
-	font: 14px/24px 'Nexa Light'; color: #313131; 
+	font-size: 14px; line-height: 24px; color: #313131; 
 }
 .lede {
 	text-align: center; 

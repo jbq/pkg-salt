@@ -2,12 +2,12 @@ import tempfile
 
 from saltunittest import TestCase, TestLoader, TextTestRunner
 
-from salt import config as sconfig
 from salt.modules import file as filemod
 from salt.modules import cmdmod
 
 filemod.__salt__ = {
     'cmd.run': cmdmod.run,
+    'cmd.run_all': cmdmod.run_all
 }
 
 SED_CONTENT = """test
@@ -32,7 +32,10 @@ class FileModuleTestCase(TestCase):
             filemod.sed(path, before, after, limit=limit)
 
             with open(path, 'rb') as newfile:
-                self.assertEquals(SED_CONTENT.replace(before, ''), newfile.read())
+                self.assertEquals(
+                    SED_CONTENT.replace(before, ''),
+                    newfile.read()
+                )
 
 
 if __name__ == "__main__":

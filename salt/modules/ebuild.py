@@ -11,6 +11,9 @@ i.e. ``'vim'`` will not work, ``'app-editors/vim'`` will.
 import logging
 import re
 
+# Import salt libs
+import salt.utils
+
 log = logging.getLogger(__name__)
 
 HAS_PORTAGE = False
@@ -132,7 +135,7 @@ def list_upgrades(refresh=True):
 
         salt '*' pkg.list_upgrades
     '''
-    if __salt__['config.is_true'](refresh):
+    if salt.utils.is_true(refresh):
         refresh_db()
     return _get_upgradable()
 
@@ -186,7 +189,7 @@ def list_pkgs(versions_as_list=False):
 
         salt '*' pkg.list_pkgs
     '''
-    versions_as_list = __salt__['config.is_true'](versions_as_list)
+    versions_as_list = salt.utils.is_true(versions_as_list)
     ret = {}
     pkgs = _vartree().dbapi.cpv_all()
     for cpv in pkgs:
@@ -281,7 +284,7 @@ def install(name=None,
             'kwargs': kwargs
         }
     ))
-    if __salt__['config.is_true'](refresh):
+    if salt.utils.is_true(refresh):
         refresh_db()
 
     pkg_params, pkg_type = __salt__['pkg_resource.parse_targets'](name,
@@ -389,7 +392,7 @@ def upgrade(refresh=True):
 
         salt '*' pkg.upgrade
     '''
-    if __salt__['config.is_true'](refresh):
+    if salt.utils.is_true(refresh):
         refresh_db()
 
     ret_pkgs = {}
@@ -438,7 +441,7 @@ def remove(pkg, slot=None, **kwargs):
     new_pkgs = list_pkgs()
 
     for pkg in old_pkgs:
-        if not pkg in new_pkgs:
+        if pkg not in new_pkgs:
             ret_pkgs.append(pkg)
 
     return ret_pkgs
@@ -487,7 +490,7 @@ def depclean(pkg=None, slot=None):
     new_pkgs = list_pkgs()
 
     for pkg in old_pkgs:
-        if not pkg in new_pkgs:
+        if pkg not in new_pkgs:
             ret_pkgs.append(pkg)
 
     return ret_pkgs

@@ -17,6 +17,7 @@ import sys
 # Import salt libs
 import salt.payload
 import salt.state
+from salt.exceptions import SaltReqTimeoutError
 from salt._compat import string_types
 
 # Import third party libs
@@ -180,7 +181,7 @@ def update(version=None):
             'restarted': restarted}
 
 
-def sync_modules(env=None):
+def sync_modules(env=None, refresh=True):
     '''
     Sync the modules from the _modules directory on the salt master file
     server. This function is environment aware, pass the desired environment
@@ -191,10 +192,13 @@ def sync_modules(env=None):
 
         salt '*' saltutil.sync_modules
     '''
-    return _sync('modules', env)
+    ret = _sync('modules', env)
+    if refresh:
+        refresh_modules()
+    return ret
 
 
-def sync_states(env=None):
+def sync_states(env=None, refresh=True):
     '''
     Sync the states from the _states directory on the salt master file
     server. This function is environment aware, pass the desired environment
@@ -205,10 +209,13 @@ def sync_states(env=None):
 
         salt '*' saltutil.sync_states
     '''
-    return _sync('states', env)
+    ret = _sync('states', env)
+    if refresh:
+        refresh_modules()
+    return ret
 
 
-def sync_grains(env=None):
+def sync_grains(env=None, refresh=True):
     '''
     Sync the grains from the _grains directory on the salt master file
     server. This function is environment aware, pass the desired environment
@@ -219,10 +226,13 @@ def sync_grains(env=None):
 
         salt '*' saltutil.sync_grains
     '''
-    return _sync('grains', env)
+    ret = _sync('grains', env)
+    if refresh:
+        refresh_modules()
+    return ret
 
 
-def sync_renderers(env=None):
+def sync_renderers(env=None, refresh=True):
     '''
     Sync the renderers from the _renderers directory on the salt master file
     server. This function is environment aware, pass the desired environment
@@ -233,10 +243,13 @@ def sync_renderers(env=None):
 
         salt '*' saltutil.sync_renderers
     '''
-    return _sync('renderers', env)
+    ret = _sync('renderers', env)
+    if refresh:
+        refresh_modules()
+    return ret
 
 
-def sync_returners(env=None):
+def sync_returners(env=None, refresh=True):
     '''
     Sync the returners from the _returners directory on the salt master file
     server. This function is environment aware, pass the desired environment
@@ -247,10 +260,13 @@ def sync_returners(env=None):
 
         salt '*' saltutil.sync_returners
     '''
-    return _sync('returners', env)
+    ret = _sync('returners', env)
+    if refresh:
+        refresh_modules()
+    return ret
 
 
-def sync_outputters(env=None):
+def sync_outputters(env=None, refresh=True):
     '''
     Sync the outputters from the _outputters directory on the salt master file
     server. This function is environment aware, pass the desired environment
@@ -261,10 +277,13 @@ def sync_outputters(env=None):
 
         salt '*' saltutil.sync_outputters
     '''
-    return _sync('outputters', env)
+    ret = _sync('outputters', env)
+    if refresh:
+        refresh_modules()
+    return ret
 
 
-def sync_all(env=None):
+def sync_all(env=None, refresh=True):
     '''
     Sync down all of the dynamic modules from the file server for a specific
     environment
@@ -273,32 +292,39 @@ def sync_all(env=None):
 
         salt '*' saltutil.sync_all
     '''
-    logging.debug("Syncing all")
+    logging.debug('Syncing all')
     ret = []
-    ret.append(sync_modules(env))
-    ret.append(sync_states(env))
-    ret.append(sync_grains(env))
-    ret.append(sync_renderers(env))
-    ret.append(sync_returners(env))
-    ret.append(sync_outputters(env))
+    ret.append(sync_modules(env, False))
+    ret.append(sync_states(env, False))
+    ret.append(sync_grains(env, False))
+    ret.append(sync_renderers(env, False))
+    ret.append(sync_returners(env, False))
+    ret.append(sync_outputters(env, False))
+    if refresh:
+        refresh_modules()
     return ret
 
 
 def refresh_pillar():
     '''
-    Queue the minion to refresh the pillar data.
+    Signal the minion to refresh the pillar data.
 
     CLI Example::
 
         salt '*' saltutil.refresh_pillar
     '''
-    mod_file = os.path.join(__opts__['cachedir'], 'module_refresh')
-    try:
-        with salt.utils.fopen(mod_file, 'a+') as ofile:
-            ofile.write('pillar')
-        return True
-    except IOError:
-        return False
+    __salt__['event.fire']({}, 'pillar_refresh')
+
+
+def refresh_modules():
+    '''
+    Signal the minion to refresh the module and grain data
+
+    CLI Example::
+
+        salt '*' saltutil.refresh_modules
+    '''
+    __salt__['event.fire']({}, 'module_refresh')
 
 
 def is_running(fun):
@@ -411,3 +437,27 @@ def kill_job(jid):
         salt '*' saltutil.kill_job <job id>
     '''
     return signal_job(jid, signal.SIGKILL)
+
+
+def revoke_auth():
+    '''
+    The minion sends a request to the master to revoke its own key, note that
+    the minion session will be revoked and the minion may not be able to return
+    the result o this command back to the master.
+
+    CLI Example::
+
+        salt '*' saltutil.revoke_key
+    '''
+    sreq = salt.payload.SREQ(__opts__['master_uri'])
+    auth = salt.crypt.SAuth(__opts__)
+    tok = auth.gen_token('salt')
+    load = {'cmd': 'revoke_auth',
+            'id': __opts__['id'],
+            'tok': tok}
+    try:
+        return auth.crypticle.loads(
+                sreq.send('aes', auth.crypticle.dumps(load), 1))
+    except SaltReqTimeoutError:
+        return False
+    return False

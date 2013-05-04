@@ -147,7 +147,7 @@ def managed(name, **kwargs):
        option only needs to be set on one repo managed by salt to take effect.
 
     require_in
-        Set this to a list of pkg.installed or pkg.lastest to trigger the
+        Set this to a list of pkg.installed or pkg.latest to trigger the
         running of apt-get update prior to attempting to install these
         packages. Setting a require in the pkg will not work for this.
     '''
@@ -162,6 +162,11 @@ def managed(name, **kwargs):
 
     for kwarg in kwargs.keys():
         if kwarg == 'name':
+            if 'ppa' in kwargs:
+                ret['result'] = False
+                ret['comment'] = 'You may not use both the "name" argument ' \
+                                 'and the "ppa" argument.'
+                return ret
             repokwargs['repo'] = kwargs[kwarg]
         elif kwarg == 'ppa' and __grains__['os'] == 'Ubuntu':
             # overload the name/repo value for PPAs cleanly
@@ -180,18 +185,26 @@ def managed(name, **kwargs):
         repokwargs['repo'] = name
 
     try:
-        repo = __salt__['pkg.get_repo'](repokwargs['repo'],
-                                        repokwargs.get('ppa_auth', None))
+        repo = __salt__['pkg.get_repo'](
+                repokwargs['repo'],
+                ppa_auth=repokwargs.get('ppa_auth', None)
+                )
     except:
         pass
 
+    # this is because of how apt-sources works.  This pushes distro logic
+    # out of the state itself and into a module that it makes more sense
+    # to use.  Most package providers will simply return the data provided
+    # it doesn't require any "specialized" data massaging.
+    sanitizedkwargs = __salt__['pkg.expand_repo_def'](repokwargs)
+
     if repo:
         notset = False
-        for kwarg in repokwargs:
+        for kwarg in sanitizedkwargs:
             if kwarg not in repo.keys():
                 notset = True
             else:
-                if repokwargs[kwarg] != repo[kwarg]:
+                if sanitizedkwargs[kwarg] != repo[kwarg]:
                     notset = True
         if notset is False:
             ret['comment'] = 'Package repo {0} already configured'.format(name)
@@ -212,7 +225,7 @@ def managed(name, **kwargs):
         repodict = __salt__['pkg.get_repo'](repokwargs['repo'], 
                                             repokwargs.get('ppa_auth', None))
         if repo:
-            for kwarg in repokwargs:
+            for kwarg in sanitizedkwargs:
                 if repodict.get(kwarg) != repo.get(kwarg):
                     change = {'new': repodict[kwarg],
                               'old': repo.get(kwarg)}

@@ -4,39 +4,40 @@ Support for Tomcat
 This module uses the manager webapp to manage Apache tomcat webapps
 If the manager webapp is not configured some of the functions won't work
 
-The following grains should be set
-tomcat-manager:
-  user: admin user name
-  passwd: password
+The following grains/pillar should be set::
 
-or use pillar:
-tomcat-manager.user: admin user name
-tomcat-manager.passwd: password
+    tomcat-manager.user: admin user name
+    tomcat-manager.passwd: password
 
-and also configure a user in the conf/tomcat-users.xml file:
-<?xml version='1.0' encoding='utf-8'?>
-<tomcat-users>
- <role rolename="manager-script"/>
- <user username="tomcat" password="tomcat" roles="manager-script"/>
-</tomcat-users>
+and also configure a user in the conf/tomcat-users.xml file::
+
+    <?xml version='1.0' encoding='utf-8'?>
+    <tomcat-users>
+        <role rolename="manager-script"/>
+        <user username="tomcat" password="tomcat" roles="manager-script"/>
+    </tomcat-users>
 
 Notes:
-- More information about tomcat manager: http://tomcat.apache.org/tomcat-7.0-doc/manager-howto.html
-- if you use only this module for deployments you've might want to strict access to the manager only from localhost
-  for more info: http://tomcat.apache.org/tomcat-7.0-doc/manager-howto.html#Configuring_Manager_Application_Access
+
+- More information about tomcat manager:
+  http://tomcat.apache.org/tomcat-7.0-doc/manager-howto.html
+- if you use only this module for deployments you've might want to strict
+  access to the manager only from localhost for more info:
+  http://tomcat.apache.org/tomcat-7.0-doc/manager-howto.html#Configuring_Manager_Application_Access
 - Tested on:
-    JVM Vendor:
-        Sun Microsystems Inc.
-    JVM Version:
-        1.6.0_43-b01
-    OS Architecture:
-        amd64
-    OS Name:
-        Linux
-    OS Version:
-        2.6.32-358.el6.x86_64
-    Tomcat Version:
-        Apache Tomcat/7.0.37
+
+  JVM Vendor:
+      Sun Microsystems Inc.
+  JVM Version:
+      1.6.0_43-b01
+  OS Architecture:
+      amd64
+  OS Name:
+      Linux
+  OS Version:
+      2.6.32-358.el6.x86_64
+  Tomcat Version:
+      Apache Tomcat/7.0.37
 '''
 
 # Import python libs
@@ -49,6 +50,7 @@ import os
 # Import Salt libs
 import salt.utils
 
+# Private
 def __virtual__():
     '''
     Only load tomcat if it is installed or if grains/pillar config exists
@@ -78,12 +80,12 @@ def _auth(uri):
     If user & pass are missing return False
     '''
     try:
-        user = __grains__['tomcat-manager']['user']
-        password = __grains__['tomcat-manager']['passwd']
+        user = __grains__['tomcat-manager.user']
+        password = __grains__['tomcat-manager.passwd']
     except KeyError:
         try:
-            user = salt.utils.option('tomcat-manager.user' ,'' ,__opts__ , __pillar__)
-            password = salt.utils.option('tomcat-manager.passwd' ,'' ,__opts__ , __pillar__)
+            user = salt.utils.option('tomcat-manager.user', '', __opts__, __pillar__)
+            password = salt.utils.option('tomcat-manager.passwd', '', __opts__, __pillar__)
         except Exception:
             return False
     
@@ -97,20 +99,26 @@ def _auth(uri):
     return urllib2.build_opener(basic, digest)
     
 
-def _wget(cmd, opts={}, url='http://localhost:8080/manager'):
+def _wget(cmd, opts=None, url='http://localhost:8080/manager', timeout=180):
     '''
     A private function used to issue the command to tomcat via the manager webapp
     
-    cmd: the command to execute
-    url: the url of the server manager webapp
+    cmd
+        the command to execute
+    url
+        the url of the server manager webapp
         example: http://localhost:8080/manager
-    opts: a dict of arguments
+    opts
+        a dict of arguments
+    timeout
+        timeout for http request
     
-    return value is a dict in the from of
-    {
-        res: [True|False]
-        msg: list of lines we got back from the manager
-    }
+    return value is a dict in the from of::
+
+        {
+            res: [True|False]
+            msg: list of lines we got back from the manager
+        }
     '''
     
     ret = {
@@ -136,7 +144,7 @@ def _wget(cmd, opts={}, url='http://localhost:8080/manager'):
     urllib2.install_opener(auth)
     
     try:
-        ret['msg'] = urllib2.urlopen(url).read().splitlines()
+        ret['msg'] = urllib2.urlopen(url, timeout=timeout).read().splitlines()
         if not ret['msg'][0].startswith('OK'):
             ret['res'] = False
     except Exception:
@@ -145,7 +153,8 @@ def _wget(cmd, opts={}, url='http://localhost:8080/manager'):
     
     return ret
 
-def _simple_cmd(cmd, app, url='http://localhost:8080/manager'):
+
+def _simple_cmd(cmd, app, url='http://localhost:8080/manager', timeout=180):
     '''
     Simple command wrapper to commands that need only a path option
     '''
@@ -155,16 +164,37 @@ def _simple_cmd(cmd, app, url='http://localhost:8080/manager'):
             'path': app,
             'version': ls(url)[app]['version']
         }
-        return '\n'.join(_wget(cmd,opts,url)['msg'])
+        return '\n'.join(_wget(cmd, opts, url, timeout=timeout)['msg'])
     except Exception:
         return 'FAIL - No context exists for path {0}'.format(app)
 
-def status(url='http://localhost:8080/manager'):
+
+# Functions
+def leaks(url='http://localhost:8080/manager', timeout=180):
+    '''
+    Find memory leaks in tomcat
+    
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout : 180
+        timeout for http request
+    
+    CLI Examples::
+        
+        salt '*' tomcat.leaks
+    '''
+    
+    return '\n'.join(_wget('findleaks', {'statusLine': 'true'}, url, timeout=timeout)['msg'])
+
+
+def status(url='http://localhost:8080/manager', timeout=180):
     '''
     Used to test if the tomcat manager is up
     
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout : 180
+        timeout for http request
     
     CLI Examples::
         
@@ -172,15 +202,17 @@ def status(url='http://localhost:8080/manager'):
         salt '*' tomcat.status http://localhost:8080/manager
     '''
     
-    return _wget('list',{},url)['res']
+    return _wget('list', {}, url, timeout=timeout)['res']
 
 
-def ls(url='http://localhost:8080/manager'):
+def ls(url='http://localhost:8080/manager', timeout=180):
     '''
     list all the deployed webapps
     
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout : 180
+        timeout for http request
     
     CLI Examples::
         
@@ -189,7 +221,7 @@ def ls(url='http://localhost:8080/manager'):
     '''
     
     ret = {}
-    data = _wget('list','',url)
+    data = _wget('list', '', url, timeout=timeout)
     if data['res'] == False:
         return {}
     data['msg'].pop(0)
@@ -208,13 +240,16 @@ def ls(url='http://localhost:8080/manager'):
     return ret
 
 
-def stop(app, url='http://localhost:8080/manager'):
+def stop(app, url='http://localhost:8080/manager', timeout=180):
     '''
     Stop the webapp
     
-    app: the webapp context path
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
+    app
+        the webapp context path
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout : 180
+        timeout for http request
     
     CLI Examples::
         
@@ -222,16 +257,19 @@ def stop(app, url='http://localhost:8080/manager'):
         salt '*' tomcat.stop /jenkins http://localhost:8080/manager
     '''
     
-    return _simple_cmd('stop', app, url)
+    return _simple_cmd('stop', app, url, timeout=timeout)
 
 
-def start(app, url='http://localhost:8080/manager'):
+def start(app, url='http://localhost:8080/manager', timeout=180):
     '''
     Start the webapp
     
-    app: the webapp context path
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
+    app
+        the webapp context path
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout
+        timeout for http request
     
     CLI Examples::
         
@@ -239,16 +277,19 @@ def start(app, url='http://localhost:8080/manager'):
         salt '*' tomcat.start /jenkins http://localhost:8080/manager
     '''
     
-    return _simple_cmd('start', app, url)
+    return _simple_cmd('start', app, url, timeout=timeout)
 
 
-def reload(app, url='http://localhost:8080/manager'):
+def reload(app, url='http://localhost:8080/manager', timeout=180):
     '''
     Reload the webapp
     
-    app: the webapp context path
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
+    app
+        the webapp context path
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout : 180
+        timeout for http request
     
     CLI Examples::
         
@@ -256,16 +297,19 @@ def reload(app, url='http://localhost:8080/manager'):
         salt '*' tomcat.reload /jenkins http://localhost:8080/manager
     '''
     
-    return _simple_cmd('reload', app, url)
+    return _simple_cmd('reload', app, url, timeout=timeout)
 
 
-def sessions(app, url='http://localhost:8080/manager'):
+def sessions(app, url='http://localhost:8080/manager', timeout=180):
     '''
     return the status of the webapp sessions
     
-    app: the webapp context path
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
+    app
+        the webapp context path
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout : 180
+        timeout for http request
     
     CLI Examples::
         
@@ -273,16 +317,19 @@ def sessions(app, url='http://localhost:8080/manager'):
         salt '*' tomcat.sessions /jenkins http://localhost:8080/manager
     '''
     
-    return _simple_cmd('sessions', app, url)
+    return _simple_cmd('sessions', app, url, timeout=timeout)
 
 
-def status_webapp(app, url='http://localhost:8080/manager'):
+def status_webapp(app, url='http://localhost:8080/manager', timeout=180):
     '''
     return the status of the webapp (stopped | running | missing)
     
-    app: the webapp context path
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
+    app
+        the webapp context path
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout : 180
+        timeout for http request
     
     CLI Examples::
         
@@ -290,7 +337,7 @@ def status_webapp(app, url='http://localhost:8080/manager'):
         salt '*' tomcat.status_webapp /jenkins http://localhost:8080/manager
     '''
     
-    webapps = ls(url)
+    webapps = ls(url, timeout=timeout)
     for i in webapps:
         if i == app:
             return webapps[i]['mode']
@@ -298,12 +345,14 @@ def status_webapp(app, url='http://localhost:8080/manager'):
     return 'missing'
 
 
-def serverinfo(url='http://localhost:8080/manager'):
+def serverinfo(url='http://localhost:8080/manager', timeout=180):
     '''
     return detailes about the server
     
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout : 180
+        timeout for http request
     
     CLI Examples::
         
@@ -311,7 +360,7 @@ def serverinfo(url='http://localhost:8080/manager'):
         salt '*' tomcat.serverinfo http://localhost:8080/manager
     '''
     
-    data = _wget('serverinfo',{},url)
+    data = _wget('serverinfo', {}, url, timeout=timeout)
     if data['res'] == False:
         return {'error': data['msg'][0]}
     
@@ -324,13 +373,16 @@ def serverinfo(url='http://localhost:8080/manager'):
     return ret
 
 
-def undeploy(app, url='http://localhost:8080/manager'):
+def undeploy(app, url='http://localhost:8080/manager', timeout=180):
     '''
     Undeploy a webapp
     
-    app: the webapp context path
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
+    app
+        the webapp context path
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    timeout : 180
+        timeout for http request
     
     CLI Examples::
         
@@ -338,20 +390,27 @@ def undeploy(app, url='http://localhost:8080/manager'):
         salt '*' tomcat.undeploy /jenkins http://localhost:8080/manager
     '''
     
-    return _simple_cmd('undeploy', app, url)
+    return _simple_cmd('undeploy', app, url, timeout=timeout)
 
-def deploy_war(war, context, force='no', url='http://localhost:8080/manager', env='base'):
+
+def deploy_war(war, context, force='no', url='http://localhost:8080/manager', env='base', timeout=180):
     '''
-    Deploy a war file
+    Deploy a WAR file
     
-    war: absolute path to war file (should be accessable by the user running tomcat)
-         or a path supported by the salt.modules.cp.get_file function
-    context: the context path to deploy
-    force: set True to deploy the webapp even one is deployed in the context
-        default: False
-    url: the url of the server manager webapp
-        default: http://localhost:8080/manager
-    env: the environment for war file in used by salt.modules.cp.get_file function
+    war
+        absolute path to WAR file (should be accessible by the user running
+        tomcat) or a path supported by the salt.modules.cp.get_file function
+    context
+        the context path to deploy
+    force : False
+        set True to deploy the webapp even one is deployed in the context
+    url : http://localhost:8080/manager
+        the url of the server manager webapp
+    env : base
+        the environment for WAR file in used by salt.modules.cp.get_file
+        function
+    timeout : 180
+        timeout for http request
     
     CLI Examples::
         
@@ -374,7 +433,7 @@ def deploy_war(war, context, force='no', url='http://localhost:8080/manager', en
             cached = __salt__['cp.get_file'](war, tfile, env)
             __salt__['file.set_mode'](cached, '0644')
         except Exception:
-            return 'FAIL - could not cache the war file'
+            return 'FAIL - could not cache the WAR file'
     
     # Prepare options
     opts = {
@@ -386,7 +445,11 @@ def deploy_war(war, context, force='no', url='http://localhost:8080/manager', en
         opts['update'] = 'true'
     
     # Deploy
-    res = '\n'.join(_wget('deploy',opts,url)['msg'])
+    deployed = _wget('deploy', opts, url, timeout=timeout)
+    if deployed['res'] == False:
+        res = deployed['msg']
+    else:
+        res = '\n'.join(deployed['msg'])
     
     # Cleanup
     if war[0] != '/':
@@ -394,6 +457,8 @@ def deploy_war(war, context, force='no', url='http://localhost:8080/manager', en
     
     return res
 
+
+# Non-Manager functions
 def version():
     '''
     Return server version from catalina.sh version
@@ -452,3 +517,4 @@ def signal(signal=None):
         __catalina_home(), valid_signals[signal]
     )
     __salt__['cmd.run'](cmd)
+

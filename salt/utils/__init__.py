@@ -8,6 +8,7 @@ import os
 import re
 import imp
 import sys
+import stat
 import time
 import shlex
 import shutil
@@ -22,6 +23,7 @@ import tempfile
 import subprocess
 import zmq
 from calendar import month_abbr as months
+import salt._compat
 
 try:
     import fcntl
@@ -255,7 +257,7 @@ def list_files(directory):
     '''
     ret = set()
     ret.add(directory)
-    for root, dirs, files in os.walk(directory):
+    for root, dirs, files in safe_walk(directory):
         for name in files:
             ret.add(os.path.join(root, name))
         for name in dirs:
@@ -304,33 +306,54 @@ def gen_mac(prefix='52:54:'):
     return mac[:-1]
 
 
-def dns_check(addr, safe=False):
+def ip_bracket(addr):
+    '''
+    Convert IP address representation to ZMQ (url) format. ZMQ expects
+    brackets around IPv6 literals, since they are used in URLs.
+    '''
+    if addr and ":" in addr and not addr.startswith('['):
+        return "[{0}]".format(addr)
+    return addr
+
+
+def dns_check(addr, safe=False, ipv6=False):
     '''
     Return the ip resolved by dns, but do not exit on failure, only raise an
-    exception.
+    exception. Obeys system preference for IPv4/6 address resolution.
     '''
+    error = False
     try:
-        socket.inet_aton(addr)
-    except socket.error:
-        # Not a valid ip adder, check DNS
-        try:
-            addr = socket.gethostbyname(addr)
-        except socket.gaierror:
-            err = ('This master address: \'{0}\' was previously resolvable '
-                   'but now fails to resolve! The previously resolved ip addr '
-                   'will continue to be used').format(addr)
-            if safe:
-                import salt.log
-                if salt.log.is_console_configured():
-                    # If logging is not configured it also means that either
-                    # the master or minion instance calling this hasn't even
-                    # started running
-                    logging.getLogger(__name__).error(err)
-                raise SaltClientError()
-            else:
-                err = err.format(addr)
-                sys.stderr.write(err)
-                sys.exit(42)
+        hostnames = socket.getaddrinfo(addr, None, socket.AF_UNSPEC,
+                                       socket.SOCK_STREAM)
+        if not hostnames:
+            error = True
+        else:
+            addr = False
+            for h in hostnames:
+                if h[0] == socket.AF_INET or (h[0] == socket.AF_INET6 and ipv6):
+                    addr = ip_bracket(h[4][0])
+                    break
+            if not addr:
+                error = True
+    except socket.gaierror:
+        error = True
+
+    if error:
+        err = ('This master address: \'{0}\' was previously resolvable '
+               'but now fails to resolve! The previously resolved ip addr '
+               'will continue to be used').format(addr)
+        if safe:
+            import salt.log
+            if salt.log.is_console_configured():
+                # If logging is not configured it also means that either
+                # the master or minion instance calling this hasn't even
+                # started running
+                logging.getLogger(__name__).error(err)
+            raise SaltClientError()
+        else:
+            err = err.format(addr)
+            sys.stderr.write(err)
+            sys.exit(42)
     return addr
 
 
@@ -338,17 +361,11 @@ def required_module_list(docstring=None):
     '''
     Return a list of python modules required by a salt module that aren't
     in stdlib and don't exist on the current pythonpath.
-
-    NOTE: this function expects docstring to include something like:
-    Required python modules: win32api, win32con, win32security, ntsecuritycon
     '''
-    ret = []
-    txt = 'Required python modules: '
-    data = docstring.splitlines() if docstring else []
-    mod_list = list(x for x in data if x.startswith(txt))
-    if not mod_list:
+    if not docstring:
         return []
-    modules = mod_list[0].replace(txt, '').split(', ')
+    ret = []
+    modules = parse_docstring(docstring).get('deps', [])
     for mod in modules:
         try:
             imp.find_module(mod)
@@ -830,6 +847,14 @@ def is_linux():
     return sys.platform.startswith('linux')
 
 
+@memoize
+def is_darwin():
+    '''
+    Simple function to return if a host is Darwin (OS X) or not
+    '''
+    return sys.platform.startswith('darwin')
+
+
 def check_ipc_path_max_len(uri):
     # The socket path is limited to 107 characters on Solaris and
     # Linux, and 103 characters on BSD-based systems.
@@ -858,12 +883,64 @@ def check_state_result(running):
     for host in running:
         if not isinstance(running[host], dict):
             return False
-        for tag, ret in running[host].items():
-            if not 'result' in ret:
+
+        if host.find('_|-') == 4:
+            # This is a single ret, no host associated
+            rets = running[host]
+        else:
+            rets = running[host].values()
+
+        for ret in rets:
+            if not isinstance(ret, dict):
+                return False
+            if 'result' not in ret:
                 return False
             if ret['result'] is False:
                 return False
     return True
+
+
+def test_mode(**kwargs):
+    '''
+    Examines the kwargs passed and returns True if any kwarg which matching
+    "Test" in any variation on capitalization (i.e. "TEST", "Test", "TeSt",
+    etc) contains a True value (as determined by salt.utils.is_true).
+    '''
+    for arg, value in kwargs.iteritems():
+        try:
+            if arg.lower() == 'test' and is_true(value):
+                return True
+        except AttributeError:
+            continue
+    return False
+
+
+def is_true(value=None):
+    '''
+    Returns a boolean value representing the "truth" of the value passed. The
+    rules for what is a "True" value are:
+
+        1. Integer/float values greater than 0
+        2. The string values "True" and "true"
+        3. Any object for which bool(obj) returns True
+    '''
+    # First, try int/float conversion
+    try:
+        value = int(value)
+    except (ValueError, TypeError):
+        pass
+    try:
+        value = float(value)
+    except (ValueError, TypeError):
+        pass
+
+    # Now check for truthiness
+    if isinstance(value, (int, float)):
+        return value > 0
+    elif isinstance(value, basestring):
+        return str(value).lower() == 'true'
+    else:
+        return bool(value)
 
 
 def rm_rf(path):
@@ -891,3 +968,141 @@ def rm_rf(path):
             raise
 
     shutil.rmtree(path, onerror=_onerror)
+
+
+def option(value, default='', opts=None, pillar=None):
+    '''
+    Pass in a generic option and receive the value that will be assigned
+    '''
+    if opts is None:
+        opts = {}
+    if pillar is None:
+        pillar = {}
+    if value in opts:
+        return opts[value]
+    if value in pillar.get('master', {}):
+        return pillar['master'][value]
+    if value in pillar:
+        return pillar[value]
+    return default
+
+
+def valid_url(url, protos):
+    '''
+    Return true if the passed URL is in the list of accepted protos
+    '''
+    if salt._compat.urlparse(url).scheme in protos:
+        return True
+    return False
+
+
+def parse_docstring(docstring):
+    '''
+    Parse a docstring into its parts.
+
+    Currently only parses dependencies, can be extended to parse whatever is
+    needed.
+
+    Parses into a dictionary:
+        {
+            'full': full docstring,
+            'deps': list of dependencies (empty list if none)
+        }
+    '''
+    # First try with regex search for :depends:
+    ret = {}
+    ret['full'] = docstring
+    regex = r'([ \t]*):depends:[ \t]+- (\w+)[^\n]*\n(\1[ \t]+- (\w+)[^\n]*\n)*'
+    match = re.search(regex, docstring, re.M)
+    if match:
+        deps = []
+        regex = r'- (\w+)'
+        for line in match.group(0).strip().splitlines():
+            deps.append(re.search(regex, line).group(1))
+        ret['deps'] = deps
+        return ret
+    # Try searching for a one-liner instead
+    else:
+        txt = 'Required python modules: '
+        data = docstring.splitlines()
+        dep_list = list(x for x in data if x.strip().startswith(txt))
+        if not dep_list:
+            ret['deps'] = []
+            return ret
+        deps = dep_list[0].replace(txt, '').strip().split(', ')
+        ret['deps'] = deps
+        return ret
+
+
+def safe_walk(top, topdown=True, onerror=None, followlinks=True, _seen=None):
+    '''
+    A clone of the python os.walk function with some checks for recursive
+    symlinks. Unlike os.walk this follows symlinks by default.
+    '''
+    islink, join, isdir = os.path.islink, os.path.join, os.path.isdir
+    if _seen is None:
+        _seen = set()
+
+    # We may not have read permission for top, in which case we can't
+    # get a list of the files the directory contains.  os.path.walk
+    # always suppressed the exception then, rather than blow up for a
+    # minor reason when (say) a thousand readable directories are still
+    # left to visit.  That logic is copied here.
+    try:
+        # Note that listdir and error are globals in this module due
+        # to earlier import-*.
+        names = os.listdir(top)
+    except os.error, err:
+        if onerror is not None:
+            onerror(err)
+        return
+
+    if followlinks:
+        stat = os.stat(top)
+        # st_ino is always 0 on some filesystems (FAT, NTFS); ignore them
+        if stat.st_ino != 0:
+            node = (stat.st_dev, stat.st_ino)
+            if node in _seen:
+                return
+            _seen.add(node)
+
+    dirs, nondirs = [], []
+    for name in names:
+        full_path = join(top, name)
+        if isdir(full_path):
+            dirs.append(name)
+        else:
+            nondirs.append(name)
+
+    if topdown:
+        yield top, dirs, nondirs
+    for name in dirs:
+        new_path = join(top, name)
+        if followlinks or not islink(new_path):
+            for x in safe_walk(new_path, topdown, onerror, followlinks, _seen):
+                yield x
+    if not topdown:
+        yield top, dirs, nondirs
+
+
+def get_hash(path, form='md5', chunk_size=4096):
+    '''
+    Get the hash sum of a file
+
+    This is better than ``get_sum`` for the following reasons:
+        - It does not read the entire file into memory.
+        - It does not return a string on error. The returned value of
+            ``get_sum`` cannot really be trusted since it is vulnerable to
+            collisions: ``get_sum(..., 'xyz') == 'Hash xyz not supported'``
+    '''
+    try:
+        hash_type = getattr(hashlib, form)
+    except AttributeError:
+        raise ValueError('Invalid hash type: {0}'.format(form))
+    with salt.utils.fopen(path, 'rb') as ifile:
+        hash_obj = hash_type()
+        while True:
+            chunk = ifile.read(chunk_size)
+            if not chunk:
+                return hash_obj.hexdigest()
+            hash_obj.update(chunk)

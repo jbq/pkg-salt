@@ -6,7 +6,7 @@ Set up the version of Salt
 import sys
 
 
-__version_info__ = (0, 14, 1)
+__version_info__ = (0, 15, 0)
 __version__ = '.'.join(map(str, __version_info__))
 
 GIT_DESCRIBE_REGEX = (
@@ -47,11 +47,13 @@ def __get_version(version, version_info):
 
         process = subprocess.Popen(['git', 'describe', '--tags'], **kwargs)
         out, err = process.communicate()
+        out = out.strip()
+        err = err.strip()
 
-        if not out.strip() or err.strip():
+        if not out or err:
             return version, version_info
 
-        match = re.search(GIT_DESCRIBE_REGEX, out.strip())
+        match = re.search(GIT_DESCRIBE_REGEX, out)
         if not match:
             return version, version_info
 
@@ -97,8 +99,8 @@ def __get_version(version, version_info):
             )
             return version, version_info
         return parsed_version, parsed_version_info
-    except OSError, err:
-        if err.errno != 2:
+    except OSError as os_err:
+        if os_err.errno != 2:
             # If the errno is not 2(The system cannot find the file
             # specified), raise the exception so it can be catch by the
             # developers
@@ -112,11 +114,13 @@ __version__, __version_info__ = __get_version(__version__, __version_info__)
 del __get_version
 
 
-def versions_report():
+def versions_information():
     '''
     Report on all of the versions for dependant software
     '''
     libs = (
+        ('Salt', None, __version__),
+        ('Python', None, sys.version.rsplit('\n')[0].strip()),
         ('Jinja2', 'jinja2', '__version__'),
         ('M2Crypto', 'M2Crypto', 'version'),
         ('msgpack-python', 'msgpack', 'version'),
@@ -124,27 +128,36 @@ def versions_report():
         ('pycrypto', 'Crypto', '__version__'),
         ('PyYAML', 'yaml', '__version__'),
         ('PyZMQ', 'zmq', '__version__'),
+        ('ZMQ', 'zmq', 'zmq_version')
     )
-
-    padding = len(max([lib[0] for lib in libs], key=len)) + 1
-
-    fmt = '{0:>{pad}}: {1}'
-
-    yield fmt.format('Salt', __version__, pad=padding)
-
-    yield fmt.format(
-        'Python', sys.version.rsplit('\n')[0].strip(), pad=padding
-    )
-
     for name, imp, attr in libs:
+        if imp is None:
+            yield name, attr
+            continue
         try:
             imp = __import__(imp)
             version = getattr(imp, attr)
-            if not isinstance(version, basestring):
+            if callable(version):
+                version = version()
+            if isinstance(version, (tuple, list)):
                 version = '.'.join(map(str, version))
-            yield fmt.format(name, version, pad=padding)
+            yield name, version
         except ImportError:
-            yield fmt.format(name, 'not installed', pad=padding)
+            yield name, None
+
+
+def versions_report():
+    '''
+    Yield each library properly formatted for a console clean output.
+    '''
+    libs = list(versions_information())
+
+    padding = max(len(lib[0]) for lib in libs) + 1
+
+    fmt = '{0:>{pad}}: {1}'
+
+    for name, version in libs:
+        yield fmt.format(name, version or 'Not Installed', pad=padding)
 
 
 if __name__ == '__main__':

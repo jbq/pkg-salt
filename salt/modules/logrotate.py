@@ -33,7 +33,6 @@ def _parse_conf(conf_file=default_conf):
     configs came from which includes will be stored in the 'include files' dict
     inside the return dict, for later reference by the user or module.
     '''
-    conf_path = os.path.dirname(conf_file)
     ret = {}
     mode = 'single'
     multi_name = ''
@@ -46,7 +45,7 @@ def _parse_conf(conf_file=default_conf):
                 continue
 
             comps = line.strip().split()
-            if '{' in line and not '}' in line:
+            if '{' in line and '}' not in line:
                 mode = 'multi'
                 multi_name = comps[0]
                 continue
@@ -63,10 +62,10 @@ def _parse_conf(conf_file=default_conf):
                 key = multi
 
             if comps[0] == 'include':
-                if not 'include files' in ret:
+                if 'include files' not in ret:
                     ret['include files'] = {}
                 for include in os.listdir(comps[1]):
-                    if not include in ret['include files']:
+                    if include not in ret['include files']:
                         ret['include files'][include] = []
                     include_path = '{0}/{1}'.format(comps[1], include)
                     include_conf = _parse_conf(include_path)
@@ -121,12 +120,12 @@ def set(key, value, setting=None, conf_file=default_conf):
         if key in conf['include files'][include]:
             conf_file = os.path.join(conf['include'], include)
 
-    if type(conf[key]) is dict and not setting:
+    if isinstance(conf[key], dict) and not setting:
         return ('Error: {0} includes a dict, and a specific setting inside the '
                 'dict was not declared'.format(key))
 
     if setting:
-        if type(conf[key]) is str:
+        if isinstance(conf[key], str):
             return ('Error: A setting for a dict was declared, but the '
                     'configuration line given is not a dict')
         # We're going to be rewriting an entire stanza

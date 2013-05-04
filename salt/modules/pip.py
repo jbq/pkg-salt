@@ -19,6 +19,9 @@ from salt.exceptions import CommandExecutionError, CommandNotFoundError
 logger = logging.getLogger(__name__)  # pylint: disable-msg=C0103
 
 
+VALID_PROTOS = ['http', 'https', 'ftp']
+
+
 def _get_pip_bin(bin_env):
     '''
     Return the pip command to call, either from a virtualenv, an argument
@@ -166,7 +169,7 @@ def install(pkgs=None,
     # Switching from using `pip_bin` and `env` to just `bin_env`
     # cause using an env and a pip bin that's not in the env could
     # be problematic.
-    # Still using the `env` variable, for backwards compatiblity sake
+    # Still using the `env` variable, for backwards compatibility's sake
     # but going fwd you should specify either a pip bin or an env with
     # the `bin_env` argument and we'll take care of the rest.
     if env and not bin_env:
@@ -186,17 +189,20 @@ def install(pkgs=None,
     treq = None
     if requirements:
         if requirements.startswith('salt://'):
-            cached_requirements = __salt__['cp.is_cached'](requirements,
-                    __env__)
+            cached_requirements = __salt__['cp.is_cached'](
+                requirements, __env__
+            )
             if not cached_requirements:
                 # It's not cached, let's cache it.
-                cached_requirements = __salt__['cp.cache_file'](requirements,
-                        __env__)
+                cached_requirements = __salt__['cp.cache_file'](
+                    requirements, __env__
+                )
             # Check if the master version has changed.
             if __salt__['cp.hash_file'](requirements, __env__) != \
                     __salt__['cp.hash_file'](cached_requirements, __env__):
-                cached_requirements = __salt__['cp.cache_file'](requirements,
-                        __env__)
+                cached_requirements = __salt__['cp.cache_file'](
+                    requirements, __env__
+                )
             if not cached_requirements:
                 return {
                     'result': False,
@@ -207,19 +213,23 @@ def install(pkgs=None,
                     )
                 }
 
-                treq = salt.utils.mkstemp()
-                shutil.copyfile(req, treq)
-            else:
-                treq = cached_requirements
-        cmd = '{cmd} --requirement "{requirements}" '.format(
-            cmd=cmd, requirements=treq or requirements)
+            requirements = cached_requirements
 
-    if treq is not None and runas:
-        logger.debug(
-            'Changing ownership of requirements file \'{0}\' to '
-            'user \'{1}\''.format(treq, runas)
+        if runas:
+            # Need to make a temporary copy since the runas user will, most
+            # likely, not have the right permissions to read the file
+            treq = salt.utils.mkstemp()
+            shutil.copyfile(requirements, treq)
+            logger.debug(
+                'Changing ownership of requirements file \'{0}\' to '
+                'user \'{1}\''.format(treq, runas)
+            )
+            __salt__['file.chown'](treq, runas, None)
+
+        cmd = '{cmd} --requirement "{requirements}" '.format(
+            cmd=cmd,
+            requirements=treq or requirements
         )
-        __salt__['file.chown'](treq, runas, None)
 
     if log:
         try:
@@ -257,19 +267,19 @@ def install(pkgs=None,
             _get_pip_bin(bin_env), editable=editable)
 
     if find_links:
-        if not find_links.startswith('http://'):
+        if not salt.utils.valid_url(find_links, VALID_PROTOS):
             raise Exception('\'{0}\' must be a valid url'.format(find_links))
         cmd = '{cmd} --find-links={find_links}'.format(
             cmd=cmd, find_links=find_links)
 
     if index_url:
-        if not index_url.startswith('http://'):
+        if not salt.utils.valid_url(index_url, VALID_PROTOS):
             raise Exception('\'{0}\' must be a valid url'.format(index_url))
         cmd = '{cmd} --index-url="{index_url}" '.format(
             cmd=cmd, index_url=index_url)
 
     if extra_index_url:
-        if not extra_index_url.startswith('http://'):
+        if not salt.utils.valid_url(extra_index_url, VALID_PROTOS):
             raise Exception(
                 '\'{0}\' must be a valid url'.format(extra_index_url)
             )
@@ -335,15 +345,13 @@ def install(pkgs=None,
         cmd = '{cmd} {opts} '.format(cmd=cmd, opts=opts)
 
     try:
-        result = __salt__['cmd.run_all'](cmd, runas=runas, cwd=cwd)
+        return __salt__['cmd.run_all'](cmd, runas=runas, cwd=cwd)
     finally:
-        if treq and requirements.startswith('salt://'):
+        if treq is not None:
             try:
                 os.remove(treq)
             except Exception:
                 pass
-
-    return result
 
 
 def uninstall(pkgs=None,

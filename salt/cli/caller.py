@@ -25,6 +25,8 @@ from salt.exceptions import (
     CommandExecutionError,
 )
 
+# Import third party libs
+import yaml
 
 class Caller(object):
     '''
@@ -57,10 +59,11 @@ class Caller(object):
                 ret['jid'])
         if fun not in self.minion.functions:
             sys.stderr.write('Function {0} is not available\n'.format(fun))
-            sys.exit(1)
+            sys.exit(-1)
         try:
             args, kwargs = salt.minion.detect_kwargs(
                 self.minion.functions[fun], self.opts['arg'])
+            args, kwargs = self.parse_args(args, kwargs)
             sdata = {
                     'fun': fun,
                     'pid': os.getpid(),
@@ -68,8 +71,11 @@ class Caller(object):
                     'tgt': 'salt-call'}
             with salt.utils.fopen(proc_fn, 'w+') as fp_:
                 fp_.write(self.serial.dumps(sdata))
-            ret['return'] = self.minion.functions[fun](*args, **kwargs)
-        except (TypeError, CommandExecutionError) as exc:
+            func = self.minion.functions[fun]
+            ret['return'] = func(*args, **kwargs)
+            ret['retcode'] = sys.modules[func.__module__].__context__.get(
+                    'retcode', 0)
+        except (CommandExecutionError) as exc:
             msg = 'Error running \'{0}\': {1}\n'
             active_level = LOG_LEVELS.get(
                 self.opts['log_level'].lower(), logging.ERROR)
@@ -101,6 +107,34 @@ class Caller(object):
                     pass
         return ret
 
+    def parse_arg(self, arg):
+        '''
+        Yaml-erize an argument
+        '''
+        try:
+            if '\n' not in arg:
+                arg = yaml.safe_load(arg)
+            if isinstance(arg, bool):
+                return str(arg)
+            return arg
+        except Exception:
+            return arg
+
+    def parse_args(self, args=None, kwargs=None):
+        '''
+        Read in the args and kwargs and return the structures with parsed
+        arguments
+        '''
+        r_args = []
+        r_kwargs = {}
+        if args:
+            for arg in args:
+                r_args.append(self.parse_arg(arg))
+        if kwargs:
+            for key, val in kwargs.items():
+                r_kwargs[key] = self.parse_arg(val)
+        return r_args, r_kwargs
+
     def print_docs(self):
         '''
         Pick up the documentation for all of the modules and print it out.
@@ -125,7 +159,6 @@ class Caller(object):
         '''
         Execute the salt call logic
         '''
-
         ret = self.call()
         out = ret['return']
         # If the type of return is not a dict we wrap the return data
@@ -137,3 +170,4 @@ class Caller(object):
                 out,
                 ret.get('out', 'nested'),
                 self.opts)
+        sys.exit(ret['retcode'])

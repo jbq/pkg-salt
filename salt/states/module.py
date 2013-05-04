@@ -10,7 +10,6 @@ call data structure and is present in many modules, this argument will need
 to be replaced in the sls data with the arguments m_name and m_fun.
 '''
 # Import python libs
-
 import datetime
 
 # Import salt libs
@@ -51,7 +50,7 @@ def run(name, **kwargs):
            'changes': {},
            'comment': '',
            'result': None}
-    if not name in __salt__:
+    if name not in __salt__:
         ret['comment'] = 'Module function {0} is not available'.format(name)
         ret['result'] = False
         return ret
@@ -79,7 +78,7 @@ def run(name, **kwargs):
                 continue
             defaults[key] = kwargs[key]
     # Match up the defaults with the respective args
-    for ind in range(arglen - 1, 0, -1):
+    for ind in range(arglen - 1, -1, -1):
         minus = arglen - ind
         if deflen - minus > -1:
             defaults[aspec[0][ind]] = aspec[3][-minus]
@@ -115,6 +114,17 @@ def run(name, **kwargs):
         ret['comment'] = comment
         ret['result'] = False
         return ret
+
+    if aspec[1] and aspec[1] in kwargs:
+        varargs = kwargs.pop(aspec[1])
+
+        if not isinstance(varargs, list):
+            msg = "'{0}' must be a list."
+            ret['comment'] = msg.format(aspec[1])
+            ret['result'] = False
+            return ret
+
+        args.extend(varargs)
 
     try:
         if aspec[2]:

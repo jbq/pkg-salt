@@ -244,6 +244,7 @@ def parse_opts():
         help='Don\'t clean up test environment before and after integration '
              'testing (speed up test process)'
     )
+    parser.add_option_group(fs_cleanup_options_group)
 
     output_options_group = optparse.OptionGroup(parser, "Output Options")
     output_options_group.add_option(
@@ -312,7 +313,7 @@ def parse_opts():
 
         if any((options.module, options.client, options.shell, options.unit,
                 options.state, options.runner, options.name,
-                os.geteuid() is not 0, not options.run_destructive)):
+                os.geteuid() != 0, not options.run_destructive)):
             parser.error(
                 'No sense in generating the tests coverage report when not '
                 'running the full test suite, including the destructive '
@@ -345,14 +346,23 @@ def parse_opts():
         'Test suite is running under PID {0}'.format(os.getpid()), bottom=False
     )
 
-
     # With greater verbosity we can also log to the console
     if options.verbosity > 2:
         consolehandler = logging.StreamHandler(sys.stderr)
         consolehandler.setLevel(logging.INFO)       # -vv
         consolehandler.setFormatter(formatter)
+        handled_levels = {
+            3: logging.DEBUG,   # -vvv
+            4: logging.TRACE,   # -vvvv
+            5: logging.GARBAGE  # -vvvvv
+        }
         if options.verbosity > 3:
-            consolehandler.setLevel(logging.DEBUG)  # -vvv
+            consolehandler.setLevel(
+                handled_levels.get(
+                    options.verbosity,
+                    options.verbosity > 5 and 5 or 3
+                )
+            )
 
         logging.root.addHandler(consolehandler)
 

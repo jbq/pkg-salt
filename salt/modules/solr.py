@@ -224,7 +224,7 @@ def _format_url(handler, host=None, core_name=None, extra=None):
 def _http_request(url, request_timeout=None):
     '''
     PRIVATE METHOD
-    Uses json.load to fetch the json results from the solr api.
+    Uses json.load to fetch the JSON results from the solr API.
 
     url : str
         a complete url that can be passed to urllib.open
@@ -252,7 +252,7 @@ def _replication_request(command, host=None, core_name=None, params=None):
     '''
     PRIVATE METHOD
     Performs the requested replication command and returns a dictionary with
-    success, errors and data as keys. The data object will contain the json
+    success, errors and data as keys. The data object will contain the JSON
     response.
 
     command : str
@@ -283,7 +283,7 @@ def _get_admin_info(command, host=None, core_name=None):
     Calls the _http_request method and passes the admin command to execute
     and stores the data. This data is fairly static but should be refreshed
     periodically to make sure everything this OK. The data object will contain
-    the json response.
+    the JSON response.
 
     command : str
         The admin command to execute.
@@ -392,8 +392,8 @@ def _find_value(ret_dict, key, path=None):
     Traverses a dictionary of dictionaries/lists to find key
     and return the value stored.
     TODO:// this method doesn't really work very well, and it's not really
-            very useful in it's current state. The purpose for this method is
-            to simplify parsing the json output so you can just pass the key
+            very useful in its current state. The purpose for this method is
+            to simplify parsing the JSON output so you can just pass the key
             you want to find and have it return the value.
     ret : dict<str,obj>
         The dictionary to search through. Typically this will be a dict
@@ -638,7 +638,7 @@ def is_replication_enabled(host=None, core_name=None):
                 enabled = slave['masterDetails']['master'][
                     'replicationEnabled']
                 #if replication is turned off on the master, or polling is
-                #disabled we need to return false. These may not not errors,
+                #disabled we need to return false. These may not be errors,
                 #but the purpose of this call is to check to see if the slaves
                 #can replicate.
             if enabled == 'false':
@@ -794,7 +794,7 @@ def replication_details(host=None, core_name=None):
 def backup(host=None, core_name=None, append_core_to_path=False):
     '''
     Tell solr make a backup.  This method can be mis-leading since it uses the
-    backup api.  If an error happens during the backup you are not notified.
+    backup API.  If an error happens during the backup you are not notified.
     The status: 'OK' in the response simply means that solr received the
     request successfully.
 
@@ -1095,7 +1095,7 @@ def abort_import(handler, host=None, core_name=None, verbose=False):
     '''
     MASTER ONLY
     Aborts an existing import command to the specified handler.
-    This command can only be run if the minion is is configured with
+    This command can only be run if the minion is configured with
     solr.type=master
 
     handler : str
@@ -1134,7 +1134,7 @@ def full_import(handler, host=None, core_name=None, options=None, extra=None):
     '''
     MASTER ONLY
     Submits an import command to the specified handler using specified options.
-    This command can only be run if the minion is is configured with
+    This command can only be run if the minion is configured with
     solr.type=master
 
     handler : str
@@ -1188,7 +1188,7 @@ def full_import(handler, host=None, core_name=None, options=None, extra=None):
 def delta_import(handler, host=None, core_name=None, options=None, extra=None):
     '''
     Submits an import command to the specified handler using specified options.
-    This command can only be run if the minion is is configured with
+    This command can only be run if the minion is configured with
     solr.type=master
 
     handler : str
@@ -1240,7 +1240,7 @@ def delta_import(handler, host=None, core_name=None, options=None, extra=None):
 def import_status(handler, host=None, core_name=None, verbose=False):
     '''
     Submits an import command to the specified handler using specified options.
-    This command can only be run if the minion is is configured with
+    This command can only be run if the minion is configured with
     solr.type: 'master'
 
     handler : str

@@ -5,7 +5,7 @@ A pillar module to pull data from Cobbler via its API into the pillar dictionary
 
 
 Configuring the Cobbler ext_pillar
-================================
+==================================
 
 The same cobbler.* parameters are used for both the Cobbler tops and Cobbler pillar
 modules.
@@ -41,7 +41,7 @@ __opts__ = {'cobbler.url': 'http://localhost/cobbler_api',
 log = logging.getLogger(__name__)
 
 
-def ext_pillar(pillar, key=None, only=[]):
+def ext_pillar(pillar, key=None, only=()):
     '''
     Read pillar data from Cobbler via its API.
     '''
@@ -52,22 +52,18 @@ def ext_pillar(pillar, key=None, only=[]):
     minion_id = __opts__['id']
     log.info("Querying cobbler at %r for information for %r", url, minion_id)
     try:
-		server = xmlrpclib.Server(url, allow_none=True)
-		if user:
-			server = (server, server.login(user, password))
-		result = server.get_blended_data(None, minion_id)
+        server = xmlrpclib.Server(url, allow_none=True)
+        if user:
+            server = xmlrpclib.Server(server, server.login(user, password))
+        result = server.get_blended_data(None, minion_id)
     except Exception:
         log.exception(
-			'Could not connect to cobbler.'
+            'Could not connect to cobbler.'
         )
         return {}
 
     if only:
-        _result = {}
-        for i in only:
-            if i in result:
-                _result[i] = result[i]
-        result = _result
+        result = dict((k, result[k]) for k in only if k in result)
 
     if key:
         result = {key: result}
