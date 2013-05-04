@@ -1,3 +1,13 @@
+salt (0.15.0-1) unstable; urgency=low
+
+  [ Joe Healy ]
+  * team upload
+  * [5d46d17] Imported Upstream version 0.15.0 Closes: #703600
+  * [ee734d5] Added dctrl-tools as a recommendation
+  * [0c3a6e6] Removed unnecessary cleanup step in build process
+
+ -- Joe Healy <joehealy@gmail.com>  Sat, 04 May 2013 22:55:20 +1000
+
 salt (0.14.1-1) unstable; urgency=low
 
   [ Joe Healy ]
