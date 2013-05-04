@@ -88,6 +88,7 @@ Architecture: all
 Depends: ${misc:Depends},
          python,
          python-pkg-resources,
+         dctrl-tools,
          salt-common (= ${source:Version})
 Recommends: dmidecode
 Suggests: python-augeas
