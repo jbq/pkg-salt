@@ -1,0 +1,17 @@
+salt (0.15.1-1) unstable; urgency=high
+
+    A security issue has been identified with all keys generated in
+    versions prior to 0.15.1. This issue has been fixed in this
+    version.
+
+    To fix, or rather repace, existing security keys, users will
+    need to execute a new runner on their Salt Master:
+
+      salt-run manage.key_regen
+
+    Then restart the master. Each minion will attempt to 
+    reauthenticate and will need to have it's key re-added via:
+
+      salt-key -A
+
+ -- Joe Healy <joehealy@gmail.com>  Sat, 09 May 2013 11:40:20 +1000

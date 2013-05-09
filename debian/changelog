@@ -1,7 +1,8 @@
-salt (0.15.0-1) unstable; urgency=low
+salt (0.15.1-1) unstable; urgency=high
 
   [ Joe Healy ]
   * team upload
+  * [3f2928c] Imported Upstream version 0.15.1
   * [5d46d17] Imported Upstream version 0.15.0 Closes: #703600
   * [ee734d5] Added dctrl-tools as a recommendation
   * [0c3a6e6] Removed unnecessary cleanup step in build process
