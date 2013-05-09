@@ -289,7 +289,7 @@ class Minion(object):
         sreq = salt.payload.SREQ(self.opts['master_uri'])
         try:
             sreq.send('aes', self.crypticle.dumps(load))
-        except:
+        except Exception:
             pass
 
     def _handle_payload(self, payload):
@@ -688,7 +688,7 @@ class Minion(object):
                     getpass.getuser()
                 )
             )
-        except Exception, err:
+        except Exception as err:
             # Only windows is allowed to fail here. See #3189. Log as debug in
             # that case. Else, error.
             log.log(
@@ -744,7 +744,7 @@ class Minion(object):
         self.epub_sock.bind(epub_uri)
         self.epull_sock.bind(epull_uri)
         # Restrict access to the sockets
-        if not self.opts.get('ipc_mode', '') == 'tcp':
+        if self.opts.get('ipc_mode', '') != 'tcp':
             os.chmod(
                 epub_sock_path,
                 448

@@ -20,7 +20,7 @@ import salt.utils
 from salt.exceptions import CommandExecutionError
 import salt.grains.extra
 
-# Only available on posix systems, nonfatal on windows
+# Only available on POSIX systems, nonfatal on windows
 try:
     import pwd
     import grp
@@ -65,7 +65,7 @@ def _chugid(runas):
     if os.getgid() != uinfo.pw_gid:
         try:
             os.setgid(uinfo.pw_gid)
-        except OSError, err:
+        except OSError as err:
             raise CommandExecutionError(
                 'Failed to change from gid {0} to {1}. Error: {2}'.format(
                     os.getgid(), uinfo.pw_gid, err
@@ -76,7 +76,7 @@ def _chugid(runas):
     if sorted(os.getgroups()) != sorted(supgroups):
         try:
             os.setgroups(supgroups)
-        except OSError, err:
+        except OSError as err:
             raise CommandExecutionError(
                 'Failed to set supplemental groups to {0}. Error: {1}'.format(
                     supgroups, err
@@ -86,7 +86,7 @@ def _chugid(runas):
     if os.getuid() != uinfo.pw_uid:
         try:
             os.setuid(uinfo.pw_uid)
-        except OSError, err:
+        except OSError as err:
             raise CommandExecutionError(
                 'Failed to change from uid {0} to {1}. Error: {2}'.format(
                     os.getuid(), uinfo.pw_uid, err
@@ -372,7 +372,8 @@ def run(cmd,
         template=None,
         rstrip=True,
         umask=None,
-        quiet=False):
+        quiet=False,
+        **kwargs):
     '''
     Execute the passed command and return the output as a string
 
@@ -410,7 +411,8 @@ def run_stdout(cmd,
                template=None,
                rstrip=True,
                umask=None,
-               quiet=False):
+               quiet=False,
+               **kwargs):
     '''
     Execute a command, and only return the standard out
 
@@ -447,7 +449,8 @@ def run_stderr(cmd,
                template=None,
                rstrip=True,
                umask=None,
-               quiet=False):
+               quiet=False,
+               **kwargs):
     '''
     Execute a command and only return the standard error
 
@@ -484,7 +487,8 @@ def run_all(cmd,
             template=None,
             rstrip=True,
             umask=None,
-            quiet=False):
+            quiet=False,
+            **kwargs):
     '''
     Execute the passed command and return a dict of return data
 
@@ -574,7 +578,7 @@ def script(
         **kwargs):
     '''
     Download a script from a remote location and execute the script locally.
-    The script can be located on the salt master file server or on an http/ftp
+    The script can be located on the salt master file server or on an HTTP/FTP
     server.
 
     The script will be executed directly, so it can be written in any available
@@ -625,7 +629,7 @@ def script_retcode(
         **kwargs):
     '''
     Download a script from a remote location and execute the script locally.
-    The script can be located on the salt master file server or on an http/ftp
+    The script can be located on the salt master file server or on an HTTP/FTP
     server.
 
     The script will be executed directly, so it can be written in any available

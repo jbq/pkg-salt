@@ -43,9 +43,9 @@ def _retry_get_url(url, num_retries=10, timeout=5):
         except Exception:
             pass
 
-        log.warning('Caught exception reading from url. Retry no. %s'%(i))
+        log.warning('Caught exception reading from URL. Retry no. %s'%(i))
         time.sleep(2 ** i)
-    log.error('Failed to read from url for {0} times. Giving up.'.format(num_retries))
+    log.error('Failed to read from URL for {0} times. Giving up.'.format(num_retries))
     return ''
 
 def _convert_key_to_str(key):
@@ -64,7 +64,7 @@ def get_iam_metadata(version='latest', url='http://169.254.169.254',
     Grabs the first IAM role from this instances metadata if it exists.
     '''
     iam_url = '{0}/{1}/meta-data/iam/security-credentials/'.format(url, version)
-    roles = _retry_get_url(iam_url, num_retries).splitlines()
+    roles = _retry_get_url(iam_url, num_retries, timeout).splitlines()
 
     credentials = {
                 'access_key': None,
@@ -74,7 +74,7 @@ def get_iam_metadata(version='latest', url='http://169.254.169.254',
             }
 
     try:
-        data = _retry_get_url(iam_url + roles[0], num_retries)
+        data = _retry_get_url(iam_url + roles[0], num_retries, timeout)
         meta = json.loads(data)
 
     except (ValueError, TypeError, IndexError):

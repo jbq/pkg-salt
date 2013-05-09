@@ -12,6 +12,7 @@ import shutil
 import signal
 import logging
 import fnmatch
+import time
 import sys
 
 # Import salt libs
@@ -125,7 +126,7 @@ def _sync(form, env=None):
 
 def _listdir_recursively(rootdir):
     file_list = []
-    for root, sub_folders, files in os.walk(rootdir):
+    for root, dirs, files in os.walk(rootdir):
         for file in files:
             relpath = os.path.relpath(root, rootdir).strip('.')
             file_list.append(os.path.join(relpath, file))
@@ -134,15 +135,15 @@ def _listdir_recursively(rootdir):
 
 def _list_emptydirs(rootdir):
     emptydirs = []
-    for root, sub_folders, files in os.walk(rootdir):
-        if not files and not sub_folders:
+    for root, dirs, files in os.walk(rootdir):
+        if not files and not dirs:
             emptydirs.append(root)
     return emptydirs
 
 
 def update(version=None):
     '''
-    Update the salt minion from the url defined in opts['update_url']
+    Update the salt minion from the URL defined in opts['update_url']
 
 
     This feature requires the minion to be running a bdist_esky build.
@@ -437,6 +438,21 @@ def kill_job(jid):
         salt '*' saltutil.kill_job <job id>
     '''
     return signal_job(jid, signal.SIGKILL)
+
+
+def regen_keys():
+    '''
+    Used to regenerate the minion keys. 
+    '''
+    for fn_ in os.listdir(__opts__['pki_dir']):
+        path = os.path.join(__opts__['pki_dir'], fn_)
+        try:
+            os.remove(path)
+        except os.error:
+            pass
+    time.sleep(60)
+    sreq = salt.payload.SREQ(__opts__['master_uri'])
+    auth = salt.crypt.SAuth(__opts__)
 
 
 def revoke_auth():

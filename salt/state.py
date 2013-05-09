@@ -74,9 +74,9 @@ def state_args(id_, state, high):
     Return a set of the arguments passed to the named state
     '''
     args = set()
-    if not id_ in high:
+    if id_ not in high:
         return args
-    if not state in high[id_]:
+    if state not in high[id_]:
         return args
     for item in high[id_][state]:
         if not isinstance(item, dict):
@@ -382,14 +382,7 @@ class Compiler(object):
                         chunk['order'] = cap
                 elif isinstance(chunk['order'], int) and chunk['order'] < 0:
                     chunk['order'] = cap + 1000000 + chunk['order']
-        chunks = sorted(
-                chunks,
-                key=lambda k: '{0[state]}{0[name]}{0[fun]}'.format(k)
-                )
-        chunks = sorted(
-                chunks,
-                key=lambda k: k['order']
-                )
+        chunks.sort(key=lambda chunk: (chunk['order'], '{0[state]}{0[name]}{0[fun]}'.format(chunk)))
         return chunks
 
     def compile_high_data(self, high):
@@ -2153,8 +2146,8 @@ class HighState(BaseHighState):
         self.stack.append(self)
 
     @classmethod
-    def pop_active(self):
-        self.stack.pop()
+    def pop_active(cls):
+        cls.stack.pop()
 
     @classmethod
     def get_active(klass):

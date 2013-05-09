@@ -21,6 +21,35 @@ def __virtual__():
     return 'dnsutil'
 
 
+def parse_hosts(hostsfile='/etc/hosts', hosts=None):
+    '''
+    Parse /etc/hosts file. 
+
+    CLI Example::
+
+        salt '*' dnsutil.parse_hosts
+    '''
+    if not hosts:
+        try:
+            with salt.utils.fopen(hostsfile, 'r') as fp_:
+                hosts = fp_.read()
+        except Exception:
+            return 'Error: hosts data was not found'
+
+    hostsdict = {}
+    for line in hosts.splitlines():
+        if not line:
+            continue
+        if line.startswith('#'):
+            continue
+        comps = line.split()
+        ip = comps[0]
+        aliases = comps[1:]
+        hostsdict.setdefault(ip, []).extend(aliases)
+
+    return hostsdict
+
+
 def parse_zone(zonefile=None, zone=None):
     '''
     Parses a zone file. Can be passed raw zone data on the API level.
@@ -30,10 +59,11 @@ def parse_zone(zonefile=None, zone=None):
         salt ns1 dnsutil.parse_zone /var/lib/named/example.com.zone
     '''
     if zonefile:
-        zone = ''
-        with salt.utils.fopen(zonefile, 'r') as fp_:
-            for line in fp_:
-                zone += line
+        try:
+            with salt.utils.fopen(zonefile, 'r') as fp_:
+                zone = fp_.read()
+        except Exception:
+            pass
 
     if not zone:
         return 'Error: Zone data was not found'
@@ -43,13 +73,13 @@ def parse_zone(zonefile=None, zone=None):
     for line in zone.splitlines():
         comps = line.split(';')
         line = comps[0].strip()
-        if not line.strip():
+        if not line:
             continue
         comps = line.split()
         if line.startswith('$'):
             zonedict[comps[0].replace('$', '')] = comps[1]
             continue
-        if '(' in line and not ')' in line:
+        if '(' in line and ')' not in line:
             mode = 'multi'
             multi = ''
         if mode == 'multi':
@@ -81,18 +111,13 @@ def parse_zone(zonefile=None, zone=None):
         if not comps[0].endswith('.'):
             comps[0] = '{0}.{1}'.format(comps[0], zonedict['ORIGIN'])
         if comps[2] == 'NS':
-            if not 'NS' in zonedict.keys():
-                zonedict['NS'] = []
-            zonedict['NS'].append(comps[3])
+            zonedict.setdefault('NS', []).append(comps[3])
         elif comps[2] == 'MX':
             if not 'MX' in zonedict.keys():
-                zonedict['MX'] = []
-            zonedict['MX'].append({'priority': comps[3],
-                                   'host': comps[4]})
+                zonedict.setdefault('MX', []).append({'priority': comps[3],
+                                                      'host': comps[4]})
         else:
-            if not comps[2] in zonedict.keys():
-                zonedict[comps[2]] = {}
-            zonedict[comps[2]][comps[0]] = comps[3]
+            zonedict.setdefault(comps[2], {})[comps[0]] = comps[3]
     return zonedict
 
 
@@ -103,16 +128,17 @@ def _to_seconds(time):
     As per RFC1035 (page 45), max time is 1 week, so anything longer (or
     unreadable) will be set to one week (604800 seconds).
     '''
-    if 'H' in time.upper():
-        time = int(time.upper().replace('H', '')) * 3600
-    elif 'D' in time.upper():
-        time = int(time.upper().replace('D', '')) * 86400
-    elif 'W' in time.upper():
+    time = time.upper()
+    if 'H' in time:
+        time = int(time.replace('H', '')) * 3600
+    elif 'D' in time:
+        time = int(time.replace('D', '')) * 86400
+    elif 'W' in time:
         time = 604800
     else:
         try:
             time = int(time)
-        except:
+        except Exception:
             time = 604800
     if time < 604800:
         time = 604800

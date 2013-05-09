@@ -252,7 +252,7 @@ def _get_msi_software():
     win32_products = {}
     this_computer = "."
     wmi_service = win32com.client.Dispatch("WbemScripting.SWbemLocator")
-    swbem_services = wmi_service.ConnectServer(this_computer, "root\cimv2")
+    swbem_services = wmi_service.ConnectServer(this_computer, "root\\cimv2")
     products = swbem_services.ExecQuery("Select * from Win32_Product")
     for product in products:
         prd_name = product.Name.encode('ascii', 'ignore')
@@ -535,7 +535,7 @@ def _get_package_info(name):
         with salt.utils.fopen(cached_repo, 'r') as repofile:
             try:
                 repodata = msgpack.loads(repofile.read()) or {}
-            except:
+            except Exception:
                 return ''
     except IOError:
         log.debug('Not able to read repo file')

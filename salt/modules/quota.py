@@ -1,5 +1,5 @@
 '''
-Module for managing quotas on posix-like systems.
+Module for managing quotas on POSIX-like systems.
 '''
 
 # Import python libs
@@ -10,9 +10,9 @@ log = logging.getLogger(__name__)
 
 def __virtual__():
     '''
-    Only work on posix-like systems
+    Only work on POSIX-like systems
     '''
-    # Disable on these platorms, specific service modules exist:
+    # Disable on these platforms, specific service modules exist:
     disable = [
         'Windows',
         ]
@@ -202,7 +202,7 @@ def get_mode(device):
     out = __salt__['cmd.run'](cmd)
     for line in out.splitlines():
         comps = line.strip().split()
-        if not comps[3] in ret:
+        if comps[3] not in ret:
             ret[comps[3]] = {
                 'device': comps[4].replace('(', '').replace(')', ''),
             }
