@@ -40,7 +40,6 @@ import salt.wheel
 import salt.minion
 import salt.search
 import salt.key
-import salt.utils
 import salt.fileserver
 import salt.utils.atomicfile
 import salt.utils.event
@@ -686,6 +685,8 @@ class AESFuncs(object):
         Take a minion id and a string signed with the minion private key
         The string needs to verify as 'salt' with the minion public key
         '''
+        if not salt.utils.verify.valid_id(id_):
+            return False
         pub_path = os.path.join(self.opts['pki_dir'], 'minions', id_)
         with salt.utils.fopen(pub_path, 'r') as fp_:
             minion_pub = fp_.read()
@@ -703,7 +704,7 @@ class AESFuncs(object):
             os.remove(tmp_pub)
             if pub.public_decrypt(token, 5) == 'salt':
                 return True
-        except RSA.RSAError, err:
+        except RSA.RSAError as err:
             log.error('Unable to decrypt token: {0}'.format(err))
 
         log.error('Salt minion claiming to be {0} has attempted to'
@@ -718,6 +719,8 @@ class AESFuncs(object):
         '''
         if 'id' not in load:
             log.error('Received call for external nodes without an id')
+            return {}
+        if not salt.utils.verify.valid_id(load['id']):
             return {}
         ret = {}
         # The old ext_nodes method is set to be deprecated in 0.10.4
@@ -762,14 +765,13 @@ class AESFuncs(object):
             try:
                 ret.update(self.tops[fun](opts=opts, grains=grains))
             except Exception as exc:
+                # If anything happens in the top generation, log it and move on
                 log.error(
                     'Top function {0} failed with error {1} for minion '
                     '{2}'.format(
                         fun, exc, load['id']
                     )
                 )
-                # If anything happens in the top generation, log it and move on
-                pass
         return ret
 
     def _master_opts(self, load):
@@ -791,9 +793,11 @@ class AESFuncs(object):
         Gathers the data from the specified minions' mine
         '''
         if any(key not in load for key in ('id', 'tgt', 'fun')):
-            return False
+            return {}
         ret = {}
-        checker = salt.utils.minions.CkMinions(__opts__)
+        if not salt.utils.verify.valid_id(load['id']):
+            return ret
+        checker = salt.utils.minions.CkMinions(self.opts)
         minions = checker.check_minions(
                 load['tgt'],
                 load.get('expr_form', 'glob')
@@ -809,7 +813,7 @@ class AESFuncs(object):
                     fdata = self.serial.load(fp_).get(load['fun'])
                     if fdata:
                         ret[minion] = fdata
-            except os.error:
+            except Exception:
                 continue
         return ret
 
@@ -818,6 +822,8 @@ class AESFuncs(object):
         Return the mine data
         '''
         if 'id' not in load or 'data' not in load:
+            return False
+        if not salt.utils.verify.valid_id(load['id']):
             return False
         if self.opts.get('minion_data_cache', False):
             cdir = os.path.join(self.opts['cachedir'], 'minions', load['id'])
@@ -839,6 +845,8 @@ class AESFuncs(object):
             return False
         if os.path.isabs(load['path']) or '../' in load['path']:
             # Can overwrite master files!!
+            return False
+        if not salt.utils.verify.valid_id(load['id']):
             return False
         cpath = os.path.join(
                 self.opts['cachedir'],
@@ -867,6 +875,8 @@ class AESFuncs(object):
         Return the pillar data for the minion
         '''
         if any(key not in load for key in ('id', 'grains', 'env')):
+            return False
+        if not salt.utils.verify.valid_id(load['id']):
             return False
         pillar = salt.pillar.Pillar(
                 self.opts,
@@ -910,6 +920,8 @@ class AESFuncs(object):
         '''
         if 'id' not in load:
             return False
+        if not salt.utils.verify.valid_id(load['id']):
+            return False
         if 'events' not in load and ('tag' not in load or 'data' not in load):
             return False
         if 'events' in load:
@@ -926,6 +938,8 @@ class AESFuncs(object):
         '''
         # If the return data is invalid, just ignore it
         if any(key not in load for key in ('return', 'jid', 'id')):
+            return False
+        if not salt.utils.verify.valid_id(load['id']):
             return False
         if load['jid'] == 'req':
         # The minion is returning a standalone job, request a jobid
@@ -995,6 +1009,8 @@ class AESFuncs(object):
         # Verify the load
         if any(key not in load for key in ('return', 'jid', 'id')):
             return None
+        if not salt.utils.verify.valid_id(load['id']):
+            return False
         # set the write flag
         jid_dir = salt.utils.jid_dir(
                 load['jid'],
@@ -1431,6 +1447,12 @@ class ClearFuncs(object):
 
         salt.utils.verify.check_max_open_files(self.opts)
 
+        if not salt.utils.verify.valid_id(load['id']):
+            log.info(
+                'Authentication request from invalid id {id}'.format(**load)
+                )
+            return {'enc': 'clear',
+                    'load': {'ret': False}}
         log.info('Authentication request from {id}'.format(**load))
         pubfn = os.path.join(self.opts['pki_dir'],
                 'minions',
@@ -1567,7 +1589,7 @@ class ClearFuncs(object):
         # and an empty request comes in
         try:
             pub = RSA.load_pub_key(pubfn)
-        except RSA.RSAError, err:
+        except RSA.RSAError as err:
             log.error('Corrupt public key "{0}": {1}'.format(pubfn, err))
             return {'enc': 'clear',
                     'load': {'ret': False}}

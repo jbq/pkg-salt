@@ -15,7 +15,7 @@ import salt.utils
 
 def __virtual__():
     '''
-    Only work on posix-like systems
+    Only work on POSIX-like systems
     '''
 
     # Disable on Windows, a specific file module exists:
@@ -117,7 +117,7 @@ def set_password(name, password, use_usermod=False):
     '''
     Set the password for a named user. The password must be a properly defined
     hash, the password hash can be generated with this command:
-    ``python -c "import crypt, getpass, pwd; print crypt.crypt('password', '\$6\$SALTsalt\$')"``
+    ``python -c "import crypt, getpass, pwd; print crypt.crypt('password', '\\$6\\$SALTsalt\\$')"``
     Keep in mind that the $6 represents a sha512 hash, if your OS is using a
     different hashing algorithm this needs to be changed accordingly
 
@@ -135,7 +135,7 @@ def set_password(name, password, use_usermod=False):
         with salt.utils.fopen(s_file, 'rb') as fp_:
             for line in fp_:
                 comps = line.strip().split(':')
-                if not comps[0] == name:
+                if comps[0] != name:
                     lines.append(line)
                     continue
                 comps[1] = password

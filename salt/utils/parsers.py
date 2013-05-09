@@ -129,7 +129,7 @@ class OptionParser(optparse.OptionParser):
         for process_option_func in _sorted(process_option_funcs):
             try:
                 process_option_func()
-            except Exception, err:
+            except Exception as err:
                 self.error(
                     'Error while processing {0}: {1}'.format(
                         process_option_func, traceback.format_exc(err)
@@ -717,6 +717,8 @@ class SyndicOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
         opts.update(config.minion_config(self.get_config_file_path('minion')))
         # Override the user from the master config file
         opts['user'] = user
+        # Override the name of the PID file.
+        opts['pidfile'] = '/var/run/salt-syndic.pid'
 
         if 'syndic_master' not in opts:
             self.error(

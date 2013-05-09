@@ -57,7 +57,7 @@ class SaltEvent(object):
 
     def __load_uri(self, sock_dir, node, **kwargs):
         '''
-        Return the string uri for the location of the pull and pub sockets to
+        Return the string URI for the location of the pull and pub sockets to
         use for firing and listening to events
         '''
         id_hash = hashlib.md5(kwargs.get('id', '')).hexdigest()
@@ -368,7 +368,7 @@ class Reactor(multiprocessing.Process, salt.state.Compiler):
         for ropt in react_map:
             if not isinstance(ropt, dict):
                 continue
-            if not len(ropt) == 1:
+            if len(ropt) != 1:
                 continue
             key = ropt.keys()[0]
             val = ropt[key]
@@ -492,7 +492,7 @@ class StateFire(object):
         sreq = salt.payload.SREQ(self.opts['master_uri'])
         try:
             sreq.send('aes', self.auth.crypticle.dumps(load))
-        except:
+        except Exception:
             pass
         return True
 
@@ -522,6 +522,6 @@ class StateFire(object):
         sreq = salt.payload.SREQ(self.opts['master_uri'])
         try:
             sreq.send('aes', self.auth.crypticle.dumps(load))
-        except:
+        except Exception:
             pass
         return True

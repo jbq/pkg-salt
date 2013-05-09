@@ -19,13 +19,13 @@ log = logging.getLogger(__name__)
 try:
     from aptsources import sourceslist
     apt_support = True
-except ImportError, e:
+except ImportError as e:
     apt_support = False
 
 try:
     import softwareproperties.ppa
     ppa_format_support = True
-except ImportError, e:
+except ImportError as e:
     ppa_format_support = False
 
 # Source format for urllib fallback on PPA handling
@@ -144,7 +144,7 @@ def latest_version(*names, **kwargs):
         if fromrepo else ''
     for name in names:
         cmd = 'apt-cache -q policy {0}{1} | grep Candidate'.format(name, repo)
-        out = __salt__['cmd.run_all'](cmd)
+        out = __salt__['cmd.run_all'](cmd, **kwargs)
         if out['retcode'] != 0:
             msg = 'Error:  ' + out['stderr']
             log.error(msg)
@@ -218,7 +218,7 @@ def refresh_db():
         ident = ' '.join(cols[1:])
         if 'Get' in cols[0]:
             # Strip filesize from end of line
-            ident = re.sub(' \[.+B\]$', '', ident)
+            ident = re.sub(r' \[.+B\]$', '', ident)
             ret[ident] = True
         elif cols[0] == 'Ign':
             ret[ident] = False
@@ -342,7 +342,7 @@ def install(name=None,
               )
 
     old = list_pkgs()
-    out = __salt__['cmd.run_all'](cmd)
+    out = __salt__['cmd.run_all'](cmd, **kwargs)
     if out['retcode'] != 0:
         msg = 'Error:  ' + out['stderr']
         log.error(msg)
@@ -372,7 +372,7 @@ def remove(pkg, **kwargs):
             log.exception(e)
 
     cmd = 'apt-get -q -y remove {0}'.format(pkg)
-    out = __salt__['cmd.run_all'](cmd)
+    out = __salt__['cmd.run_all'](cmd, **kwargs)
     if out['retcode'] != 0:
         msg = 'Error:  ' + out['stderr']
         log.error(msg)
@@ -408,7 +408,7 @@ def purge(pkg, **kwargs):
 
     # Remove initial package
     purge_cmd = 'apt-get -q -y purge {0}'.format(pkg)
-    out = __salt__['cmd.run_all'](purge_cmd)
+    out = __salt__['cmd.run_all'](purge_cmd, **kwargs)
     if out['retcode'] != 0:
         msg = 'Error:  ' + out['stderr']
         log.error(msg)
@@ -448,7 +448,7 @@ def upgrade(refresh=True, **kwargs):
     old_pkgs = list_pkgs()
     cmd = ('apt-get -q -y -o DPkg::Options::=--force-confold '
            '-o DPkg::Options::=--force-confdef dist-upgrade')
-    out = __salt__['cmd.run_all'](cmd)
+    out = __salt__['cmd.run_all'](cmd, **kwargs)
     if out['retcode'] != 0:
         msg = 'Error:  ' + out['stderr']
         log.error(msg)
@@ -517,7 +517,7 @@ def list_pkgs(versions_as_list=False):
         cmd = 'grep-available -F Provides -s Package,Provides -e "^.+$"'
         out = __salt__['cmd.run_stdout'](cmd)
 
-        virtpkg_re = re.compile('Package: (\S+)\nProvides: ([\\S, ]+)')
+        virtpkg_re = re.compile('Package: (\\S+)\nProvides: ([\\S, ]+)')
         virtpkgs = set()
         for realpkg, provides in virtpkg_re.findall(out):
             # grep-available returns info on all virtual packages. Ignore any
@@ -555,7 +555,7 @@ def _get_upgradable():
     # Conf libxfont1 (1:1.4.5-1 Debian:testing [i386])
     rexp = re.compile('(?m)^Conf '
                       '([^ ]+) '          # Package name
-                      '\(([^ ]+)')        # Version
+                      r'\(([^ ]+)')        # Version
     keys = ['name', 'version']
     _get = lambda l, k: l[keys.index(k)]
 
@@ -662,7 +662,7 @@ def _consolidate_repo_sources(sources):
     for f in delete_files:
         try:
             os.remove(f)
-        except:
+        except Exception:
             pass
     return sources
 
@@ -902,7 +902,7 @@ def mod_repo(repo, **kwargs):
             # secure PPAs should be the same as urllib method
             if ppa_format_support and 'ppa_auth' not in kwargs:
                 cmd = 'apt-add-repository -y {0}'.format(repo)
-                out = __salt__['cmd.run_stdout'](cmd)
+                out = __salt__['cmd.run_stdout'](cmd, **kwargs)
                 # explicit refresh when a repo is modified.
                 refresh_db()
                 return {repo: out}
@@ -948,7 +948,7 @@ def mod_repo(repo, **kwargs):
                     error_str = 'Launchpad does not know about {0}/{1}: {2}'
                     raise Exception(error_str.format(owner_name, ppa_name,
                                                      exc))
-                except IndexError, e:
+                except IndexError as e:
                     error_str = 'Launchpad knows about {0}/{1} but did not ' \
                                 'return a fingerprint. Please set keyid ' \
                                 'manually: {2}'
@@ -1007,13 +1007,14 @@ def mod_repo(repo, **kwargs):
             error_str = 'both keyserver and keyid options required.'
             raise NameError(error_str)
         cmd = 'apt-key export {0}'.format(keyid)
-        output = __salt__['cmd.run_stdout'](cmd)
+        output = __salt__['cmd.run_stdout'](cmd, **kwargs)
         imported = output.startswith('-----BEGIN PGP')
         if ks:
             if not imported:
                 cmd = ('apt-key adv --keyserver {0} --logger-fd 1 '
                        '--recv-keys {1}')
-                out = __salt__['cmd.run_stdout'](cmd.format(ks, keyid))
+                out = __salt__['cmd.run_stdout'](cmd.format(ks, keyid),
+                                                 **kwargs)
                 if not (out.find('imported') or out.find('not changed')):
                     error_str = 'Error: key retrieval failed: {0}'
                     raise Exception(
@@ -1028,7 +1029,7 @@ def mod_repo(repo, **kwargs):
         key_url = kwargs['key_url']
         fn_ = __salt__['cp.cache_file'](key_url)
         cmd = 'apt-key add {0}'.format(fn_)
-        out = __salt__['cmd.run_stdout'](cmd)
+        out = __salt__['cmd.run_stdout'](cmd, **kwargs)
         if not out.upper().startswith('OK'):
             error_str = 'Error: key retrieval failed: {0}'
             raise Exception(error_str.format(cmd.format(key_url)))

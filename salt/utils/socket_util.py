@@ -145,7 +145,7 @@ def _interfaces_ip(out):
             mask = cidr
         return (ip, mask, brd)
 
-    groups = re.compile('\r?\n\d').split(out)
+    groups = re.compile('\r?\n\\d').split(out)
     for group in groups:
         iface = None
         data = dict()
@@ -153,7 +153,7 @@ def _interfaces_ip(out):
         for line in group.splitlines():
             if not ' ' in line:
                 continue
-            match = re.match('^\d*:\s+([\w.]+)(?:@)?(\w+)?:\s+<(.+)>', line)
+            match = re.match(r'^\d*:\s+([\w.]+)(?:@)?(\w+)?:\s+<(.+)>', line)
             if match:
                 iface, parent, attrs = match.groups()
                 if 'UP' in attrs.split(','):
@@ -214,16 +214,16 @@ def _interfaces_ifconfig(out):
     '''
     ret = dict()
 
-    piface = re.compile('^([^\s:]+)')
+    piface = re.compile(r'^([^\s:]+)')
     pmac = re.compile('.*?(?:HWaddr|ether) ([0-9a-fA-F:]+)')
-    pip = re.compile('.*?(?:inet addr:|inet )(.*?)\s')
+    pip = re.compile(r'.*?(?:inet addr:|inet )(.*?)\s')
     pip6 = re.compile('.*?(?:inet6 addr: (.*?)/|inet6 )([0-9a-fA-F:]+)')
-    pmask = re.compile('.*?(?:Mask:|netmask )(?:(0x[0-9a-fA-F]{8})|([\d\.]+))')
-    pmask6 = re.compile('.*?(?:inet6 addr: [0-9a-fA-F:]+/(\d+)|prefixlen (\d+)).*')
+    pmask = re.compile(r'.*?(?:Mask:|netmask )(?:([0-9a-fA-F]{8})|([\d\.]+))')
+    pmask6 = re.compile(r'.*?(?:inet6 addr: [0-9a-fA-F:]+/(\d+)|prefixlen (\d+)).*')
     pupdown = re.compile('UP')
-    pbcast = re.compile('.*?(?:Bcast:|broadcast )([\d\.]+)')
+    pbcast = re.compile(r'.*?(?:Bcast:|broadcast )([\d\.]+)')
 
-    groups = re.compile('\r?\n(?=\S)').split(out)
+    groups = re.compile('\r?\n(?=\\S)').split(out)
     for group in groups:
         data = dict()
         iface = ''
@@ -312,6 +312,22 @@ def ip4_addrs():
     return sorted(ret)
 
 
+def hex2ip(hex_ip):
+    '''
+    Convert a hex string to an ip, if a failure occurs the original hex is
+    returned
+    '''
+    try:
+        hip = int(hex_ip, 16)
+    except ValueError:
+        return hex_ip
+    return '{0}.{1}.{2}.{3}'.format(
+            hip >> 24 & 255,
+            hip >> 16 & 255,
+            hip >> 8 & 255,
+            hip & 255)
+
+
 class IPv4Address(object):
     '''
     A very minimal subset of the IPv4Address object in the ip_address module.
@@ -326,7 +342,7 @@ class IPv4Address(object):
             )
         try:
             self.dotted_quad = [int(a) for a in a]
-        except ValueError, e:
+        except ValueError as e:
             raise ValueError(
                 'IPv4 addresses must be in dotted-quad form. {0}'.format(e)
             )

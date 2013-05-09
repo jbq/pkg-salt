@@ -15,9 +15,9 @@ default_conf = '/etc/logrotate.conf'
 
 def __virtual__():
     '''
-    Only work on posix-like systems
+    Only work on POSIX-like systems
     '''
-    # Disable on these platorms
+    # Disable on these platforms
     disable = ('Windows',)
     if __grains__['os'] in disable:
         return False
@@ -38,13 +38,14 @@ def _parse_conf(conf_file=default_conf):
     multi_name = ''
     multi = {}
     with salt.utils.fopen(conf_file, 'r') as ifile:
-        for line in ifile.readlines():
-            if not line.strip():
+        for line in ifile:
+            line = line.strip()
+            if not line:
                 continue
-            if line.strip().startswith('#'):
+            if line.startswith('#'):
                 continue
 
-            comps = line.strip().split()
+            comps = line.split()
             if '{' in line and '}' not in line:
                 mode = 'multi'
                 multi_name = comps[0]

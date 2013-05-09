@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 def __virtual__():
     '''
-    Only work on posix-like systems
+    Only work on POSIX-like systems
     '''
     # Disable on Windows, a specific file module exists:
     if __grains__['os'] in ('Windows',):
@@ -146,7 +146,7 @@ def in_subnet(cidr):
     try:
         netstart, netsize = cidr.split('/')
         netsize = int(netsize)
-    except:
+    except Exception:
         log.error('Invalid CIDR \'{0}\''.format(cidr))
         return False
 
@@ -288,7 +288,7 @@ def traceroute(host):
     # Parse version of traceroute
     cmd2 = 'traceroute --version'
     out2 = __salt__['cmd.run'](cmd2)
-    traceroute_version = re.findall('version (\d+)\.(\d+)\.(\d+)', out2)[0]
+    traceroute_version = re.findall(r'version (\d+)\.(\d+)\.(\d+)', out2)[0]
 
     for line in out.splitlines():
         if not ' ' in line:
@@ -346,7 +346,7 @@ def arp():
 
     CLI Example::
 
-        salt '*' \* network.arp
+        salt '*' '*' network.arp
     '''
     ret = {}
     out = __salt__['cmd.run']('arp -an')

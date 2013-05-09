@@ -69,6 +69,7 @@ def install(pkgs=None,
             no_download=False,
             install_options=None,
             runas=None,
+            no_chown=False,
             cwd=None,
             __env__='base'):
     '''
@@ -147,6 +148,9 @@ def install(pkgs=None,
         path, be sure to use absolute path.
     runas
         User to run pip as
+    no_chown
+        When runas is given, do not attempt to copy and chown
+        a requirements file
     cwd
         Current working directory to run pip from
 
@@ -215,7 +219,7 @@ def install(pkgs=None,
 
             requirements = cached_requirements
 
-        if runas:
+        if runas and not no_chown:
             # Need to make a temporary copy since the runas user will, most
             # likely, not have the right permissions to read the file
             treq = salt.utils.mkstemp()
@@ -268,20 +272,20 @@ def install(pkgs=None,
 
     if find_links:
         if not salt.utils.valid_url(find_links, VALID_PROTOS):
-            raise Exception('\'{0}\' must be a valid url'.format(find_links))
+            raise Exception('\'{0}\' must be a valid URL'.format(find_links))
         cmd = '{cmd} --find-links={find_links}'.format(
             cmd=cmd, find_links=find_links)
 
     if index_url:
         if not salt.utils.valid_url(index_url, VALID_PROTOS):
-            raise Exception('\'{0}\' must be a valid url'.format(index_url))
+            raise Exception('\'{0}\' must be a valid URL'.format(index_url))
         cmd = '{cmd} --index-url="{index_url}" '.format(
             cmd=cmd, index_url=index_url)
 
     if extra_index_url:
         if not salt.utils.valid_url(extra_index_url, VALID_PROTOS):
             raise Exception(
-                '\'{0}\' must be a valid url'.format(extra_index_url)
+                '\'{0}\' must be a valid URL'.format(extra_index_url)
             )
         cmd = '{cmd} --extra-index-url="{extra_index_url}" '.format(
             cmd=cmd, extra_index_url=extra_index_url)
@@ -291,7 +295,7 @@ def install(pkgs=None,
 
     if mirrors:
         if not mirrors.startswith('http://'):
-            raise Exception('\'{0}\' must be a valid url'.format(mirrors))
+            raise Exception('\'{0}\' must be a valid URL'.format(mirrors))
         cmd = '{cmd} --use-mirrors --mirrors={mirrors} '.format(
             cmd=cmd, mirrors=mirrors)
 

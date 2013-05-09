@@ -233,7 +233,7 @@ def _get_image(image, vda):
         if not os.path.isabs(image) or not image.startswith('file://'):
             # The image is on a network resource
             env = 'base'
-            if not image.rindex(':') == 4:
+            if image.rindex(':') != 4:
                 env = image.split(':')[-1]
                 image = image[:image.rindex(':')]
             __salt__['cp.get_url'](image, vda, env)
@@ -257,7 +257,7 @@ def _gen_xml(name,
              desc,
              opts):
     '''
-    Generate the xml used for the libvirt configuration
+    Generate the XML used for the libvirt configuration
     '''
     # Don't generate the libvirt config if it already exists
     vda = os.path.join(vmdir, 'vda')
@@ -494,7 +494,7 @@ def get_disks(name):
 
 def get_conf(name):
     '''
-    Returns the xml for a given vm
+    Returns the XML for a given vm
 
     CLI Example::
 

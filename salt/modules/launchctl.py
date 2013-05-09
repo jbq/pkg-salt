@@ -39,14 +39,14 @@ def _available_services():
     '''
     available_services = dict()
     for launch_dir in _launchd_paths():
-        for root, sub_folders, files in os.walk(launch_dir):
+        for root, dirs, files in os.walk(launch_dir):
             for filename in files:
                 file_path = os.path.join(root, filename)
 
                 try:
                     # This assumes most of the plist files will be already in XML format
                     plist = plistlib.readPlist(file_path)
-                except:
+                except Exception:
                     # If plistlib is unable to read the file we'll need to use
                     # the system provided plutil program to do the conversion
                     cmd = '/usr/bin/plutil -convert xml1 -o - -- "{0}"'.format(file_path)

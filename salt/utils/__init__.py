@@ -271,7 +271,7 @@ def jid_to_time(jid):
     Convert a salt job id into the time when the job was invoked
     '''
     jid = str(jid)
-    if not len(jid) == 20:
+    if len(jid) != 20:
         return ''
     year = jid[:4]
     month = jid[4:6]
@@ -308,7 +308,7 @@ def gen_mac(prefix='52:54:'):
 
 def ip_bracket(addr):
     '''
-    Convert IP address representation to ZMQ (url) format. ZMQ expects
+    Convert IP address representation to ZMQ (URL) format. ZMQ expects
     brackets around IPv6 literals, since they are used in URLs.
     '''
     if addr and ":" in addr and not addr.startswith('['):
@@ -433,7 +433,7 @@ def is_jid(jid):
     '''
     if not isinstance(jid, basestring):
         return False
-    if not len(jid) == 20:
+    if len(jid) != 20:
         return False
     try:
         int(jid)
@@ -960,7 +960,6 @@ def rm_rf(path):
         Usage : `shutil.rmtree(path, onerror=onerror)`
         """
         if is_windows() and not os.access(path, os.W_OK):
-            import stat
             # Is the error an access error ?
             os.chmod(path, stat.S_IWUSR)
             func(path)
@@ -1052,7 +1051,7 @@ def safe_walk(top, topdown=True, onerror=None, followlinks=True, _seen=None):
         # Note that listdir and error are globals in this module due
         # to earlier import-*.
         names = os.listdir(top)
-    except os.error, err:
+    except os.error as err:
         if onerror is not None:
             onerror(err)
         return
