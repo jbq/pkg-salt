@@ -6,8 +6,13 @@ salt (0.15.1-1) unstable; urgency=high
   * [5d46d17] Imported Upstream version 0.15.0 Closes: #703600
   * [ee734d5] Added dctrl-tools as a recommendation
   * [0c3a6e6] Removed unnecessary cleanup step in build process
+  * [552cb80] Updated changelog and NEWS file for 0.15.1
+  * [1d878ca] removed files that should not have been checked in
 
- -- Joe Healy <joehealy@gmail.com>  Sat, 04 May 2013 22:55:20 +1000
+  [ Ulrich Dangel ]
+  * [e30e35a] Move security notice from salt-common.NEWS to NEWS
+
+ -- Ulrich Dangel <uli@debian.org>  Sun, 19 May 2013 22:46:03 +0100
 
 salt (0.14.1-1) unstable; urgency=low
 
