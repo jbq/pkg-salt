@@ -15,7 +15,10 @@ import stat
 import logging
 import hashlib
 import datetime
-import pwd
+try:
+    import pwd
+except ImportError:  # This is in case windows minion is importing
+    pass
 import getpass
 import resource
 import subprocess
@@ -241,7 +244,7 @@ class Master(SMaster):
         mof_c = self.opts['max_open_files']
         if mof_c > mof_h:
             # The configured value is higher than what's allowed
-            log.warning(
+            log.info(
                 'The value for the \'max_open_files\' setting, {0}, is higher '
                 'than what the user running salt is allowed to raise to, {1}. '
                 'Defaulting to {1}.'.format(mof_c, mof_h)
@@ -250,11 +253,11 @@ class Master(SMaster):
 
         if mof_s < mof_c:
             # There's room to raise the value. Raise it!
-            log.warning('Raising max open files value to {0}'.format(mof_c))
+            log.info('Raising max open files value to {0}'.format(mof_c))
             resource.setrlimit(resource.RLIMIT_NOFILE, (mof_c, mof_h))
             try:
                 mof_s, mof_h = resource.getrlimit(resource.RLIMIT_NOFILE)
-                log.warning(
+                log.info(
                     'New values for max open files soft/hard values: '
                     '{0}/{1}'.format(mof_s, mof_h)
                 )
@@ -778,14 +781,19 @@ class AESFuncs(object):
         '''
         Return the master options to the minion
         '''
-        mopts = dict(self.opts)
-        file_roots = dict(mopts['file_roots'])
+        mopts = {}
         file_roots = {}
         envs = self._file_envs()
         for env in envs:
             if env not in file_roots:
                 file_roots[env] = []
         mopts['file_roots'] = file_roots
+        if load.get('env_only'):
+            return mopts
+        mopts['renderer'] = self.opts['renderer']
+        mopts['failhard'] = self.opts['failhard']
+        mopts['state_top'] = self.opts['state_top']
+        mopts['nodegroups'] = self.opts['nodegroups']
         return mopts
 
     def _mine_get(self, load):
@@ -806,7 +814,7 @@ class AESFuncs(object):
             mine = os.path.join(
                     self.opts['cachedir'],
                     'minions',
-                    load['id'],
+                    minion,
                     'mine.p')
             try:
                 with salt.utils.fopen(mine) as fp_:
@@ -1180,19 +1188,24 @@ class AESFuncs(object):
                     return {}
             else:
                 load['expr_form'] = clear_load['tgt_type']
-        if clear_load.get('form', '') == 'full':
-            load['raw'] = True
+        load['raw'] = True
         ret = {}
         for minion in self.local.cmd_iter(**load):
-            if load.get('raw', False):
+            if clear_load.get('form', '') == 'full':
                 data = minion
                 if 'jid' in minion:
                     ret['__jid__'] = minion['jid']
                 data['ret'] = data.pop('return')
                 ret[minion['id']] = data
             else:
-                id_ = minion.keys()[0]
-                ret[id_] = minion[id_].get('ret', None)
+                ret[minion['id']] = minion['return']
+                if 'jid' in minion:
+                    ret['__jid__'] = minion['jid']
+        for key, val in self.local.get_cache_returns(ret['__jid__']).items():
+            if not key in ret:
+                ret[key] = val
+        if clear_load.get('form', '') != 'full':
+            ret.pop('__jid__')
         return ret
 
     def revoke_auth(self, load):
@@ -1336,13 +1349,12 @@ class ClearFuncs(object):
 
     def _check_permissions(self, filename):
         '''
-        check if the specified filename has correct permissions
+        Check if the specified filename has correct permissions
         '''
-        if 'os' in os.environ:
-            if os.environ['os'].startswith('Windows'):
-                return True
+        if salt.utils.is_windows():
+            return True
 
-        import pwd  # after confirming not running Windows
+        # After we've ascertained we're not on windows
         import grp
         try:
             user = self.opts['user']
@@ -1381,7 +1393,7 @@ class ClearFuncs(object):
 
             # check if writable by group or other
             if not (stat.S_IWGRP & fmode.st_mode or
-              stat.S_IWOTH & fmode.st_mode):
+                    stat.S_IWOTH & fmode.st_mode):
                 return True
 
         return False
@@ -1416,7 +1428,7 @@ class ClearFuncs(object):
                 if fnmatch.fnmatch(keyid, line):
                     return True
                 try:
-                    if re.match(line, keyid):
+                    if re.match(r'\A{0}\z'.format(line), keyid):
                         return True
                 except re.error:
                     log.warn(

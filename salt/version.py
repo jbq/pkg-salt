@@ -6,7 +6,7 @@ Set up the version of Salt
 import sys
 
 
-__version_info__ = (0, 15, 1)
+__version_info__ = (0, 15, 3)
 __version__ = '.'.join(map(str, __version_info__))
 
 GIT_DESCRIBE_REGEX = (
@@ -35,10 +35,20 @@ def __get_version(version, version_info):
     import subprocess
 
     try:
+        cwd = os.path.abspath(os.path.dirname(__file__))
+    except NameError:
+        # We're most likely being frozen and __file__ triggered this NameError
+        # Let's work around that
+        import inspect
+        cwd = os.path.abspath(
+            os.path.dirname(inspect.getsourcefile(__get_version))
+        )
+
+    try:
         kwargs = dict(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            cwd=os.path.abspath(os.path.dirname(__file__))
+            cwd=cwd
         )
 
         if not sys.platform.startswith('win'):

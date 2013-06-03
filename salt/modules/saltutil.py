@@ -90,7 +90,7 @@ def _sync(form, env=None):
                     salt.utils.fopen(dest, 'r').read()
                 ).hexdigest()
                 if srch != dsth:
-                    # The downloaded file differes, replace!
+                    # The downloaded file differs, replace!
                     shutil.copyfile(fn_, dest)
                     ret.append('{0}.{1}'.format(form, relname))
             else:
@@ -127,9 +127,9 @@ def _sync(form, env=None):
 def _listdir_recursively(rootdir):
     file_list = []
     for root, dirs, files in os.walk(rootdir):
-        for file in files:
+        for filename in files:
             relpath = os.path.relpath(root, rootdir).strip('.')
-            file_list.append(os.path.join(relpath, file))
+            file_list.append(os.path.join(relpath, filename))
     return file_list
 
 
@@ -443,6 +443,10 @@ def kill_job(jid):
 def regen_keys():
     '''
     Used to regenerate the minion keys. 
+
+    CLI Example::
+
+        salt '*' saltutil.regen_keys
     '''
     for fn_ in os.listdir(__opts__['pki_dir']):
         path = os.path.join(__opts__['pki_dir'], fn_)
