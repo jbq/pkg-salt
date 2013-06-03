@@ -157,11 +157,12 @@ class Client(object):
                     if fn_.strip() and fn_.startswith(path)])
 
         if include_empty:
-            # Break up the path into a list containing the bottom-level directory
-            # (the one being recursively copied) and the directories preceding it
+            # Break up the path into a list containing the bottom-level
+            # directory (the one being recursively copied) and the directories
+            # preceding it
             #separated = string.rsplit(path, '/', 1)
             #if len(separated) != 2:
-            #    # No slashes in path. (This means all files in env will be copied)
+            #    # No slashes in path. (So all files in env will be copied)
             #    prefix = ''
             #else:
             #    prefix = separated[0]
@@ -410,6 +411,9 @@ class LocalClient(Client):
                'rel': ''}
         if env not in self.opts['file_roots']:
             return fnd
+        if path.startswith('|'):
+            # The path arguments are escaped
+            path = path[1:]
         for root in self.opts['file_roots'][env]:
             full = os.path.join(root, path)
             if os.path.isfile(full):
@@ -501,7 +505,7 @@ class LocalClient(Client):
         ret['hash_type'] = self.opts['hash_type']
         return ret
 
-    def list_env(self, path, env='base'):
+    def list_env(self, env='base'):
         '''
         Return a list of the files in the file server's specified environment
         '''
@@ -716,7 +720,7 @@ class RemoteClient(Client):
         except SaltReqTimeoutError:
             return ''
 
-    def list_env(self, path, env='base'):
+    def list_env(self, env='base'):
         '''
         Return a list of the files in the file server's specified environment
         '''

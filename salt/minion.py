@@ -129,11 +129,14 @@ def detect_kwargs(func, args, data=None):
         if isinstance(arg, string_types):
             if '=' in arg:
                 comps = arg.split('=')
-                if has_kwargs:
-                    kwargs[comps[0]] = '='.join(comps[1:])
+                if ' ' in comps[0]:
+                    # Invalid kwarg
+                    pass
+                elif has_kwargs:
+                    kwargs[comps[0]] = yamlify_arg('='.join(comps[1:]))
                     continue
-                if comps[0] in kwarg_spec:
-                    kwargs[comps[0]] = '='.join(comps[1:])
+                elif comps[0] in kwarg_spec:
+                    kwargs[comps[0]] = yamlify_arg('='.join(comps[1:]))
                     continue
         _args.append(arg)
     if has_kwargs and isinstance(data, dict):
@@ -141,6 +144,18 @@ def detect_kwargs(func, args, data=None):
         for key, val in data.items():
             kwargs['__pub_{0}'.format(key)] = val
     return _args, kwargs
+
+
+def yamlify_arg(arg):
+    '''
+    yaml.safe_load the arg unless it has a newline in it
+    '''
+    try:
+        if '\n' not in arg:
+            return yaml.safe_load(arg)
+    except Exception:
+        pass
+    return arg
 
 
 class SMinion(object):
@@ -398,7 +413,7 @@ class Minion(object):
             minion_instance = class_(opts)
         if opts['multiprocessing']:
             fn_ = os.path.join(minion_instance.proc_dir, data['jid'])
-            salt.utils.daemonize_if(opts, **data)
+            salt.utils.daemonize_if(opts)
             sdata = {'pid': os.getpid()}
             sdata.update(data)
             with salt.utils.fopen(fn_, 'w+') as fp_:
@@ -669,6 +684,7 @@ class Minion(object):
             self.opts['id'],
             self.opts['environment'],
         ).compile_pillar()
+        self.module_refresh()
 
     def clean_die(self, signum, frame):
         '''
@@ -1234,9 +1250,9 @@ class Matcher(object):
         Matches based on range cluster
         '''
         if HAS_RANGE:
-            range = seco.range.Range(self.opts['range_server'])
+            range_ = seco.range.Range(self.opts['range_server'])
             try:
-                return self.opts['grains']['fqdn'] in range.expand(tgt)
+                return self.opts['grains']['fqdn'] in range_.expand(tgt)
             except seco.range.RangeException as e:
                 log.debug('Range exception in compound match: {0}'.format(e))
                 return False

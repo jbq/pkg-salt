@@ -1742,13 +1742,8 @@ def makedirs(path, user=None, group=None, mode=None):
     # create parent directories from the topmost to the most deeply nested one
     directories_to_create.reverse()
     for directory_to_create in directories_to_create:
-        if directory_to_create == os.path.normpath(path):
-            # only the directory passed to this function gets the user, group,
-            # set
-            mkdir(directory_to_create, user=user, group=group, mode=mode)
-            continue
-        # Create the directory
-        mkdir(directory_to_create)
+        # all directories have the user, group and mode set!!
+        mkdir(directory_to_create, user=user, group=group, mode=mode)
 
 
 def makedirs_perms(name, user=None, group=None, mode='0755'):
@@ -1761,7 +1756,6 @@ def makedirs_perms(name, user=None, group=None, mode='0755'):
         salt '*' file.makedirs_perms /opt/code
     '''
     path = os.path
-    mkdir = os.mkdir
     head, tail = path.split(name)
     if not tail:
         head, tail = path.split(head)
@@ -1774,7 +1768,7 @@ def makedirs_perms(name, user=None, group=None, mode='0755'):
                 raise
         if tail == os.curdir:  # xxx/newdir/. exists if xxx/newdir exists
             return
-    mkdir(name)
+    os.mkdir(name)
     check_perms(
             name,
             None,

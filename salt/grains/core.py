@@ -140,6 +140,7 @@ def _linux_gpu_data():
         lspci_out = __salt__['cmd.run']('lspci -vmm')
 
         cur_dev = {}
+        error = False
         for line in lspci_out.splitlines():
             # check for record-separating empty lines
             if line == '':
@@ -148,19 +149,30 @@ def _linux_gpu_data():
                 # XXX; may also need to search for "3D controller"
                 cur_dev = {}
                 continue
-            key, val = line.split(':', 1)
-            cur_dev[key.strip()] = val.strip()
+            if re.match(r'^\w+:\s+.*', line):
+                key, val = line.split(':', 1)
+                cur_dev[key.strip()] = val.strip()
+            else:
+                error = True
+                log.debug('Unexpected lspci output: \'{0}\''.format(line))
+
+        if error:
+            log.warn(
+                'Error loading grains, unexpected linux_gpu_data output, '
+                'check that you have a valid shell configured and '
+                'permissions to run lspci command'
+            )
     except OSError:
         pass
 
     gpus = []
     for gpu in devs:
-        vendor_str_lower = gpu['Vendor'].lower()
+        vendor_strings = gpu['Vendor'].lower().split()
         # default vendor to 'unknown', overwrite if we match a known one
         vendor = 'unknown'
         for name in known_vendors:
-            # search for an 'expected' vendor name in the string
-            if name in vendor_str_lower:
+            # search for an 'expected' vendor name in the list of strings
+            if name in vendor_strings:
                 vendor = name
                 break
         gpus.append({'vendor': vendor, 'model': gpu['Device']})
@@ -228,13 +240,25 @@ def _sunos_cpudata(osdata):
     #   cpuarch
     #   num_cpus
     #   cpu_model
+    #   cpu_flags
     grains = {}
+    grains['cpu_flags'] = [] 
 
     grains['cpuarch'] = __salt__['cmd.run']('uname -p')
     psrinfo = '/usr/sbin/psrinfo 2>/dev/null'
     grains['num_cpus'] = len(__salt__['cmd.run'](psrinfo).splitlines())
-    kstat_info = 'kstat -p cpu_info:*:*:implementation'
-    grains['cpu_model'] = __salt__['cmd.run'](kstat_info).split()[1].strip()
+    kstat_info = 'kstat -p cpu_info:0:*:brand'
+    for line in __salt__['cmd.run'](kstat_info).splitlines():
+        match = re.match('(\w+:\d+:\w+\d+:\w+)\s+(.+)', line)
+        if match:
+            grains['cpu_model'] = match.group(2)
+    isainfo = 'isainfo -n -v'
+    for line in __salt__['cmd.run'](isainfo).splitlines():
+        match = re.match('^\s+(.+)', line)
+        if match:
+            cpu_flags = match.group(1).split()
+            grains['cpu_flags'].extend(cpu_flags)
+
     return grains
 
 
@@ -420,6 +444,8 @@ def _virtual(osdata):
             zone = __salt__['cmd.run']('{0}'.format(zonename))
             if zone != "global":
                 grains['virtual'] = 'zone'
+                if osdata['os'] == 'SmartOS':
+                    grains.update(_smartos_zone_data(grains))
         # Check if it's a branded zone (i.e. Solaris 8/9 zone)
         if isdir('/.SUNWnative'):
             grains['virtual'] = 'zone'
@@ -606,7 +632,7 @@ def os_data():
                             # Adds: lsb_distrib_{id,release,codename,description}
                             grains['lsb_{0}'.format(match.groups()[0].lower())] = match.groups()[1].rstrip()
             elif os.path.isfile('/etc/os-release'):
-                # Arch ARM linux
+                # Arch ARM Linux
                 with salt.utils.fopen('/etc/os-release') as ifile:
                     # Imitate lsb-release
                     for line in ifile:
@@ -667,8 +693,7 @@ def os_data():
                 rel_data = fp_.read()
                 if 'SmartOS' in rel_data:
                     grains['os'] = 'SmartOS'
-                    # FIXME: need detection of osrelease for SmartOS
-                    grains['osrelease'] = ''
+                    grains['osrelease'] = __salt__['cmd.run']('uname -v')
                 else:
                     try:
                         release_re = '(Solaris|OpenIndiana(?: Development)?)' \
@@ -745,7 +770,10 @@ def hostname():
     #   domain
     grains = {}
     grains['localhost'] = socket.gethostname()
-    grains['fqdn'] = socket.getfqdn()
+    if '.' in socket.getfqdn():
+        grains['fqdn'] = socket.getfqdn()
+    else :
+        grains['fqdn'] = grains['localhost']
     (grains['host'], grains['domain']) = grains['fqdn'].partition('.')[::2]
     return grains
 
@@ -765,11 +793,7 @@ def ip4():
     Return a list of ipv4 addrs
     '''
     ips = []
-    if salt.utils.is_windows():
-        # TODO: Add windows ip addrs here
-        pass
-    else:
-        ips = salt.utils.socket_util.ip4_addrs()
+    ips = salt.utils.socket_util.ip4_addrs()
     return {'ipv4': ips}
 
 
@@ -806,8 +830,8 @@ def saltpath():
     '''
     # Provides:
     #   saltpath
-    path = os.path.abspath(os.path.join(__file__, os.path.pardir))
-    return {'saltpath': os.path.dirname(path)}
+    salt_path = os.path.abspath(os.path.join(__file__, os.path.pardir))
+    return {'saltpath': os.path.dirname(salt_path)}
 
 
 def saltversion():
@@ -828,15 +852,15 @@ def _dmidecode_data(regex_dict):
     Parse the output of dmidecode in a generic fashion that can
     be used for the multiple system types which have dmidecode.
     '''
-    # NOTE: This function might gain support for smbios instead
-    #       of dmidecode when salt gets working Solaris support
     ret = {}
 
-    # No use running if dmidecode isn't in the path
-    if not salt.utils.which('dmidecode'):
+    # No use running if dmidecode/smbios isn't in the path
+    if salt.utils.which('dmidecode'):
+        out = __salt__['cmd.run']('dmidecode')
+    elif salt.utils.which('smbios'):
+        out = __salt__['cmd.run']('smbios')
+    else :
         return ret
-
-    out = __salt__['cmd.run']('dmidecode')
 
     for section in regex_dict:
         section_found = False
@@ -900,6 +924,19 @@ def _hw_data(osdata):
             },
         }
         grains.update(_dmidecode_data(linux_dmi_regex))
+    elif osdata['kernel'] == 'SunOS':
+        sunos_dmi_regex = {
+            r'(.+)SMB_TYPE_BIOS\s\(BIOS [Ii]nformation\)': {
+                '[Vv]ersion [Ss]tring:': 'biosversion',
+                '[Rr]elease [Dd]ate:': 'biosreleasedate',
+            },
+            r'(.+)SMB_TYPE_SYSTEM\s\([Ss]ystem [Ii]nformation\)': {
+                'Manufacturer:': 'manufacturer',
+                'Product(?: Name)?:': 'productname',
+                'Serial Number:': 'serialnumber',
+            },
+        }   
+        grains.update(_dmidecode_data(sunos_dmi_regex))
     # On FreeBSD /bin/kenv (already in base system) can be used instead of dmidecode
     elif osdata['kernel'] == 'FreeBSD':
         kenv = salt.utils.which('kenv')
@@ -924,8 +961,51 @@ def _hw_data(osdata):
             value = __salt__['cmd.run']('{0} -n {1}'.format(sysctl, oid))
             if not value.endswith(' value is not available'):
                 grains[key] = value
+    elif osdata['kernel'] == 'NetBSD':
+        sysctl = salt.utils.which('sysctl')
+        nbsd_hwdata = {
+            'biosversion': 'machdep.dmi.board-version',
+            'manufacturer': 'machdep.dmi.system-vendor',
+            'serialnumber': 'machdep.dmi.system-serial',
+            'productname': 'machdep.dmi.system-product',
+            'biosreleasedate': 'machdep.dmi.bios-date',
+        }
+        for key, oid in nbsd_hwdata.items():
+            result = __salt__['cmd.run_all']('{0} -n {1}'.format(sysctl, oid))
+            if result['retcode'] == 0:
+                grains[key] = result['stdout']
+
     return grains
 
+def _smartos_zone_data(osdata):
+    '''
+    Return useful information from a SmartOS zone
+    '''
+    # Provides:
+    #   pkgsrcversion
+    #   imageversion
+    grains = {}
+
+    pkgsrcversion = re.compile('^release:\\s(.+)')
+    imageversion = re.compile('Image:\\s(.+)')
+    if os.path.isfile('/etc/pkgsrc_version'):
+        with salt.utils.fopen('/etc/pkgsrc_version', 'r') as fp_:
+            for line in fp_:
+                match = pkgsrcversion.match(line)
+                if match:
+                    grains['pkgsrcversion'] = match.group(1)
+    if os.path.isfile('/etc/product'):
+        with salt.utils.fopen('/etc/product', 'r') as fp_:
+            for line in fp_:
+                match = imageversion.match(line)
+                if match:
+                    grains['imageversion'] = match.group(1)
+    if 'pkgsrcversion' not in grains:
+        grains['pkgsrcversion'] = 'Unknown'
+    if 'imageversion' not in grains:
+        grains['imageversion'] = 'Unknown'
+    
+    return grains
 
 def get_server_id():
     '''
