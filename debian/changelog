@@ -1,3 +1,13 @@
+salt (0.15.3-1) unstable; urgency=low
+
+  [ Joe Healy ]
+  * Team upload.
+  * [ad0a089] Imported Upstream version 0.15.3
+  * [99d70ab] Updated to depend on zeromq 3. Closes: #690525
+  * [0aefc36] Added python-git as a recommended package. Closes: #700174
+
+ -- Joe Healy <joehealy@gmail.com>  Mon, 03 Jun 2013 23:47:24 +1000
+
 salt (0.15.1-1) unstable; urgency=high
 
   [ Joe Healy ]
