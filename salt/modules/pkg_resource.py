@@ -225,7 +225,7 @@ def check_desired(desired=None):
     return problems
 
 
-def parse_targets(name=None, pkgs=None, sources=None):
+def parse_targets(name=None, pkgs=None, sources=None, **kwargs):
     '''
     Parses the input to pkg.install and returns back the package(s) to be
     installed. Returns a list of packages, as well as a string noting whether
@@ -235,29 +235,14 @@ def parse_targets(name=None, pkgs=None, sources=None):
 
         salt '*' pkg_resource.parse_targets
     '''
-
-    # For Solaris, there is no repository, and only the "sources" param can be
-    # used. Warn if "name" or "pkgs" is provided, and require that "sources" is
-    # present.
-    if __grains__['os_family'] == 'Solaris':
-        if name:
-            log.warning('Parameter "name" ignored on Solaris hosts.')
-        if pkgs:
-            log.warning('Parameter "pkgs" ignored on Solaris hosts.')
-        if not sources:
-            log.error('"sources" option required with Solaris pkg installs')
-            return None, None
-    elif __grains__['os'] == 'MacOS' and sources:
+    if __grains__['os'] == 'MacOS' and sources:
         log.warning('Parameter "sources" ignored on MacOS hosts.')
 
-    # "pkgs" is always ignored on Solaris.
-    if pkgs and sources and __grains__['os_family'] != 'Solaris':
+    if pkgs and sources:
         log.error('Only one of "pkgs" and "sources" can be used.')
         return None, None
 
-    elif pkgs and __grains__['os_family'] != 'Solaris':
-        if name:
-            log.warning('"name" parameter will be ignored in favor of "pkgs"')
+    elif pkgs:
         pkgs = pack_pkgs(pkgs)
         if not pkgs:
             return None, None
@@ -265,10 +250,6 @@ def parse_targets(name=None, pkgs=None, sources=None):
             return pkgs, 'repository'
 
     elif sources and __grains__['os'] != 'MacOS':
-        # No need to warn for Solaris, warning taken care of above.
-        if name and __grains__['os_family'] != 'Solaris':
-            log.warning('"name" parameter will be ignored in favor of '
-                        '"sources".')
         sources = pack_sources(sources)
         if not sources:
             return None, None
@@ -279,7 +260,9 @@ def parse_targets(name=None, pkgs=None, sources=None):
                 # Cache package from remote source (salt master, HTTP, FTP)
                 srcinfo.append((pkg_name,
                                 pkg_src,
-                               __salt__['cp.cache_file'](pkg_src),
+                               __salt__['cp.cache_file'](pkg_src,
+                                                         kwargs.get('__env__',
+                                                                    'base')),
                                'remote'))
             else:
                 # Package file local to the minion
@@ -301,8 +284,8 @@ def parse_targets(name=None, pkgs=None, sources=None):
         # the package path (3rd element of tuple).
         return [x[2] for x in srcinfo], 'file'
 
-    elif name and __grains__['os_family'] != 'Solaris':
-        return {name: None}, 'repository'
+    elif name:
+        return dict([(x, None) for x in name.split(',')]), 'repository'
 
     else:
         log.error('No package sources passed to pkg.install.')

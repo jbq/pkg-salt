@@ -27,7 +27,7 @@ _supported_dists += ('arch', 'mageia', 'meego', 'vmware', 'bluewhite64',
 # Import salt libs
 import salt.log
 import salt.utils
-import salt.utils.socket_util
+import salt.utils.network
 
 # Solve the Chicken and egg problem where grains need to run before any
 # of the modules are loaded and are generally available for any usage.
@@ -49,8 +49,10 @@ if salt.utils.is_windows():
         import salt.utils.winapi
         HAS_WMI = True
     except ImportError:
-        log.exception("Unable to import Python wmi module, some core grains "
-                      "will be missing")
+        log.exception(
+            'Unable to import Python wmi module, some core grains '
+            'will be missing'
+        )
 
 
 def _windows_cpudata():
@@ -132,6 +134,14 @@ def _linux_gpu_data():
       - vendor: nvidia|amd|ati|...
         model: string
     '''
+    lspci = salt.utils.which('lspci')
+    if not lspci:
+        log.info(
+            'The `lspci` binary is not available on the system. GPU grains '
+            'will not be available.'
+        )
+        return {}
+
     # dominant gpu vendors to search for (MUST be lowercase for matching below)
     known_vendors = ['nvidia', 'amd', 'ati', 'intel']
 
@@ -183,6 +193,37 @@ def _linux_gpu_data():
     return grains
 
 
+def _netbsd_gpu_data():
+    '''
+    num_gpus: int
+    gpus:
+      - vendor: nvidia|amd|ati|...
+        model: string
+    '''
+    known_vendors = ['nvidia', 'amd', 'ati', 'intel', 'cirrus logic', 'vmware']
+
+    gpus = []
+    try:
+        pcictl_out = __salt__['cmd.run']('pcictl pci0 list')
+
+        for line in pcictl_out.splitlines():
+            for vendor in known_vendors:
+                m = re.match(
+                    r'[0-9:]+ ({0}) (.+) \(VGA .+\)'.format(vendor),
+                    line,
+                    re.IGNORECASE
+                )
+                if m:
+                    gpus.append({'vendor': m.group(1), 'model': m.group(2)})
+    except OSError:
+        pass
+
+    grains = {}
+    grains['num_gpus'] = len(gpus)
+    grains['gpus'] = gpus
+    return grains
+
+
 def _bsd_cpudata(osdata):
     '''
     Return CPU information for BSD-like systems
@@ -202,11 +243,20 @@ def _bsd_cpudata(osdata):
             'cpuarch': '{0} -n hw.machine'.format(sysctl),
             'cpu_model': '{0} -n hw.model'.format(sysctl),
         })
+
     if arch and osdata['kernel'] == 'OpenBSD':
         cmds['cpuarch'] = '{0} -s'.format(arch)
 
     grains = dict([(k, __salt__['cmd.run'](v)) for k, v in cmds.items()])
     grains['cpu_flags'] = []
+
+    if osdata['kernel'] == 'NetBSD':
+        for line in __salt__['cmd.run']('cpuctl identify 0').splitlines():
+            m = re.match(r'cpu[0-9]:\ features[0-9]?\ .+<(.+)>', line)
+            if m:
+                flag = m.group(1).split(',')
+                grains['cpu_flags'].extend(flag)
+
     if osdata['kernel'] == 'FreeBSD' and os.path.isfile('/var/run/dmesg.boot'):
         # TODO: at least it needs to be tested for BSD other then FreeBSD
         with salt.utils.fopen('/var/run/dmesg.boot', 'r') as _fp:
@@ -232,7 +282,7 @@ def _bsd_cpudata(osdata):
     return grains
 
 
-def _sunos_cpudata(osdata):
+def _sunos_cpudata():
     '''
     Return the CPU information for Solaris-like systems
     '''
@@ -242,19 +292,19 @@ def _sunos_cpudata(osdata):
     #   cpu_model
     #   cpu_flags
     grains = {}
-    grains['cpu_flags'] = [] 
+    grains['cpu_flags'] = []
 
     grains['cpuarch'] = __salt__['cmd.run']('uname -p')
     psrinfo = '/usr/sbin/psrinfo 2>/dev/null'
     grains['num_cpus'] = len(__salt__['cmd.run'](psrinfo).splitlines())
     kstat_info = 'kstat -p cpu_info:0:*:brand'
     for line in __salt__['cmd.run'](kstat_info).splitlines():
-        match = re.match('(\w+:\d+:\w+\d+:\w+)\s+(.+)', line)
+        match = re.match(r'(\w+:\d+:\w+\d+:\w+)\s+(.+)', line)
         if match:
             grains['cpu_model'] = match.group(2)
     isainfo = 'isainfo -n -v'
     for line in __salt__['cmd.run'](isainfo).splitlines():
-        match = re.match('^\s+(.+)', line)
+        match = re.match(r'^\s+(.+)', line)
         if match:
             cpu_flags = match.group(1).split()
             grains['cpu_flags'].extend(cpu_flags)
@@ -280,10 +330,12 @@ def _memdata(osdata):
                         continue
                     if comps[0].strip() == 'MemTotal':
                         grains['mem_total'] = int(comps[1].split()[0]) / 1024
-    elif osdata['kernel'] in ('FreeBSD', 'OpenBSD'):
+    elif osdata['kernel'] in ('FreeBSD', 'OpenBSD', 'NetBSD'):
         sysctl = salt.utils.which('sysctl')
         if sysctl:
             mem = __salt__['cmd.run']('{0} -n hw.physmem'.format(sysctl))
+            if (osdata['kernel'] == 'NetBSD' and mem.startswith('-')):
+                mem = __salt__['cmd.run']('{0} -n hw.physmem64'.format(sysctl))
             grains['mem_total'] = str(int(mem) / 1024 / 1024)
     elif osdata['kernel'] == 'SunOS':
         prtconf = '/usr/sbin/prtconf 2>/dev/null'
@@ -342,9 +394,9 @@ def _virtual(osdata):
             if 'Vendor: Bochs' in output:
                 grains['virtual'] = 'kvm'
             # Product Name: (oVirt) www.ovirt.org
-            # Red Hat Community virtualization Project based on kvm 
+            # Red Hat Community virtualization Project based on kvm
             elif 'Manufacturer: oVirt' in output:
-                grains['virtual'] = 'kvm'                
+                grains['virtual'] = 'kvm'
             elif 'VirtualBox' in output:
                 grains['virtual'] = 'VirtualBox'
             # Product Name: VMware Virtual Platform
@@ -384,6 +436,7 @@ def _virtual(osdata):
 
     choices = ('Linux', 'OpenBSD', 'HP-UX')
     isdir = os.path.isdir
+    sysctl = salt.utils.which('sysctl')
     if osdata['kernel'] in choices:
         if isdir('/proc/vz'):
             if os.path.isfile('/proc/vz/version'):
@@ -424,12 +477,15 @@ def _virtual(osdata):
             if 'QEMU Virtual CPU' in salt.utils.fopen('/proc/cpuinfo', 'r').read():
                 grains['virtual'] = 'kvm'
     elif osdata['kernel'] == 'FreeBSD':
-        sysctl = salt.utils.which('sysctl')
         kenv = salt.utils.which('kenv')
         if kenv:
             product = __salt__['cmd.run']('{0} smbios.system.product'.format(kenv))
+            maker = __salt__['cmd.run']('{0} smbios.system.maker'.format(kenv))
             if product.startswith('VMware'):
                 grains['virtual'] = 'VMware'
+            if maker.startswith('Xen'):
+                grains['virtual_subtype'] = '{0} {1}'.format(maker, product)
+                grains['virtual'] = 'xen'
         if sysctl:
             model = __salt__['cmd.run']('{0} hw.model'.format(sysctl))
             jail = __salt__['cmd.run']('{0} -n security.jail.jailed'.format(sysctl))
@@ -442,13 +498,30 @@ def _virtual(osdata):
         zonename = salt.utils.which('zonename')
         if zonename:
             zone = __salt__['cmd.run']('{0}'.format(zonename))
-            if zone != "global":
+            if zone != 'global':
                 grains['virtual'] = 'zone'
                 if osdata['os'] == 'SmartOS':
-                    grains.update(_smartos_zone_data(grains))
+                    grains.update(_smartos_zone_data())
         # Check if it's a branded zone (i.e. Solaris 8/9 zone)
         if isdir('/.SUNWnative'):
             grains['virtual'] = 'zone'
+    elif osdata['kernel'] == 'NetBSD':
+        if sysctl:
+            if 'QEMU Virtual CPU' in __salt__['cmd.run'](
+                    '{0} -n machdep.cpu_brand'.format(sysctl)):
+                grains['virtual'] = 'kvm'
+            elif not 'invalid' in __salt__['cmd.run'](
+                    '{0} -n machdep.xen.suspend'.format(sysctl)):
+                grains['virtual'] = 'Xen PV DomU'
+            elif 'VMware' in __salt__['cmd.run'](
+                    '{0} -n machdep.dmi.system-vendor'.format(sysctl)):
+                grains['virtual'] = 'VMware'
+            # NetBSD has Xen dom0 support
+            elif __salt__['cmd.run'](
+                    '{0} -n machdep.idle-mechanism'.format(sysctl)) == 'xen':
+                if os.path.isfile('/var/run/xenconsoled.pid'):
+                    grains['virtual_subtype'] = 'Xen Dom0'
+
     return grains
 
 
@@ -471,7 +544,7 @@ def _ps(osdata):
     return grains
 
 
-def _windows_platform_data(osdata):
+def _windows_platform_data():
     '''
     Use the platform module for as much as we can.
     '''
@@ -603,7 +676,7 @@ def os_data():
         grains['os'] = 'Windows'
         grains['os_family'] = 'Windows'
         grains.update(_memdata(grains))
-        grains.update(_windows_platform_data(grains))
+        grains.update(_windows_platform_data())
         grains.update(_windows_cpudata())
         grains.update(_ps(grains))
         return grains
@@ -688,28 +761,29 @@ def os_data():
         grains.update(_linux_gpu_data())
     elif grains['kernel'] == 'SunOS':
         grains['os_family'] = 'Solaris'
-        if os.path.isfile('/etc/release'):
+        uname_v = __salt__['cmd.run']('uname -v')
+        if 'joyent_' in uname_v:
+            # See https://github.com/joyent/smartos-live/issues/224
+            grains['os'] = grains['osfullname'] = 'SmartOS'
+            grains['osrelease'] = uname_v
+        elif os.path.isfile('/etc/release'):
             with salt.utils.fopen('/etc/release', 'r') as fp_:
                 rel_data = fp_.read()
-                if 'SmartOS' in rel_data:
-                    grains['os'] = 'SmartOS'
-                    grains['osrelease'] = __salt__['cmd.run']('uname -v')
+                try:
+                    release_re = r'(Solaris|OpenIndiana(?: Development)?)' \
+                                 r'\s+(\d+ \d+\/\d+|oi_\S+)?'
+                    osname, osrelease = re.search(release_re,
+                                                  rel_data).groups()
+                except AttributeError:
+                    # Set a blank osrelease grain and fallback to 'Solaris'
+                    # as the 'os' grain.
+                    grains['os'] = grains['osfullname'] = 'Solaris'
+                    grains['osrelease'] = ''
                 else:
-                    try:
-                        release_re = '(Solaris|OpenIndiana(?: Development)?)' \
-                                     r'\s+(\d+ \d+\/\d+|oi_\S+)?'
-                        osname, osrelease = re.search(release_re,
-                                                      rel_data).groups()
-                    except AttributeError:
-                        # Set a blank osrelease grain and fallback to 'Solaris'
-                        # as the 'os' grain.
-                        grains['os'] = 'Solaris'
-                        grains['osrelease'] = ''
-                    else:
-                        grains['os'] = osname
-                        grains['osrelease'] = osrelease
+                    grains['os'] = grains['osfullname'] = osname
+                    grains['osrelease'] = osrelease
 
-        grains.update(_sunos_cpudata(grains))
+        grains.update(_sunos_cpudata())
     elif grains['kernel'] == 'VMkernel':
         grains['os'] = 'ESXi'
     elif grains['kernel'] == 'Darwin':
@@ -717,9 +791,11 @@ def os_data():
         grains.update(_bsd_cpudata(grains))
     else:
         grains['os'] = grains['kernel']
-    if grains['kernel'] in ('FreeBSD', 'OpenBSD'):
+    if grains['kernel'] in ('FreeBSD', 'OpenBSD', 'NetBSD'):
         grains.update(_bsd_cpudata(grains))
         grains['osrelease'] = grains['kernelrelease'].split('-')[0]
+        if grains['kernel'] == 'NetBSD':
+            grains.update(_netbsd_gpu_data())
     if not grains['os']:
         grains['os'] = 'Unknown {0}'.format(grains['kernel'])
         grains['os_family'] = 'Unknown'
@@ -772,7 +848,7 @@ def hostname():
     grains['localhost'] = socket.gethostname()
     if '.' in socket.getfqdn():
         grains['fqdn'] = socket.getfqdn()
-    else :
+    else:
         grains['fqdn'] = grains['localhost']
     (grains['host'], grains['domain']) = grains['fqdn'].partition('.')[::2]
     return grains
@@ -792,9 +868,24 @@ def ip4():
     '''
     Return a list of ipv4 addrs
     '''
-    ips = []
-    ips = salt.utils.socket_util.ip4_addrs()
-    return {'ipv4': ips}
+    return {'ipv4': salt.utils.network.ip_addrs(include_loopback=True)}
+
+
+def ip_interfaces():
+    '''
+    Provide a dict of the connected interfaces and their ip addresses
+    '''
+    # Provides:
+    #   ip_interfaces
+    ret = {}
+    ifaces = salt.utils.network.interfaces()
+    for face in ifaces:
+        iface_ips = []
+        for inet in ifaces[face].get('inet', []):
+            if 'address' in inet:
+                iface_ips.append(inet['address'])
+        ret[face] = iface_ips
+    return {'ip_interfaces': ret}
 
 
 def path():
@@ -859,7 +950,7 @@ def _dmidecode_data(regex_dict):
         out = __salt__['cmd.run']('dmidecode')
     elif salt.utils.which('smbios'):
         out = __salt__['cmd.run']('smbios')
-    else :
+    else:
         return ret
 
     for section in regex_dict:
@@ -935,7 +1026,7 @@ def _hw_data(osdata):
                 'Product(?: Name)?:': 'productname',
                 'Serial Number:': 'serialnumber',
             },
-        }   
+        }
         grains.update(_dmidecode_data(sunos_dmi_regex))
     # On FreeBSD /bin/kenv (already in base system) can be used instead of dmidecode
     elif osdata['kernel'] == 'FreeBSD':
@@ -977,7 +1068,8 @@ def _hw_data(osdata):
 
     return grains
 
-def _smartos_zone_data(osdata):
+
+def _smartos_zone_data():
     '''
     Return useful information from a SmartOS zone
     '''
@@ -1004,8 +1096,9 @@ def _smartos_zone_data(osdata):
         grains['pkgsrcversion'] = 'Unknown'
     if 'imageversion' not in grains:
         grains['imageversion'] = 'Unknown'
-    
+
     return grains
+
 
 def get_server_id():
     '''
@@ -1016,6 +1109,7 @@ def get_server_id():
     #   server_id
     return {'server_id': abs(hash(__opts__.get('id', '')) % (2 ** 31))}
 
+
 def get_master():
     '''
     Provides the minion with the name of its master.
@@ -1025,3 +1119,4 @@ def get_master():
     #   master
     return {'master': __opts__.get('master', '')}
 
+# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4

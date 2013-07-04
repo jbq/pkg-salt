@@ -22,10 +22,18 @@ except ImportError:
     xmlrunner = None
 
 TEST_DIR = os.path.dirname(os.path.normpath(os.path.abspath(__file__)))
+SALT_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 XML_OUTPUT_DIR = os.environ.get(
     'SALT_XML_TEST_REPORTS_DIR',
     os.path.join(TMP, 'xml-test-reports')
 )
+
+
+try:
+    if SALT_ROOT:
+        os.chdir(SALT_ROOT)
+except OSError as err:
+    print 'Failed to change directory to salt\'s source: {0}'.format(err)
 
 try:
     import coverage
@@ -34,7 +42,7 @@ try:
     # Setup coverage
     code_coverage = coverage.coverage(
         branch=True,
-        source=[os.path.join(os.path.dirname(TEST_DIR), 'salt')],
+        source=[os.path.join(os.getcwd(), 'salt')],
     )
 except ImportError:
     code_coverage = None
@@ -83,6 +91,8 @@ def run_integration_tests(opts):
     '''
     Execute the integration tests suite
     '''
+    if opts.unit and not (opts.runner or opts.state or opts.module or opts.client):
+        return [True]
     smax_open_files, hmax_open_files = resource.getrlimit(resource.RLIMIT_NOFILE)
     if smax_open_files < REQUIRED_OPEN_FILES:
         print('~' * PNUM)
@@ -133,9 +143,14 @@ def run_unit_tests(opts):
     if not opts.unit:
         return [True]
     status = []
-    results = run_suite(
-        opts, os.path.join(TEST_DIR, 'unit'), 'Unit', '*_test.py')
-    status.append(results)
+    if opts.name:
+        for name in opts.name:
+            results = run_suite(opts, os.path.join(TEST_DIR, 'unit'), name)
+            status.append(results)
+    else:
+        results = run_suite(
+            opts, os.path.join(TEST_DIR, 'unit'), 'Unit', '*_test.py')
+        status.append(results)
     return status
 
 
@@ -215,7 +230,10 @@ def parse_opts():
         dest='name',
         action='append',
         default=[],
-        help='Specific test name to run'
+        help=('Specific test name to run. A named test is the module path '
+              'relative to the tests directory, to execute the config module '
+              'integration tests for instance call:\n'
+              'runtests.py -n integration.modules.config')
     )
     tests_select_group.add_option(
         '--run-destructive',
@@ -276,6 +294,12 @@ def parse_opts():
         default=False,
         action='store_true',
         help='Run tests and report code coverage'
+    )
+    output_options_group.add_option(
+        '--no-coverage-report',
+        default=False,
+        action='store_true',
+        help='Don\'t build the coverage HTML report'
     )
     output_options_group.add_option(
         '--no-colors',
@@ -342,6 +366,7 @@ def parse_opts():
     logging.root.setLevel(logging.DEBUG)
 
     print_header('Logging tests on {0}'.format(logfile), bottom=False)
+    print('Current Directory: {0}'.format(os.getcwd()))
     print_header(
         'Test suite is running under PID {0}'.format(os.getpid()), bottom=False
     )
@@ -403,7 +428,6 @@ if __name__ == '__main__':
         else:
             sys.exit(0)
 
-    print
     print_header(u'  Overall Tests Report  ', sep=u'=', centered=True, inline=True)
 
     no_problems_found = True
@@ -454,20 +478,23 @@ if __name__ == '__main__':
         print('Stopping and saving coverage info')
         code_coverage.stop()
         code_coverage.save()
+        print('Current Directory: {0}'.format(os.getcwd()))
+        print('Coverage data file exists? {0}'.format(os.path.isfile('.coverage')))
 
-        report_dir = os.path.join(os.path.dirname(__file__), 'coverage-report')
-        print(
-            '\nGenerating Coverage HTML Report Under {0!r} ...'.format(
-                report_dir
-            )
-        ),
-        sys.stdout.flush()
+        if opts.no_coverage_report is False:
+            report_dir = os.path.join(os.path.dirname(__file__), 'coverage-report')
+            print(
+                '\nGenerating Coverage HTML Report Under {0!r} ...'.format(
+                    report_dir
+                )
+            ),
+            sys.stdout.flush()
 
-        if os.path.isdir(report_dir):
-            import shutil
-            shutil.rmtree(report_dir)
-        code_coverage.html_report(directory=report_dir)
-        print('Done.\n')
+            if os.path.isdir(report_dir):
+                import shutil
+                shutil.rmtree(report_dir)
+            code_coverage.html_report(directory=report_dir)
+            print('Done.\n')
 
     if false_count > 0:
         sys.exit(1)

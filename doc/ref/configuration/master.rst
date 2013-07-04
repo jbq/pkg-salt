@@ -211,6 +211,37 @@ local job cache on the master
 
     ext_job_cache: redis
 
+.. conf_master:: minion_data_cache
+
+``minion_data_cache``
+---------------------
+
+Default: True
+
+The minion data cache is a cache of information about the minions stored on the
+master, this information is primarily the pillar and grains data. The data is
+cached in the Master cachedir under the name of the minion and used to pre
+determine what minions are expected to reply from executions.
+
+.. code-block:: yaml
+
+    minion_cache_dir: True
+
+.. conf_master:: enforce_mine_cache
+
+``enforce_mine_cache``
+----------------------
+
+Default: False
+
+By-default when disabling the minion_data_cache mine will stop working since
+it is based on cached data, by enabling this option we explicitly enabling
+only the cache for the mine system.
+
+.. code-block:: yaml
+
+    enforce_mine_cache: False
+
 .. conf_master:: sock_dir
 
 ``sock_dir``
@@ -264,9 +295,10 @@ public keys from the minions
 
 Default ``not defined``
 
-If the autosign_file is specified incoming keys specified in
-the autosign_file will be automatically accepted. Regular expressions as
-well as globbing can be used. This is insecure!
+If the autosign_file is specified incoming keys specified in the autosign_file
+will be automatically accepted.  Matches will be searched for first by string
+comparison, then by globbing, then by full-string regex matching.  This is
+insecure!
 
 .. conf_master:: client_acl
 
@@ -342,6 +374,7 @@ The state_output setting changes if the output is the full multi line
 output for each changed state if set to 'full', but if set to 'terse'
 the output will be shortened to a single line.  If set to 'mixed', the output
 will be terse unless a state failed, in which case that output will be full.
+If set to 'changes', the output will be full unless the state didn't change.
 
 .. code-block:: yaml
 

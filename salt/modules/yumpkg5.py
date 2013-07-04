@@ -3,13 +3,20 @@ Support for YUM
 '''
 
 # Import python libs
+import copy
 import logging
 import collections
+import os
 
 # Import salt libs
 import salt.utils
+from salt.utils import namespaced_function
+from salt.modules.yumpkg import (mod_repo, _parse_repo_file, list_repos,
+                                 get_repo, expand_repo_def, del_repo)
 
 log = logging.getLogger(__name__)
+
+__QUERYFORMAT = '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}'
 
 
 def __virtual__():
@@ -24,53 +31,69 @@ def __virtual__():
     except Exception:
         return False
 
+    valid = False
     # Fedora <= 10 need to use this module
     if os_grain == 'Fedora' and os_major_version < 11:
-        return 'pkg'
+        valid = True
     # XCP == 1.x uses a CentOS 5 base
     elif os_grain == 'XCP':
         if os_major_version == 1:
-            return 'pkg'
+            valid = True
     # XenServer 6 and earlier uses a CentOS 5 base
     elif os_grain == 'XenServer':
         if os_major_version <= 6:
-            return 'pkg'
+            valid = True
     else:
         # RHEL <= 5 and all variants need to use this module
         if os_family == 'RedHat' and os_major_version <= 5:
-            return 'pkg'
+            valid = True
+    if valid:
+        global mod_repo, _parse_repo_file, list_repos, get_repo
+        global expand_repo_def, del_repo
+        mod_repo = namespaced_function(mod_repo, globals())
+        _parse_repo_file = namespaced_function(_parse_repo_file, globals())
+        list_repos = namespaced_function(list_repos, globals())
+        get_repo = namespaced_function(get_repo, globals())
+        expand_repo_def = namespaced_function(expand_repo_def, globals())
+        del_repo = namespaced_function(del_repo, globals())
+        return 'pkg'
     return False
 
 
-def _parse_yum(arg):
+def _parse_pkginfo(line):
     '''
-    A small helper to parse yum output; returns a list of namedtuples
+    A small helper to parse package information; returns a namedtuple
     '''
-    cmd = 'yum -q {0}'.format(arg)
-    out = __salt__['cmd.run_stdout'](cmd)
-    yum_out = collections.namedtuple('YumOut', ('name', 'version', 'status'))
+    pkginfo = collections.namedtuple('PkgInfo', ('name', 'version'))
 
-    results = []
+    try:
+        name, pkgver, rel, arch = line.split('_|-')
+    # Handle unpack errors (should never happen with the queryformat we are
+    # using, but can't hurt to be careful).
+    except ValueError:
+        return None
 
-    for line in out.splitlines():
-        if not line.startswith('Loaded plugin'):
-            line = line.split()
-            if len(line) == 3:
-                namearchstr, pkgver, pkgstatus = line
-                pkgname = namearchstr.rpartition('.')[0]
-                results.append(yum_out(pkgname, pkgver, pkgstatus))
-    return results
+    # Support 32-bit packages on x86_64 systems
+    if __grains__.get('cpuarch', '') == 'x86_64' and arch == 'i686':
+        name += '.i686'
+    if rel:
+        pkgver += '-{0}'.format(rel)
+
+    return pkginfo(name, pkgver)
 
 
-def _list_removed(old, new):
+def _repoquery(repoquery_args):
     '''
-    List the packages which have been removed between the two package objects
+    Runs a repoquery command and returns a list of namedtuples
     '''
-    pkgs = []
-    for pkg in old:
-        if pkg not in new:
-            pkgs.append(pkg)
-    return pkgs
+    ret = []
+    cmd = 'repoquery {0}'.format(repoquery_args)
+    output = __salt__['cmd.run_all'](cmd).get('stdout', '').splitlines()
+    for line in output:
+        pkginfo = _parse_pkginfo(line)
+        if pkginfo is not None:
+            ret.append(pkginfo)
+    return ret
 
 
 def _get_repo_options(**kwargs):
@@ -127,10 +150,16 @@ def latest_version(*names, **kwargs):
     for name in names:
         ret[name] = ''
 
+    # Refresh before looking for the latest version available
+    if salt.utils.is_true(kwargs.get('refresh', True)):
+        refresh_db()
+
     # Get updates for specified package(s)
     repo_arg = _get_repo_options(**kwargs)
-    updates = _parse_yum('{0} list available {1}'.format(repo_arg,
-                                                         ' '.join(names)))
+    updates = _repoquery('{0} --pkgnarrow=available --queryformat "{1}" '
+                         '{2}'.format(repo_arg,
+                                      __QUERYFORMAT,
+                                      ' '.join(names)))
     for pkg in updates:
         ret[pkg.name] = pkg.version
     # Return a string if only one package name passed
@@ -167,7 +196,7 @@ def version(*names, **kwargs):
     return __salt__['pkg_resource.version'](*names, **kwargs)
 
 
-def list_pkgs(versions_as_list=False):
+def list_pkgs(versions_as_list=False, **kwargs):
     '''
     List the packages currently installed in a dict::
 
@@ -178,31 +207,34 @@ def list_pkgs(versions_as_list=False):
         salt '*' pkg.list_pkgs
     '''
     versions_as_list = salt.utils.is_true(versions_as_list)
+    # 'removed' not yet implemented or not applicable
+    if salt.utils.is_true(kwargs.get('removed')):
+        return {}
+
+    if 'pkg.list_pkgs' in __context__:
+        if versions_as_list:
+            return __context__['pkg.list_pkgs']
+        else:
+            ret = copy.deepcopy(__context__['pkg.list_pkgs'])
+            __salt__['pkg_resource.stringify'](ret)
+            return ret
+
     ret = {}
-    cmd = 'rpm -qa --queryformat "%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-' \
-          '%{ARCH}\n"'
+    cmd = 'rpm -qa --queryformat "{0}\n"'.format(__QUERYFORMAT)
     for line in __salt__['cmd.run'](cmd).splitlines():
-        try:
-            name, version, rel, arch = line.split('_|-')
-        # Handle unpack errors (should never happen with the queryformat we are
-        # using, but can't hurt to be careful).
-        except ValueError:
+        pkginfo = _parse_pkginfo(line)
+        if pkginfo is None:
             continue
-        # Support 32-bit packages on x86_64 systems
-        if __grains__.get('cpuarch', '') == 'x86_64' and arch == 'i686':
-            name += '.i686'
-        pkgver = version
-        if rel:
-            pkgver += '-{0}'.format(rel)
-        __salt__['pkg_resource.add_pkg'](ret, name, pkgver)
+        __salt__['pkg_resource.add_pkg'](ret, pkginfo.name, pkginfo.version)
 
     __salt__['pkg_resource.sort_pkglist'](ret)
+    __context__['pkg.list_pkgs'] = copy.deepcopy(ret)
     if not versions_as_list:
         __salt__['pkg_resource.stringify'](ret)
     return ret
 
 
-def list_upgrades(refresh=True):
+def list_upgrades(refresh=True, **kwargs):
     '''
     Check whether or not an upgrade is available for all packages
 
@@ -212,8 +244,11 @@ def list_upgrades(refresh=True):
     '''
     if salt.utils.is_true(refresh):
         refresh_db()
-    out = _parse_yum('check-update')
-    return dict([(i.name, i.version) for i in out])
+
+    repo_arg = _get_repo_options(**kwargs)
+    updates = _repoquery('{0} --all --pkgnarrow=updates --queryformat '
+                         '"{1}"'.format(repo_arg, __QUERYFORMAT))
+    return dict([(x.name, x.version) for x in updates])
 
 
 def refresh_db():
@@ -311,15 +346,16 @@ def install(name=None,
 
     pkg_params, pkg_type = __salt__['pkg_resource.parse_targets'](name,
                                                                   pkgs,
-                                                                  sources)
+                                                                  sources,
+                                                                  **kwargs)
     if pkg_params is None or len(pkg_params) == 0:
         return {}
 
-    version = kwargs.get('version')
-    if version:
+    version_num = kwargs.get('version')
+    if version_num:
         if pkgs is None and sources is None:
             # Allow "version" to work for single package target
-            pkg_params = {name: version}
+            pkg_params = {name: version_num}
         else:
             log.warning('"version" parameter will be ignored for multiple '
                         'package targets')
@@ -330,8 +366,8 @@ def install(name=None,
     downgrade = []
     if pkg_type == 'repository':
         targets = []
-        for pkgname, version in pkg_params.iteritems():
-            if version is None:
+        for pkgname, version_num in pkg_params.iteritems():
+            if version_num is None:
                 targets.append(pkgname)
             else:
                 cver = old.get(pkgname, '')
@@ -342,8 +378,8 @@ def install(name=None,
                     arch = '.i686'
                 else:
                     arch = ''
-                pkgstr = '"{0}-{1}{2}"'.format(pkgname, version, arch)
-                if not cver or __salt__['pkg.compare'](pkg1=version,
+                pkgstr = '"{0}-{1}{2}"'.format(pkgname, version_num, arch)
+                if not cver or __salt__['pkg.compare'](pkg1=version_num,
                                                        oper='>=',
                                                        pkg2=cver):
                     targets.append(pkgstr)
@@ -368,6 +404,7 @@ def install(name=None,
         )
         __salt__['cmd.run_all'](cmd)
 
+    __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
     return __salt__['pkg_resource.find_changes'](old, new)
 
@@ -389,53 +426,76 @@ def upgrade(refresh=True):
         refresh_db()
     old = list_pkgs()
     cmd = 'yum -q -y upgrade'
-    __salt__['cmd.retcode'](cmd)
+    __salt__['cmd.run_all'](cmd)
+    __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
-    pkgs = {}
-    for npkg in new:
-        if npkg in old:
-            if old[npkg] == new[npkg]:
-                # no change in the package
-                continue
-            else:
-                # the package was here before and the version has changed
-                pkgs[npkg] = {'old': old[npkg],
-                              'new': new[npkg]}
-        else:
-            # the package is freshly installed
-            pkgs[npkg] = {'old': '',
-                          'new': new[npkg]}
-    return pkgs
+    return __salt__['pkg_resource.find_changes'](old, new)
 
 
-def remove(pkg, **kwargs):
+def remove(name=None, pkgs=None, **kwargs):
     '''
-    Remove a single package with yum remove
+    Remove packages with ``yum -q -y remove``.
 
-    Return a list containing the removed packages:
+    name
+        The name of the package to be deleted.
+
+
+    Multiple Package Options:
+
+    pkgs
+        A list of packages to delete. Must be passed as a python list. The
+        ``name`` parameter will be ignored if this option is passed.
+
+    .. versionadded:: 0.16.0
+
+
+    Returns a dict containing the changes.
 
     CLI Example::
 
         salt '*' pkg.remove <package name>
+        salt '*' pkg.remove <package1>,<package2>,<package3>
+        salt '*' pkg.remove pkgs='["foo", "bar"]'
     '''
+    pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
     old = list_pkgs()
-    cmd = 'yum -q -y remove "{0}"'.format(pkg)
-    __salt__['cmd.retcode'](cmd)
+    targets = [x for x in pkg_params if x in old]
+    if not targets:
+        return {}
+    cmd = 'yum -q -y remove "{0}"'.format('" "'.join(targets))
+    __salt__['cmd.run_all'](cmd)
+    __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
-    return _list_removed(old, new)
+    return __salt__['pkg_resource.find_changes'](old, new)
 
 
-def purge(pkg, **kwargs):
+def purge(name=None, pkgs=None, **kwargs):
     '''
-    Yum does not have a purge, this function calls remove
+    Package purges are not supported by yum, this function is identical to
+    ``remove()``.
 
-    Return a list containing the removed packages:
+    name
+        The name of the package to be deleted.
+
+
+    Multiple Package Options:
+
+    pkgs
+        A list of packages to delete. Must be passed as a python list. The
+        ``name`` parameter will be ignored if this option is passed.
+
+    .. versionadded:: 0.16.0
+
+
+    Returns a dict containing the changes.
 
     CLI Example::
 
         salt '*' pkg.purge <package name>
+        salt '*' pkg.purge <package1>,<package2>,<package3>
+        salt '*' pkg.purge pkgs='["foo", "bar"]'
     '''
-    return remove(pkg)
+    return remove(name=name, pkgs=pkgs)
 
 
 def perform_cmp(pkg1='', pkg2=''):

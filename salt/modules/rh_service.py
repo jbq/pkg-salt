@@ -14,6 +14,10 @@ import salt.utils
 
 log = logging.getLogger(__name__)
 
+__func_alias__ = {
+    'reload_': 'reload'
+}
+
 # Import upstart module if needed
 HAS_UPSTART = False
 if salt.utils.which('initctl'):
@@ -27,7 +31,6 @@ if salt.utils.which('initctl'):
                   'salt.modules.upstart: {0}'.format(exc))
     else:
         HAS_UPSTART = True
-
 
 
 def __virtual__():
@@ -246,6 +249,22 @@ def restart(name, **kwargs):
     else:
         _add_custom_initscript(name)
         cmd = '/sbin/service {0} restart'.format(name)
+    return not __salt__['cmd.retcode'](cmd)
+
+
+def reload_(name, **kwargs):
+    '''
+    Reload the named service
+
+    CLI Example::
+
+        salt '*' service.reload <service name>
+    '''
+    if _service_is_upstart(name):
+        cmd = 'reload {0}'.format(name)
+    else:
+        _add_custom_initscript(name)
+        cmd = '/sbin/service {0} reload'.format(name)
     return not __salt__['cmd.retcode'](cmd)
 
 

@@ -411,7 +411,7 @@ def init(cwd, opts=None, user=None):
     return _git_run(cmd, runas=user)
 
 
-def submodule(cwd, init=True, opts=None, user=None):
+def submodule(cwd, init=True, opts=None, user=None, identity=None):
     '''
     Initialize git submodules
 
@@ -427,6 +427,9 @@ def submodule(cwd, init=True, opts=None, user=None):
     user : None
         Run git as a user other than what the minion runs as
 
+    identity : None
+        A path to a private key to use over SSH
+
     CLI Example::
 
         salt '*' git.submodule /path/to/repo.git/sub/repo
@@ -436,7 +439,7 @@ def submodule(cwd, init=True, opts=None, user=None):
     if not opts:
         opts = ''
     cmd = 'git submodule update {0} {1}'.format('--init' if init else '', opts)
-    return _git_run(cmd, cwd=cwd, runas=user)
+    return _git_run(cmd, cwd=cwd, runas=user, identity=identity)
 
 
 def status(cwd, user=None):
@@ -708,3 +711,49 @@ def stash(cwd, opts=None, user=None):
         opts = ''
     return _git_run('git stash {0}'.format(opts), cwd=cwd, runas=user)
 
+
+def config_set(cwd, setting_name, setting_value, user=None):
+    '''
+    Set a key in the git configuration file (.git/config) of the repository.
+
+    cwd
+        The path to the Git repository
+
+    setting_name
+        The name of the configuration key to set
+
+    setting_value
+        The (new) value to set
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.config_set /path/to/repo user.email me@example.com
+    '''
+    _check_git()
+
+    return _git_run('git config {0} {1}'.format(setting_name, setting_value), cwd=cwd, runas=user)
+
+
+def config_get(cwd, setting_name, user=None):
+    '''
+    Get a key from the git configuration file (.git/config) of the repository.
+
+    cwd
+        The path to the Git repository
+
+    setting_name
+        The name of the configuration key to get
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example::
+
+        salt '*' git.config_get /path/to/repo user.email
+    '''
+    _check_git()
+
+    return _git_run('git config {0}'.format(setting_name), cwd=cwd, runas=user)

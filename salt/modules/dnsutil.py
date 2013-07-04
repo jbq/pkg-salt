@@ -4,26 +4,25 @@ Compendium of generic DNS utilities
 
 # Import salt libs
 import salt.utils
+import socket
 
 # Import python libs
 import logging
-import re
 
 log = logging.getLogger(__name__)
 
 
 def __virtual__():
     '''
-    Generic, should work on any platform
+    Generic, should work on any platform (including Windows). Functionality
+    which requires dependencies outside of Python do not belong in this module.
     '''
-    if not salt.utils.which('dig'):
-        return False
     return 'dnsutil'
 
 
 def parse_hosts(hostsfile='/etc/hosts', hosts=None):
     '''
-    Parse /etc/hosts file. 
+    Parse /etc/hosts file.
 
     CLI Example::
 
@@ -50,11 +49,67 @@ def parse_hosts(hostsfile='/etc/hosts', hosts=None):
     return hostsdict
 
 
+def hosts_append(hostsfile='/etc/hosts', ip_addr=None, entries=None):
+    '''
+    Append a single line to the /etc/hosts file.
+
+    CLI Example::
+
+        salt '*' dnsutil.hosts_append /etc/hosts 127.0.0.1 ad1.yuk.co,ad2.yuk.co
+    '''
+    host_list = entries.split(',')
+    hosts = parse_hosts(hostsfile=hostsfile)
+    if ip_addr in hosts:
+        for host in host_list:
+            if host in hosts[ip_addr]:
+                host_list.remove(host)
+
+    if not host_list:
+        return 'No additional hosts were added to {0}'.format(hostsfile)
+
+    append_line = '\n{0} {1}'.format(ip_addr, ' '.join(host_list))
+    with salt.utils.fopen(hostsfile, 'a') as fp_:
+        fp_.write(append_line)
+
+    return 'The following line was added to {0}:{1}'.format(hostsfile,
+                                                            append_line)
+
+def hosts_remove(hostsfile='/etc/hosts', entries=None):
+    '''
+    Remove a host from the /etc/hosts file. If doing so will leave a line
+    containing only an IP address, then the line will be deleted. This function
+    will leave comments and blank lines intact.
+
+    CLI Examples::
+
+        salt '*' dnsutil.hosts_delete /etc/hosts ad1.yuk.co
+        salt '*' dnsutil.hosts_delete /etc/hosts ad2.yuk.co,ad1.yuk.co
+    '''
+    with salt.utils.fopen(hostsfile, 'r') as fp_:
+        hosts = fp_.read()
+
+    host_list = entries.split(',')
+    out_file = salt.utils.fopen(hostsfile, 'w')
+    for line in hosts.splitlines():
+        if not line or line.strip().startswith('#'):
+            out_file.write('{0}\n'.format(line))
+            continue
+        comps = line.split()
+        for host in host_list:
+            if host in comps[1:]:
+                comps.remove(host)
+        if len(comps) > 1:
+            out_file.write(' '.join(comps))
+            out_file.write('\n')
+
+    out_file.close()
+
+
 def parse_zone(zonefile=None, zone=None):
     '''
     Parses a zone file. Can be passed raw zone data on the API level.
 
-    Example::
+    CLI Example::
 
         salt ns1 dnsutil.parse_zone /var/lib/named/example.com.zone
     '''
@@ -145,21 +200,27 @@ def _to_seconds(time):
     return time
 
 
-def check_IP(x):
+def _has_dig():
     '''
-    Check that string x is a valid IP
+    The dig-specific functions have been moved into their own module, but
+    because they are also DNS utilities, a compatibility layer exists. This
+    function helps add that layer.
+    '''
+    return salt.utils.which('dig') != None
+
+
+def check_ip(ip_addr):
+    '''
+    Check that string ip_addr is a valid IP
 
     CLI Example::
 
-        salt ns1 dnsutil.check_IP 127.0.0.1
+        salt ns1 dig.check_ip 127.0.0.1
     '''
-    # This is probably validating. Tacked on the CIDR bit myself.
-    ip_regex = (
-        r'(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}'
-        r'([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])'
-        r'(/([0-9]|[12][0-9]|3[0-2]))?$'
-    )
-    return bool(re.match(ip_regex, x))
+    if _has_dig():
+        return __salt__['dig.check_ip'](ip_addr)
+
+    return 'This function requires dig, which is not currently available'
 
 
 def A(host, nameserver=None):
@@ -170,27 +231,19 @@ def A(host, nameserver=None):
 
     CLI Example::
 
-        salt ns1 dnsutil.A www.google.com
-
+        salt ns1 dig.A www.google.com
     '''
-    dig = ['dig', '+short', str(host), 'A']
+    if _has_dig():
+        return __salt__['dig.A'](host, nameserver)
+    elif nameserver is None:
+        # fall back to the socket interface, if we don't care who resolves
+        try:
+            (hostname, aliases, addresses) = socket.gethostbyname_ex(host)
+            return addresses
+        except socket.error:
+            return 'Unabled to resolve {0}'.format(host)
 
-    if nameserver is not None:
-        dig.append('@{0}'.format(nameserver))
-
-    cmd = __salt__['cmd.run_all'](' '.join(dig))
-    # In this case, 0 is not the same as False
-    if cmd['retcode'] != 0:
-        log.warn(
-            'dig returned exit code \'{0}\'. Returning empty list as '
-            'fallback.'.format(
-                cmd['retcode']
-            )
-        )
-        return []
-
-    # make sure all entries are IPs
-    return [x for x in cmd['stdout'].split('\n') if check_IP(x)]
+    return 'This function requires dig, which is not currently available'
 
 
 def NS(domain, resolve=True, nameserver=None):
@@ -201,33 +254,13 @@ def NS(domain, resolve=True, nameserver=None):
 
     CLI Example::
 
-        salt ns1 dnsutil.NS google.com
+        salt ns1 dig.NS google.com
 
     '''
-    dig = ['dig', '+short', str(domain), 'NS']
+    if _has_dig():
+        return __salt__['dig.NS'](domain, resolve, nameserver)
 
-    if nameserver is not None:
-        dig.append('@{0}'.format(nameserver))
-
-    cmd = __salt__['cmd.run_all'](' '.join(dig))
-    # In this case, 0 is not the same as False
-    if cmd['retcode'] != 0:
-        log.warn(
-            'dig returned exit code \'{0}\'. Returning empty list as '
-            'fallback.'.format(
-                cmd['retcode']
-            )
-        )
-        return []
-
-    if resolve:
-        ret = []
-        for ns in cmd['stdout'].split('\n'):
-            for a in A(ns, nameserver):
-                ret.append(a)
-        return ret
-
-    return cmd['stdout'].split('\n')
+    return 'This function requires dig, which is not currently available'
 
 
 def SPF(domain, record='SPF', nameserver=None):
@@ -240,53 +273,19 @@ def SPF(domain, record='SPF', nameserver=None):
 
     CLI Example::
 
-        salt ns1 dnsutil.SPF google.com
-
+        salt ns1 dig.SPF google.com
     '''
-    def _process(x):
-        '''
-        Parse out valid IP bits of an spf record.
-        '''
-        m = re.match(r'(\+|~)?ip4:([0-9./]+)', x)
-        if m:
-            if check_IP(m.group(2)):
-                return m.group(2)
-        return None
+    if _has_dig():
+        return __salt__['dig.SPF'](domain, record, nameserver)
 
-    dig = ['dig', '+short', str(domain), record]
-
-    if nameserver is not None:
-        dig.append('@{0}'.format(nameserver))
-
-    cmd = __salt__['cmd.run_all'](' '.join(dig))
-    # In this case, 0 is not the same as False
-    if cmd['retcode'] != 0:
-        log.warn(
-            'dig returned exit code \'{0}\'. Returning empty list as '
-            'fallback.'.format(
-                cmd['retcode']
-            )
-        )
-        return []
-
-    stdout = cmd['stdout']
-    if stdout == '' and record == 'SPF':
-        # empty string is successful query, but nothing to return. So, try TXT
-        # record.
-        return SPF(domain, 'TXT', nameserver)
-
-    stdout = re.sub('"', '', stdout).split()
-    if len(stdout) == 0 or stdout[0] != 'v=spf1':
-        return []
-
-    return [x for x in map(_process, stdout) if x is not None]
+    return 'This function requires dig, which is not currently available'
 
 
 def MX(domain, resolve=False, nameserver=None):
     '''
     Return a list of lists for the MX of 'domain'. Example:
 
-    >>> dnsutil.MX('saltstack.org')
+    >>> dig.MX('saltstack.org')
     [ [10, 'mx01.1and1.com.'], [10, 'mx00.1and1.com.'] ]
 
     If the 'resolve' argument is True, resolve IPs for the servers.
@@ -298,30 +297,9 @@ def MX(domain, resolve=False, nameserver=None):
 
     CLI Example::
 
-        salt ns1 dnsutil.MX google.com
-
+        salt ns1 dig.MX google.com
     '''
-    dig = ['dig', '+short', str(domain), 'MX']
+    if _has_dig():
+        return __salt__['dig.MX'](domain, resolve, nameserver)
 
-    if nameserver is not None:
-        dig.append('@{0}'.format(nameserver))
-
-    cmd = __salt__['cmd.run_all'](' '.join(dig))
-    # In this case, 0 is not the same as False
-    if cmd['retcode'] != 0:
-        log.warn(
-            'dig returned exit code \'{0}\'. Returning empty list as '
-            'fallback.'.format(
-                cmd['retcode']
-            )
-        )
-        return []
-
-    stdout = [x.split() for x in cmd['stdout'].split('\n')]
-
-    if resolve:
-        return [
-            (lambda x: [x[0], A(x[1], nameserver)[0]])(x) for x in stdout
-        ]
-
-    return stdout
+    return 'This function requires dig, which is not currently available'

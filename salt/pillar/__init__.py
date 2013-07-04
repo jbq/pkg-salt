@@ -107,7 +107,7 @@ class Pillar(object):
         else:
             opts['state_top'] = os.path.join('salt://', opts['state_top'])
         if self.__valid_ext(ext):
-            if 'ext_pillar'  in opts:
+            if 'ext_pillar' in opts:
                 opts['ext_pillar'].append(ext)
             else:
                 opts['ext_pillar'].append(ext)
@@ -186,7 +186,7 @@ class Pillar(object):
                                     self.client.get_state(
                                         sls,
                                         env
-                                        ),
+                                        ).get('dest', False),
                                     self.rend,
                                     self.opts['renderer'],
                                     env=env
@@ -267,7 +267,7 @@ class Pillar(object):
         '''
         err = ''
         errors = []
-        fn_ = self.client.get_state(sls, env)
+        fn_ = self.client.get_state(sls, env).get('dest', False)
         if not fn_:
             errors.append(('Specified SLS {0} in environment {1} is not'
                            ' available on the salt master').format(sls, env))

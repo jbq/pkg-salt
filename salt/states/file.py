@@ -33,7 +33,7 @@ salt fileserver. Here's an example:
 
 .. code-block:: yaml
 
-    /etc/foo.conf
+    /etc/foo.conf:
       file.managed:
         - source:
           - salt://foo.conf.{{ grains['fqdn'] }}
@@ -42,6 +42,18 @@ salt fileserver. Here's an example:
         - group: users
         - mode: 644
 
+The ``source`` parameter can also specify a file in another Salt environment.
+In this example ``foo.conf`` in the ``dev`` environment will be used instead.
+
+.. code-block:: yaml
+
+    /etc/foo.conf:
+      file.managed:
+        - source:
+          - salt://foo.conf?env=dev
+        - user: foo
+        - group: users
+        - mode: 644
 
 Directories can be managed via the ``directory`` function. This function can
 create and enforce the permissions on a directory. A directory statement will
@@ -267,7 +279,8 @@ def _check_directory(name,
                      recurse,
                      mode,
                      clean,
-                     require):
+                     require,
+                     exclude_pat):
     '''
     Check what changes need to be made on a directory
     '''
@@ -298,6 +311,10 @@ def _check_directory(name,
                 fchange = _check_dir_meta(path, user, group, mode)
                 if fchange:
                     changes[path] = fchange
+    else:
+        fchange = _check_dir_meta(name, user, group, mode)
+        if fchange:
+            changes[name] = fchange
     if clean:
         keep = _gen_keep_files(name, require)
         for root, dirs, files in os.walk(name):
@@ -305,12 +322,18 @@ def _check_directory(name,
                 fchange = {}
                 path = os.path.join(root, fname)
                 if path not in keep:
+                    if not _check_include_exclude(path[len(name) + 1:], None,
+                                                  exclude_pat):
+                        continue
                     fchange['removed'] = 'Removed due to clean'
                     changes[path] = fchange
             for name_ in dirs:
                 fchange = {}
                 path = os.path.join(root, name_)
                 if path not in keep:
+                    if not _check_include_exclude(path[len(name) + 1:], None,
+                                                  exclude_pat):
+                        continue
                     fchange['removed'] = 'Removed due to clean'
                     changes[path] = fchange
 
@@ -335,6 +358,9 @@ def _check_dir_meta(
     '''
     stats = __salt__['file.stats'](name)
     changes = {}
+    if not stats:
+        changes['directory'] = 'new'
+        return changes
     if user is not None and user != stats['user']:
         changes['user'] = user
     if group is not None and group != stats['group']:
@@ -467,10 +493,10 @@ def symlink(
     Create a symlink
 
     If the file already exists and is a symlink pointing to any location other
-    then the specified target, the symlink will be replaced. If the specified
-    location if the symlink is a regular file or directory then the state will
-    return False. If the regular file or directory is desired to be replaced
-    with a symlink pass force: True.
+    than the specified target, the symlink will be replaced. If the symlink is
+    a regular file or directory then the state will return False. If the
+    regular file or directory is desired to be replaced with a symlink pass
+    force: True.
 
     name
         The location of the symlink to create
@@ -488,6 +514,9 @@ def symlink(
         then the state will fail, setting makedirs to True will allow Salt to
         create the parent directory
     '''
+    # Make sure that leading zeros stripped by YAML loader are added back
+    mode = __salt__['config.manage_mode'](mode)
+
     user = _test_owner(kwargs, user=user)
     ret = {'name': name,
            'changes': {},
@@ -714,9 +743,10 @@ def managed(name,
         contents of the file.  Should not be used in conjunction with a source
         file of any kind.  Ignores hashes and does not use a templating engine.
     '''
-    user = _test_owner(kwargs, user=user)
-    # Initial set up
+    # Make sure that leading zeros stripped by YAML loader are added back
     mode = __salt__['config.manage_mode'](mode)
+
+    user = _test_owner(kwargs, user=user)
     ret = {'changes': {},
            'comment': '',
            'name': name,
@@ -748,22 +778,19 @@ def managed(name,
         return _error(
             ret, 'Context must be formed as a dict')
 
-    if not replace:
-        if os.path.exists(name):
-           # Check and set the permissions if necessary
-            ret, perms = __salt__['file.check_perms'](name,
-                                                      ret,
-                                                      user,
-                                                      group,
-                                                      mode)
-            if __opts__['test']:
-                ret['comment'] = 'File {0} not updated'.format(name)
-            elif not ret['changes'] and ret['result']:
-                ret['comment'] = ('File {0} exists with proper permissions. '
-                                  'No changes made.'.format(name))
-            return ret
-        if not source:
-            return touch(name, makedirs=makedirs)
+    if not replace and os.path.exists(name):
+       # Check and set the permissions if necessary
+        ret, perms = __salt__['file.check_perms'](name,
+                                                  ret,
+                                                  user,
+                                                  group,
+                                                  mode)
+        if __opts__['test']:
+            ret['comment'] = 'File {0} not updated'.format(name)
+        elif not ret['changes'] and ret['result']:
+            ret['comment'] = ('File {0} exists with proper permissions. '
+                              'No changes made.'.format(name))
+        return ret
 
     if name in _ACCUMULATORS:
         if not context:
@@ -772,19 +799,19 @@ def managed(name,
 
     if __opts__['test']:
         ret['result'], ret['comment'] = __salt__['file.check_managed'](
-                name,
-                source,
-                source_hash,
-                user,
-                group,
-                mode,
-                template,
-                makedirs,
-                context,
-                defaults,
-                env,
-                contents,
-                **kwargs
+            name,
+            source,
+            source_hash,
+            user,
+            group,
+            mode,
+            template,
+            makedirs,
+            context,
+            defaults,
+            env,
+            contents,
+            **kwargs
         )
         return ret
 
@@ -901,6 +928,7 @@ def directory(name,
     if not file_mode:
         file_mode = dir_mode
 
+    # Make sure that leading zeros stripped by YAML loader are added back
     dir_mode = __salt__['config.manage_mode'](dir_mode)
     file_mode = __salt__['config.manage_mode'](file_mode)
 
@@ -926,7 +954,8 @@ def directory(name,
             recurse or [],
             dir_mode,
             clean,
-            require)
+            require,
+            exclude_pat)
         return ret
 
     if not os.path.isdir(name):
@@ -953,7 +982,10 @@ def directory(name,
     ret, perms = __salt__['file.check_perms'](name, ret, user, group, dir_mode)
 
     if recurse:
-        if not set(['user', 'group', 'mode']) >= set(recurse):
+        if not isinstance(recurse, list):
+            ret['result'] = False
+            ret['comment'] = '"recurse" must be formed as a list of strings'
+        elif not set(['user', 'group', 'mode']) >= set(recurse):
             ret['result'] = False
             ret['comment'] = 'Types for "recurse" limited to "user", ' \
                              '"group" and "mode"'
@@ -1150,6 +1182,10 @@ def recurse(name,
         )
         return ret
 
+    # Make sure that leading zeros stripped by YAML loader are added back
+    dir_mode = __salt__['config.manage_mode'](dir_mode)
+    file_mode = __salt__['config.manage_mode'](file_mode)
+
     u_check = _check_user(user, group)
     if u_check:
         # The specified user or group do not exist
@@ -1321,6 +1357,10 @@ def recurse(name,
         for mdir in mdirs:
             if not mdir.startswith(srcpath):
                 continue
+            if not _check_include_exclude(os.path.relpath(mdir, srcpath),
+                                          include_pat,
+                                          exclude_pat):
+                continue
             mdest = os.path.join(name, os.path.relpath(mdir, srcpath))
             manage_directory(mdest)
             keep.add(mdest)
@@ -1363,6 +1403,24 @@ def sed(name, before, after, limit='', backup='.bak', options='-r -e',
     The file will be searched for the ``before`` pattern before making the
     edit.  In general the ``limit`` pattern should be as specific as possible
     and ``before`` and ``after`` should contain the minimal text to be changed.
+
+    before
+        A pattern that should exist in the file before the edit.
+    after
+        A pattern that should exist in the file after the edit.
+    limit
+        An optional second pattern that can limit the scope of the before
+        pattern.
+    backup : '.bak'
+        The extension for the backed-up version of the file before the edit. If
+        no backups is desired, pass in the empty string: ''
+    options : ``-r -e``
+        Any options to pass to the ``sed`` command. ``-r`` uses extended
+        regular expression syntax and ``-e`` denotes that what follows is an
+        expression that sed will execute.
+    flags : ``g``
+        Any flags to append to the sed expression. ``g`` specifies the edit
+        should be made globally (and not stop after the first replacement).
 
     Usage::
 
@@ -1432,13 +1490,18 @@ def sed(name, before, after, limit='', backup='.bak', options='-r -e',
         nlines = fp_.readlines()
 
     if slines != nlines:
-        # Changes happened, add them
-        ret['changes']['diff'] = ''.join(difflib.unified_diff(slines, nlines))
-        # Don't check the result -- sed is not designed to be able to check the
-        # result, because of backreferences and so forth.  Just report that sed
-        # was run, and assume it was successful (no error!)
-        ret['result'] = True
-        ret['comment'] = 'sed ran without error'
+        if not salt.utils.istextfile(name):
+            ret['changes']['diff'] = 'Replace binary file'
+        else:
+            # Changes happened, add them
+            ret['changes']['diff'] = ''.join(difflib.unified_diff(slines,
+                                                                  nlines))
+
+            # Don't check the result -- sed is not designed to be able to check
+            # the result, because of backreferences and so forth. Just report
+            # that sed was run, and assume it was successful (no error!)
+            ret['result'] = True
+            ret['comment'] = 'sed ran without error'
     else:
         ret['result'] = True
         ret['comment'] = 'sed ran without error, but no changes were made'
@@ -1513,10 +1576,13 @@ def comment(name, regex, char='#', backup='.bak'):
                                                               unanchor_regex)
 
     if slines != nlines:
-        # Changes happened, add them
-        ret['changes']['diff'] = (
-            ''.join(difflib.unified_diff(slines, nlines))
-        )
+        if not salt.utils.istextfile(name):
+            ret['changes']['diff'] = 'Replace binary file'
+        else:
+            # Changes happened, add them
+            ret['changes']['diff'] = (
+                ''.join(difflib.unified_diff(slines, nlines))
+            )
 
     if ret['result']:
         ret['comment'] = 'Commented lines successfully'
@@ -1593,10 +1659,13 @@ def uncomment(name, regex, char='#', backup='.bak'):
     )
 
     if slines != nlines:
-        # Changes happened, add them
-        ret['changes']['diff'] = (
-            ''.join(difflib.unified_diff(slines, nlines))
-        )
+        if not salt.utils.istextfile(name):
+            ret['changes']['diff'] = 'Replace binary file'
+        else:
+            # Changes happened, add them
+            ret['changes']['diff'] = (
+                ''.join(difflib.unified_diff(slines, nlines))
+            )
 
     if ret['result']:
         ret['comment'] = 'Uncommented lines successfully'
@@ -1644,7 +1713,7 @@ def append(name,
         if not __salt__['file.directory_exists'](dirname):
             __salt__['file.makedirs'](name)
             check_res, check_msg = _check_directory(
-                dirname, None, None, False, None, False, False
+                dirname, None, None, False, None, False, False, None
             )
             if not check_res:
                 return _error(ret, check_msg)
@@ -1713,10 +1782,13 @@ def append(name,
         nlines = fp_.readlines()
 
     if slines != nlines:
-        # Changes happened, add them
-        ret['changes']['diff'] = (
-            ''.join(difflib.unified_diff(slines, nlines))
-        )
+        if not salt.utils.istextfile(name):
+            ret['changes']['diff'] = 'Replace binary file'
+        else:
+            # Changes happened, add them
+            ret['changes']['diff'] = (
+                ''.join(difflib.unified_diff(slines, nlines))
+            )
 
     ret['comment'] = 'Appended {0} lines'.format(count)
     ret['result'] = True
@@ -1811,7 +1883,26 @@ def patch(name,
 def touch(name, atime=None, mtime=None, makedirs=False):
     '''
     Replicate the 'nix "touch" command to create a new empty
-    file or update the atime and mtime of an existing  file.
+    file or update the atime and mtime of an existing file.
+
+    Note that if you just want to create a file and don't care about atime or
+    mtime, you should use ``file.managed`` instead, as it is more
+    feature-complete.  (Just leave out the ``source``/``template``/``contents``
+    arguments, and it will just create the file and/or check its permissions,
+    without messing with contents)
+
+    name
+        name of the file
+
+    atime
+        atime of the file
+
+    mtime
+        mtime of the file
+
+    makedirs
+        whether we should create the parent directory/directories in order to
+        touch the file
 
     Usage::
 

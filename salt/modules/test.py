@@ -142,10 +142,35 @@ def kwarg(**kwargs):
 
     CLI Example::
 
-        salt '*' test.kwarg
+        salt '*' test.kwarg num=1 txt="two" env='{a: 1, b: "hello"}'
     '''
     return kwargs
 
+def arg(*args, **kwargs):
+    '''
+    Print out the data passed into the function ``*args`` and ```kwargs``, this
+    is used to both test the publication data and cli argument passing, but
+    also to display the information available within the publication data.
+    Returns {"args": args, "kwargs": kwargs}.
+
+    CLI Example::
+
+        salt '*' test.arg 1 "two" 3.1 txt="hello" wow='{a: 1, b: "hello"}'
+    '''
+    return {"args": args, "kwargs": kwargs}
+
+def arg_repr(*args, **kwargs):
+    '''
+    Print out the data passed into the function ``*args`` and ```kwargs``, this
+    is used to both test the publication data and cli argument passing, but
+    also to display the information available within the publication data.
+    Returns {"args": repr(args), "kwargs": repr(kwargs)}.
+
+    CLI Example::
+
+        salt '*' test.arg_repr 1 "two" 3.1 txt="hello" wow='{a: 1, b: "hello"}'
+    '''
+    return {"args": repr(args), "kwargs": repr(kwargs)}
 
 def fib(num):
     '''
@@ -272,3 +297,34 @@ def not_loaded():
             if name not in prov:
                 ret.add(name)
     return sorted(ret)
+
+
+def tty(device, echo=None):
+    '''
+    Echo a string to a specific tty
+
+    CLI Example::
+
+        salt '*' test.tty tty0 'This is a test'
+        salt '*' test.tty pts3 'This is a test'
+    '''
+    if device.startswith('tty'):
+        teletype = '/dev/{0}'.format(device)
+    elif device.startswith('pts'):
+        teletype = '/dev/{0}'.format(device.replace('pts', 'pts/'))
+    else:
+        return {'Error': 'The specified device is not a valid TTY'}
+
+    cmd = 'echo {0} > {1}'.format(echo, teletype)
+    ret = __salt__['cmd.run_all'](cmd)
+    if ret['retcode'] == 0:
+        return {
+            'Success': 'Message was successfully echoed to {0}'.format(teletype)
+        }
+    else:
+        return {
+            'Error': 'Echoing to {0} returned error code {1}'.format(
+                teletype,
+                ret['retcode'])
+        }
+
