@@ -22,7 +22,7 @@ except Exception:
 import salt.crypt
 import salt.loader
 import salt.utils
-import salt.utils.socket_util
+import salt.utils.network
 import salt.pillar
 
 log = logging.getLogger(__name__)
@@ -283,6 +283,7 @@ DEFAULT_MASTER_OPTS = {
     'ext_job_cache': '',
     'master_ext_job_cache': '',
     'minion_data_cache': True,
+    'enforce_mine_cache': False,
     'ipv6': False,
     'log_file': '/var/log/salt/master',
     'log_level': None,
@@ -356,8 +357,8 @@ def _validate_opts(opts):
                     VALID_OPTS[key](val)
                 except ValueError:
                     errors.append(
-                            err.format(key, val, type(val), VALID_OPTS[key])
-                            )
+                        err.format(key, val, type(val), VALID_OPTS[key])
+                    )
     for error in errors:
         log.warning(error)
     if errors:
@@ -392,7 +393,7 @@ def _read_conf_file(path):
         return conf_opts
 
 
-def load_config(path, env_var):
+def load_config(path, env_var, default_path=None):
     '''
     Returns configuration dict from parsing either the file described by
     ``path`` or the environment variable described by ``env_var`` as YAML.
@@ -402,8 +403,33 @@ def load_config(path, env_var):
         # defaults, not actually loading the whole configuration.
         return {}
 
-    if not path or not os.path.isfile(path):
-        path = os.environ.get(env_var, path)
+    if default_path is None:
+        # This is most likely not being used from salt, ie, could be salt-cloud
+        # or salt-api which have not yet migrated to the new default_path
+        # argument. Let's issue a warning message that the environ vars won't
+        # work.
+        import inspect
+        previous_frame = inspect.getframeinfo(inspect.currentframe().f_back)
+        log.warning(
+            'The function \'{0}()\' defined in {1!r} is not yet using the '
+            'new \'default_path\' argument to `salt.config.load_config()`. '
+            'As such, the {2!r} environment variable will be ignored'.format(
+                previous_frame.function, previous_frame.filename, env_var
+            )
+        )
+        # In this case, maintain old behaviour
+        default_path = DEFAULT_MASTER_OPTS['conf_file']
+
+    # Default to the environment variable path, if it exists
+    env_path = os.environ.get(env_var, path)
+    if not env_path or not os.path.isfile(env_path):
+        env_path = path
+    # If non-default path from `-c`, use that over the env variable
+    if path != default_path:
+        env_path = path
+
+    path = env_path
+
     # If the configuration file is missing, attempt to copy the template,
     # after removing the first header line.
     if not os.path.isfile(path):
@@ -506,7 +532,7 @@ def minion_config(path,
     if defaults is None:
         defaults = DEFAULT_MINION_OPTS
 
-    overrides = load_config(path, env_var)
+    overrides = load_config(path, env_var, DEFAULT_MINION_OPTS['conf_file'])
     default_include = overrides.get('default_include',
                                     defaults['default_include'])
     include = overrides.get('include', [])
@@ -556,8 +582,8 @@ def get_id():
         pass
 
     # What IP addresses do we have?
-    ip_addresses = [salt.utils.socket_util.IPv4Address(a) for a
-                    in salt.utils.socket_util.ip4_addrs()
+    ip_addresses = [salt.utils.network.IPv4Address(a) for a
+                    in salt.utils.network.ip_addrs(include_loopback=True)
                     if not a.startswith('127.')]
 
     for a in ip_addresses:
@@ -622,11 +648,11 @@ def apply_minion_config(overrides=None, defaults=None, **kwargs):
         if not 'schedule' in opts:
             opts['schedule'] = {}
         opts['schedule'].update({
-                '__mine_interval':
-                {
-                    'function': 'mine.update',
-                    'minutes': opts['mine_interval']
-                }
+            '__mine_interval':
+            {
+                'function': 'mine.update',
+                'minutes': opts['mine_interval']
+            }
         })
     return opts
 
@@ -638,7 +664,7 @@ def master_config(path, env_var='SALT_MASTER_CONFIG', defaults=None):
     if defaults is None:
         defaults = DEFAULT_MASTER_OPTS
 
-    overrides = load_config(path, env_var)
+    overrides = load_config(path, env_var, DEFAULT_MASTER_OPTS['conf_file'])
     default_include = overrides.get('default_include',
                                     defaults['default_include'])
     include = overrides.get('include', [])
@@ -647,6 +673,12 @@ def master_config(path, env_var='SALT_MASTER_CONFIG', defaults=None):
     overrides.update(include_config(include, path, verbose=True))
     opts = apply_master_config(overrides, defaults)
     _validate_opts(opts)
+    # If 'nodegroups:' is uncommented in the master config file, and there are
+    # no nodegroups defined, opts['nodegroups'] will be None. Fix this by
+    # reverting this value to the default, as if 'nodegroups:' was commented
+    # out or not present.
+    if opts.get('nodegroups') is None:
+        opts['nodegroups'] = DEFAULT_MASTER_OPTS.get('nodegroups', {})
     return opts
 
 
@@ -760,7 +792,9 @@ def client_config(path, env_var='SALT_CLIENT_CONFIG', defaults=None):
     # Update with the users salt dot file or with the environment variable
     opts.update(
         load_config(
-            os.path.expanduser('~/.salt'), env_var
+            os.path.expanduser('~/.salt'),
+            env_var,
+            os.path.expanduser('~/.salt')
         )
     )
     # Make sure we have a proper and absolute path to the token file

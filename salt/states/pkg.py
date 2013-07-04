@@ -43,9 +43,11 @@ import salt.utils
 if salt.utils.is_windows():
     from salt.utils import namespaced_function
     from salt.modules.win_pkg import _get_package_info
+    from salt.modules.win_pkg import get_repo_data
     from salt.modules.win_pkg import _get_latest_pkg_version
     from salt.modules.win_pkg import _reverse_cmp_pkg_versions
     _get_package_info = namespaced_function(_get_package_info, globals())
+    get_repo_data = namespaced_function(get_repo_data, globals())
     _get_latest_pkg_version = namespaced_function(_get_latest_pkg_version, globals())
     _reverse_cmp_pkg_versions = namespaced_function(_reverse_cmp_pkg_versions, globals())
     # The following imports are used by the namespaced win_pkg funcs
@@ -104,9 +106,14 @@ def _find_install_targets(name=None, version=None, pkgs=None, sources=None):
     else:
         if salt.utils.is_windows():
             pkginfo = _get_package_info(name)
+            if not pkginfo:
+                return {'name': name,
+                        'changes': {},
+                        'result': False,
+                        'comment': 'Package {0} not found in the '
+                                   'repository.'.format(name)}
             if version is None:
                 version = _get_latest_pkg_version(pkginfo)
-            name = pkginfo[version]['full_name']
         desired = {name: version}
 
         cver = cur_pkgs.get(name, [])
@@ -368,7 +375,7 @@ def installed(
                 'comment': comment}
 
     comment = []
-    if refresh or os.path.isfile(rtag):
+    if salt.utils.is_true(refresh) or os.path.isfile(rtag):
         pkg_ret = __salt__['pkg.install'](name,
                                           refresh=True,
                                           version=version,
@@ -565,7 +572,7 @@ def latest(
         # Build updated list of pkgs to exclude non-targeted ones
         targeted_pkgs = targets.keys() if pkgs else None
 
-        if refresh or os.path.isfile(rtag):
+        if salt.utils.is_true(refresh) or os.path.isfile(rtag):
             changes = __salt__['pkg.install'](name,
                                               refresh=True,
                                               fromrepo=fromrepo,
@@ -648,25 +655,20 @@ def _uninstall(action='remove', name=None, pkgs=None, **kwargs):
 
     pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
     old = __salt__['pkg.list_pkgs'](versions_as_list=True)
-    if not salt.utils.is_windows():
-        targets = sorted([x for x in pkg_params if x in old])
-    else:
-        targets = []
-        for item in pkg_params:
-            pkginfo = _get_package_info(item)
-            if kwargs.get('version') is not None:
-                version_num = kwargs['version']
-            else:
-                version_num = _get_latest_pkg_version(pkginfo)
-            if pkginfo[version_num]['full_name'] in old:
-                targets.append(pkginfo[version_num]['full_name'])
-    targets = sorted(targets)
+    targets = [x for x in pkg_params if x in old]
+    if action == 'purge':
+        old_removed = __salt__['pkg.list_pkgs'](versions_as_list=True,
+                                                removed=True)
+        targets.extend([x for x in pkg_params if x in old_removed])
+    targets.sort()
 
     if not targets:
         return {'name': name,
                 'changes': {},
                 'result': True,
-                'comment': 'None of the targeted packages are installed'}
+                'comment': 'None of the targeted packages are installed'
+                           '{0}'.format(' or partially installed'
+                                        if action == 'purge' else '')}
 
     if __opts__['test']:
         return {'name': name,
@@ -678,6 +680,11 @@ def _uninstall(action='remove', name=None, pkgs=None, **kwargs):
     changes = __salt__['pkg.{0}'.format(action)](name, pkgs=pkgs, **kwargs)
     new = __salt__['pkg.list_pkgs'](versions_as_list=True)
     failed = [x for x in pkg_params if x in new]
+    if action == 'purge':
+        new_removed = __salt__['pkg.list_pkgs'](versions_as_list=True,
+                                                removed=True)
+        failed.extend([x for x in pkg_params if x in new_removed])
+    failed.sort()
 
     if failed:
         return {'name': name,
@@ -716,6 +723,8 @@ def removed(name, pkgs=None, **kwargs):
     pkgs
         A list of packages to remove. Must be passed as a python list. The
         ``name`` parameter will be ignored if this option is passed.
+
+    .. versionadded:: 0.16.0
     '''
     return _uninstall(action='remove', name=name, pkgs=pkgs, **kwargs)
 
@@ -734,6 +743,8 @@ def purged(name, pkgs=None, **kwargs):
     pkgs
         A list of packages to purge. Must be passed as a python list. The
         ``name`` parameter will be ignored if this option is passed.
+
+    .. versionadded:: 0.16.0
     '''
     return _uninstall(action='purge', name=name, pkgs=pkgs, **kwargs)
 
@@ -749,9 +760,13 @@ def mod_init(low):
     When originally setting up the mod_init for pkg a number of corner cases
     arose with different package managers and how they refresh package data.
     '''
+    ret = True
+    if 'pkg.ex_mod_init' in __salt__:
+        ret = __salt__['pkg.ex_mod_init'](low)
+
     if low['fun'] == 'installed' or low['fun'] == 'latest':
         rtag = __gen_rtag()
         if not os.path.exists(rtag):
             salt.utils.fopen(rtag, 'w+').write('')
-        return True
+        return ret
     return False

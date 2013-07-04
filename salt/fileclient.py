@@ -120,6 +120,8 @@ class Client(object):
         minion file cache
         '''
         ret = []
+        if isinstance(paths, str):
+            paths = paths.split(',')
         for path in paths:
             ret.append(self.cache_file(path, env))
         return ret
@@ -259,8 +261,8 @@ class Client(object):
                      '/'.join(['salt:/', sls, 'init.sls'])]:
             dest = self.cache_file(path, env)
             if dest:
-                return dest
-        return False
+                return {'source': path, 'dest': dest}
+        return {}
 
     def get_dir(self, path, dest='', env='base', gzip=None):
         '''

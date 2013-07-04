@@ -22,7 +22,7 @@ class RunnerClient(object):
         Check that the function passed really exists
         '''
         if fun not in self.functions:
-            err = "Function '{0}' is unavailable".format(fun)
+            err = 'Function {0!r} is unavailable'.format(fun)
             raise salt.exceptions.CommandExecutionError(err)
 
     def get_docs(self):
@@ -30,8 +30,7 @@ class RunnerClient(object):
         Return a dictionary of functions and the inline documentation for each
         '''
         ret = [(fun, self.functions[fun].__doc__)
-                for fun in sorted(self.functions)
-                if fun.startswith(self.opts['fun'])]
+                for fun in sorted(self.functions)]
 
         return dict(ret)
 
@@ -42,7 +41,7 @@ class RunnerClient(object):
         if not isinstance(kwarg, dict):
             kwarg = {}
         self._verify_fun(fun)
-        args, kwargs = salt.minion.detect_kwargs(
+        args, kwargs = salt.minion.parse_args_and_kwargs(
                 self.functions[fun],
                 arg,
                 kwarg)
@@ -69,7 +68,7 @@ class Runner(RunnerClient):
         ret = super(Runner, self).get_docs()
 
         for fun in sorted(ret):
-            print("{0}:\n{1}\n".format(fun, ret[fun]))
+            print('{0}:\n{1}\n'.format(fun, ret[fun]))
 
     def run(self):
         '''

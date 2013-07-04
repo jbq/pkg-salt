@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import hmac
+import shutil
 import hashlib
 import logging
 
@@ -28,15 +29,25 @@ from salt.exceptions import (
 log = logging.getLogger(__name__)
 
 
-def dropfile(cachedir):
+def dropfile(cachedir, user=None):
     '''
     Set an aes dropfile to update the publish session key
     '''
+    dfnt = os.path.join(cachedir, '.dfnt')
     dfn = os.path.join(cachedir, '.dfn')
     aes = Crypticle.generate_key_string()
     mask = os.umask(191)
-    with open(dfn, 'w+') as fp_:
+    with open(dfnt, 'w+') as fp_:
         fp_.write(aes)
+    if user:
+        try:
+            import pwd
+            uid = pwd.getpwnam(user).pw_uid
+            os.chown(dfnt, uid, -1)
+            shutil.move(dfnt, dfn)
+        except (KeyError, ImportError, OSError, IOError):
+            pass
+
     os.umask(mask)
 
 
@@ -89,11 +100,10 @@ class MasterKeys(dict):
             log.debug('Loaded master key: {0}'.format(self.rsa_path))
         else:
             log.info('Generating keys: {0}'.format(self.opts['pki_dir']))
-            gen_keys(
-                    self.opts['pki_dir'],
-                    'master',
-                    4096,
-                    self.opts.get('user'))
+            gen_keys(self.opts['pki_dir'],
+                     'master',
+                     4096,
+                     self.opts.get('user'))
             key = RSA.load_key(self.rsa_path)
         return key
 
@@ -144,11 +154,10 @@ class Auth(object):
             log.debug('Loaded minion key: {0}'.format(self.rsa_path))
         else:
             log.info('Generating keys: {0}'.format(self.opts['pki_dir']))
-            gen_keys(
-                    self.opts['pki_dir'],
-                    'minion',
-                    4096,
-                    self.opts.get('user'))
+            gen_keys(self.opts['pki_dir'],
+                     'minion',
+                     4096,
+                     self.opts.get('user'))
             key = RSA.load_key(self.rsa_path)
         return key
 
@@ -167,7 +176,9 @@ class Auth(object):
         payload['load']['cmd'] = '_auth'
         payload['load']['id'] = self.opts['id']
         try:
-            pub = RSA.load_pub_key(os.path.join(self.opts['pki_dir'], self.mpub))
+            pub = RSA.load_pub_key(
+                os.path.join(self.opts['pki_dir'], self.mpub)
+            )
             payload['load']['token'] = pub.public_encrypt(self.token, 4)
         except Exception:
             pass
@@ -227,10 +238,14 @@ class Auth(object):
             try:
                 aes, token = self.decrypt_aes(payload)
                 if token != self.token:
-                    log.error('The master failed to decrypt the random minion token')
+                    log.error(
+                        'The master failed to decrypt the random minion token'
+                    )
                     return ''
             except Exception:
-                log.error('The master failed to decrypt the random minion token')
+                log.error(
+                    'The master failed to decrypt the random minion token'
+                )
                 return ''
             return aes
         else:
@@ -238,7 +253,7 @@ class Auth(object):
             aes, token = self.decrypt_aes(payload, False)
             return aes
 
-    def sign_in(self):
+    def sign_in(self, timeout=60, safe=True):
         '''
         Send a sign in request to the master, sets the key information and
         returns a dict containing the master publish interface to bind to
@@ -248,20 +263,29 @@ class Auth(object):
         m_pub_fn = os.path.join(self.opts['pki_dir'], self.mpub)
         try:
             self.opts['master_ip'] = salt.utils.dns_check(
-                    self.opts['master'],
-                    True,
-                    self.opts['ipv6']
-                    )
+                self.opts['master'],
+                True,
+                self.opts['ipv6']
+            )
         except SaltClientError:
-            return 'retry'
+            if safe:
+                return 'retry'
+            raise SaltClientError
+
         sreq = salt.payload.SREQ(
-                self.opts['master_uri'],
-                self.opts.get('id', '')
-                )
+            self.opts['master_uri'],
+            self.opts.get('id', '')
+        )
         try:
-            payload = sreq.send_auto(self.minion_sign_in_payload())
+            payload = sreq.send_auto(
+                self.minion_sign_in_payload(),
+                timeout=timeout
+            )
         except SaltReqTimeoutError:
-            return 'retry'
+            if safe:
+                return 'retry'
+            raise SaltClientError
+
         if 'load' in payload:
             if 'ret' in payload['load']:
                 if not payload['load']['ret']:
@@ -296,17 +320,17 @@ class Auth(object):
             sys.exit(42)
         if self.opts.get('master_finger', False):
             if salt.utils.pem_finger(m_pub_fn) != self.opts['master_finger']:
-                log.critical((
+                log.critical(
                     'The specified fingerprint in the master configuration '
                     'file:\n{0}\nDoes not match the authenticating master\'s '
                     'key:\n{1}\nVerify that the configured fingerprint '
                     'matches the fingerprint of the correct master and that '
                     'this minion is not subject to a man in the middle attack'
-                    ).format(
+                    .format(
                         self.opts['master_finger'],
                         salt.utils.pem_finger(m_pub_fn)
-                        )
                     )
+                )
                 sys.exit(42)
         auth['publish_port'] = payload['publish_port']
         return auth
@@ -410,12 +434,14 @@ class SAuth(Auth):
         revolving master aes key.
         '''
         while True:
-            creds = self.sign_in()
+            creds = self.sign_in(
+                self.opts.get('_auth_timeout', 60),
+                self.opts.get('_safe_auth', True)
+            )
             if creds == 'retry':
                 if self.opts.get('caller'):
-                    msg = ('Minion failed to authenticate with the master, '
-                           'has the minion key been accepted?')
-                    print(msg)
+                    print('Minion failed to authenticate with the master, '
+                          'has the minion key been accepted?')
                     sys.exit(2)
                 time.sleep(self.opts['acceptance_wait_time'])
                 continue

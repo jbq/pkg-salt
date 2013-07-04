@@ -1,7 +1,13 @@
 '''
 Test the grains module
 '''
+# Import python libs
+import time
+import os
+
+# Import salt libs
 import integration
+from saltunittest import skipIf
 
 
 class TestModulesGrains(integration.ModuleCase):
@@ -57,6 +63,35 @@ class TestModulesGrains(integration.ModuleCase):
         lsgrains = self.run_function('grains.ls')
         for grain_name in check_for:
             self.assertTrue(grain_name in lsgrains)
+
+    @skipIf(os.environ.get('TRAVIS_PYTHON_VERSION', None) is not None,
+            'Travis environment can\'t keep up with salt refresh')
+    def test_set_val(self):
+        '''
+        test grains.set_val
+        '''
+        self.assertEqual(
+                self.run_function(
+                    'grains.setval',
+                    ['setgrain', 'grainval']),
+                {'setgrain': 'grainval'})
+        time.sleep(1)
+        self.assertTrue(
+                self.run_function(
+                    'grains.item', ['setgrain']
+                    )
+                )
+
+    def test_get(self):
+        '''
+        test grains.get
+        '''
+        self.assertEqual(
+                self.run_function(
+                    'grains.get',
+                    ['level1:level2']),
+                'foo')
+
 
 
 if __name__ == '__main__':

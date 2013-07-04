@@ -36,8 +36,9 @@ def get(key, default=''):
 
 def data(key=None):
     '''
-    Returns the pillar derived from the configured pillar source. The pillar
-    source is derived from the file_client option in the minion config
+    This function calls the master for a fresh pillar and generates the pillar
+    data on the fly. Unlike pillar.raw which returns the pillar data which
+    is currently loaded into the minion.
 
     CLI Example::
 
@@ -60,6 +61,7 @@ def data(key=None):
         ret = ret.get(key, {})
 
     return ret
+
 # Allow pillar.items to also be used to return pillar data
 items = data
 

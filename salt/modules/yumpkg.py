@@ -3,6 +3,14 @@ Support for YUM
 
 :depends:   - yum Python module
             - rpmUtils Python module
+
+This module uses the python interface to YUM. Note that with a default
+/etc/yum.conf, this will cause messages to be sent to sent to syslog on
+/dev/log, with a log facility of :strong:`LOG_USER`. This is in addition to
+whatever is logged to /var/log/yum.log. See the manpage for ``yum.conf(5)`` for
+information on how to use the ``syslog_facility`` and ``syslog_device`` config
+parameters to configure how syslog is handled, or take the above defaults into
+account when configuring your syslog daemon.
 '''
 
 # Import python libs
@@ -19,6 +27,71 @@ try:
     import yum
     import rpmUtils.arch
     HAS_YUMDEPS = True
+
+    class _YumLogger(yum.rpmtrans.RPMBaseCallback):
+        '''
+        A YUM callback handler that logs failed packages with their associated
+        script output to the minion log, and logs install/remove/update/etc.
+        activity to the yum log (usually /var/log/yum.log).
+
+        See yum.rpmtrans.NoOutputCallBack in the yum package for base
+        implementation.
+        '''
+        def __init__(self):
+            self.messages = {}
+            self.failed = []
+            self.action = {
+                yum.constants.TS_UPDATE: yum._('Updating'),
+                yum.constants.TS_ERASE: yum._('Erasing'),
+                yum.constants.TS_INSTALL: yum._('Installing'),
+                yum.constants.TS_TRUEINSTALL: yum._('Installing'),
+                yum.constants.TS_OBSOLETED: yum._('Obsoleted'),
+                yum.constants.TS_OBSOLETING: yum._('Installing'),
+                yum.constants.TS_UPDATED: yum._('Cleanup'),
+                'repackaging': yum._('Repackaging')
+            }
+            # The fileaction are not translated, most sane IMHO / Tim
+            self.fileaction = {
+                yum.constants.TS_UPDATE: 'Updated',
+                yum.constants.TS_ERASE: 'Erased',
+                yum.constants.TS_INSTALL: 'Installed',
+                yum.constants.TS_TRUEINSTALL: 'Installed',
+                yum.constants.TS_OBSOLETED: 'Obsoleted',
+                yum.constants.TS_OBSOLETING: 'Installed',
+                yum.constants.TS_UPDATED: 'Cleanup'
+            }
+            self.logger = logging.getLogger('yum.filelogging.RPMInstallCallback')
+
+        def event(self, package, action, te_current, te_total, ts_current, ts_total):
+            # This would be used for a progress counter according to Yum docs
+            pass
+
+        def log_accumulated_errors(self):
+            '''
+            Convenience method for logging all messages from failed packages
+            '''
+            for pkg in self.failed:
+                log.error('{0} {1}'.format(pkg, self.messages[pkg]))
+
+        def errorlog(self, msg):
+            # Log any error we receive
+            log.error(msg)
+
+        def filelog(self, package, action):
+            if action == yum.constants.TS_FAILED:
+                self.failed.append(package)
+            else:
+                if action in self.fileaction:
+                    msg = '{0}: {1}'.format(self.fileaction[action], package)
+                else:
+                    msg = '{0}: {1}'.format(package, action)
+                self.logger.info(msg)
+
+        def scriptout(self, package, msgs):
+            # This handler covers ancillary messages coming from the RPM script
+            # Will sometimes contain more detailed error messages.
+            self.messages[package] = msgs
+
 except (ImportError, AttributeError):
     HAS_YUMDEPS = False
 
@@ -56,59 +129,6 @@ def __virtual__():
     elif os_family == 'RedHat' and os_major >= 6:
         return 'pkg'
     return False
-
-
-class _YumErrorLogger(object):
-    '''
-    A YUM callback handler that logs failed packages with their associated
-    script output.
-
-    See yum.rpmtrans.NoOutputCallBack in the yum package for base
-    implementation.
-    '''
-    def __init__(self):
-        self.messages = {}
-        self.failed = []
-
-    def event(self, package, action, te_current, te_total, ts_current, ts_total):
-        # This would be used for a progress counter according to Yum docs
-        pass
-
-    def log_accumulated_errors(self):
-        '''
-        Convenience method for logging all messages from failed packages
-        '''
-        for pkg in self.failed:
-            log.error('{0} {1}'.format(pkg, self.messages[pkg]))
-
-    def errorlog(self, msg):
-        # Log any error we receive
-        log.error(msg)
-
-    def filelog(self, package, action):
-        # TODO: extend this for more conclusive transaction handling for
-        # installs and removes VS. the pkg list compare method used now.
-        #
-        # See yum.constants and yum.rpmtrans.RPMBaseCallback in the yum
-        # package for more information about the received actions.
-        if action == yum.constants.TS_FAILED:
-            self.failed.append(package)
-
-    def scriptout(self, package, msgs):
-        # This handler covers ancillary messages coming from the RPM script
-        # Will sometimes contain more detailed error messages.
-        self.messages[package] = msgs
-
-
-def _list_removed(old, new):
-    '''
-    List the packages which have been removed between the two package objects
-    '''
-    pkgs = []
-    for pkg in old:
-        if pkg not in new:
-            pkgs.append(pkg)
-    return pkgs
 
 
 def list_upgrades(refresh=True):
@@ -196,6 +216,10 @@ def latest_version(*names, **kwargs):
     for name in names:
         ret[name] = ''
 
+    # Refresh before looking for the latest version available
+    if salt.utils.is_true(kwargs.get('refresh', True)):
+        refresh_db()
+
     yumbase = yum.YumBase()
     error = _set_repo_options(yumbase, **kwargs)
     if error:
@@ -249,7 +273,7 @@ def version(*names, **kwargs):
     return __salt__['pkg_resource.version'](*names, **kwargs)
 
 
-def list_pkgs(versions_as_list=False):
+def list_pkgs(versions_as_list=False, **kwargs):
     '''
     List the packages currently installed in a dict::
 
@@ -260,6 +284,18 @@ def list_pkgs(versions_as_list=False):
         salt '*' pkg.list_pkgs
     '''
     versions_as_list = salt.utils.is_true(versions_as_list)
+    # 'removed' not yet implemented or not applicable
+    if salt.utils.is_true(kwargs.get('removed')):
+        return {}
+
+    if 'pkg.list_pkgs' in __context__:
+        if versions_as_list:
+            return __context__['pkg.list_pkgs']
+        else:
+            ret = copy.deepcopy(__context__['pkg.list_pkgs'])
+            __salt__['pkg_resource.stringify'](ret)
+            return ret
+
     ret = {}
     yb = yum.YumBase()
     for p in yb.rpmdb:
@@ -272,6 +308,7 @@ def list_pkgs(versions_as_list=False):
         __salt__['pkg_resource.add_pkg'](ret, name, pkgver)
 
     __salt__['pkg_resource.sort_pkglist'](ret)
+    __context__['pkg.list_pkgs'] = copy.deepcopy(ret)
     if not versions_as_list:
         __salt__['pkg_resource.stringify'](ret)
     return ret
@@ -457,7 +494,8 @@ def install(name=None,
 
     pkg_params, pkg_type = __salt__['pkg_resource.parse_targets'](name,
                                                                   pkgs,
-                                                                  sources)
+                                                                  sources,
+                                                                  **kwargs)
     if pkg_params is None or len(pkg_params) == 0:
         return {}
 
@@ -522,13 +560,14 @@ def install(name=None,
         log.info('Resolving dependencies')
         yumbase.resolveDeps()
         log.info('Processing transaction')
-        yumlogger = _YumErrorLogger()
+        yumlogger = _YumLogger()
         yumbase.processTransaction(rpmDisplay=yumlogger)
         yumlogger.log_accumulated_errors()
         yumbase.closeRpmDB()
     except Exception as e:
         log.error('Install failed: {0}'.format(e))
 
+    __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
     return __salt__['pkg_resource.find_changes'](old, new)
 
@@ -561,68 +600,104 @@ def upgrade(refresh=True):
         yumbase.update()
         log.info('Resolving dependencies')
         yumbase.resolveDeps()
-        yumlogger = _YumErrorLogger()
         log.info('Processing transaction')
+        yumlogger = _YumLogger()
         yumbase.processTransaction(rpmDisplay=yumlogger)
         yumlogger.log_accumulated_errors()
         yumbase.closeRpmDB()
     except Exception as e:
         log.error('Upgrade failed: {0}'.format(e))
 
+    __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
     return __salt__['pkg_resource.find_changes'](old, new)
 
 
-def remove(pkgs, **kwargs):
+def remove(name=None, pkgs=None, **kwargs):
     '''
-    Removes packages with yum remove
+    Removes packages using python API for yum.
 
-    Return a list containing the removed packages:
+    name
+        The name of the package to be deleted.
+
+
+    Multiple Package Options:
+
+    pkgs
+        A list of packages to delete. Must be passed as a python list. The
+        ``name`` parameter will be ignored if this option is passed.
+
+    .. versionadded:: 0.16.0
+
+
+    Returns a dict containing the changes.
 
     CLI Example::
 
-        salt '*' pkg.remove <package,package,package>
+        salt '*' pkg.remove <package name>
+        salt '*' pkg.remove <package1>,<package2>,<package3>
+        salt '*' pkg.remove pkgs='["foo", "bar"]'
     '''
+
+    pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
+    old = list_pkgs()
+    targets = [x for x in pkg_params if x in old]
+    if not targets:
+        return {}
 
     yumbase = yum.YumBase()
     setattr(yumbase.conf, 'assumeyes', True)
-    pkgs = pkgs.split(',')
-    old = list_pkgs()
 
     # same comments as in upgrade for remove.
-    for pkg in pkgs:
+    for target in targets:
         if __grains__.get('cpuarch', '') == 'x86_64' \
-                and pkg.endswith('.i686'):
-            pkg = pkg[:-5]
+                and target.endswith('.i686'):
+            target = target[:-5]
             arch = 'i686'
         else:
             arch = None
-        yumbase.remove(name=pkg, arch=arch)
+        yumbase.remove(name=target, arch=arch)
 
     log.info('Resolving dependencies')
     yumbase.resolveDeps()
-    yumlogger = _YumErrorLogger()
     log.info('Processing transaction')
+    yumlogger = _YumLogger()
     yumbase.processTransaction(rpmDisplay=yumlogger)
     yumlogger.log_accumulated_errors()
     yumbase.closeRpmDB()
 
+    __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
+    return __salt__['pkg_resource.find_changes'](old, new)
 
-    return _list_removed(old, new)
 
-
-def purge(pkgs, **kwargs):
+def purge(name=None, pkgs=None, **kwargs):
     '''
-    Yum does not have a purge, this function calls remove
+    Package purges are not supported by yum, this function is identical to
+    ``remove()``.
 
-    Return a list containing the removed packages:
+    name
+        The name of the package to be deleted.
+
+
+    Multiple Package Options:
+
+    pkgs
+        A list of packages to delete. Must be passed as a python list. The
+        ``name`` parameter will be ignored if this option is passed.
+
+    .. versionadded:: 0.16.0
+
+
+    Returns a dict containing the changes.
 
     CLI Example::
 
         salt '*' pkg.purge <package name>
+        salt '*' pkg.purge <package1>,<package2>,<package3>
+        salt '*' pkg.purge pkgs='["foo", "bar"]'
     '''
-    return remove(pkgs)
+    return remove(name=name, pkgs=pkgs)
 
 
 def verify(*package):
@@ -820,7 +895,7 @@ def del_repo(repo, basedir='/etc/yum.repos.d', **kwargs):
     fileout.write(content)
     fileout.close()
 
-    return 'Repo {0} has been remooved from {1}'.format(repo, repofile)
+    return 'Repo {0} has been removed from {1}'.format(repo, repofile)
 
 
 def mod_repo(repo, basedir=None, **kwargs):

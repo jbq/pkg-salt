@@ -3,6 +3,7 @@ Support for APT (Advanced Packaging Tool)
 '''
 
 # Import python libs
+import copy
 import os
 import re
 import logging
@@ -43,12 +44,6 @@ def __virtual__():
     '''
     if __grains__['os_family'] != 'Debian':
         return False
-    if not apt_support:
-        err_str = 'Unable to import "sourceslist" from "aptsources" module: {0}'
-        log.error(err_str.format(str(e)))
-    if not ppa_format_support and __grains__['os'] == 'Ubuntu':
-        err_str = 'Unable to import "softwareproperties.ppa": {0}'
-        log.warning(err_str.format(str(e)))
     return 'pkg'
 
 
@@ -138,17 +133,18 @@ def latest_version(*names, **kwargs):
     # Initialize the dict with empty strings
     for name in names:
         ret[name] = ''
-    pkgs = list_pkgs()
+    pkgs = list_pkgs(versions_as_list=True)
     fromrepo = _get_repo(**kwargs)
     repo = ' -o APT::Default-Release="{0}"'.format(fromrepo) \
         if fromrepo else ''
+
+    # Refresh before looking for the latest version available
+    if salt.utils.is_true(kwargs.get('refresh', True)):
+        refresh_db()
+
     for name in names:
         cmd = 'apt-cache -q policy {0}{1} | grep Candidate'.format(name, repo)
-        out = __salt__['cmd.run_all'](cmd, **kwargs)
-        if out['retcode'] != 0:
-            msg = 'Error:  ' + out['stderr']
-            log.error(msg)
-            return msg
+        out = __salt__['cmd.run_all'](cmd)
         candidate = out['stdout'].split()
         if len(candidate) >= 2:
             candidate = candidate[-1]
@@ -157,10 +153,15 @@ def latest_version(*names, **kwargs):
         else:
             candidate = ''
 
-        installed = pkgs.get(name, '')
-        if candidate:
-            if not installed or compare(pkg1=installed, oper='<',
-                                        pkg2=candidate):
+        installed = pkgs.get(name, [])
+        if not installed:
+            ret[name] = candidate
+        else:
+            # If there are no installed versions that are greater than or equal
+            # to the install candidate, then the candidate is an upgrade, so
+            # add it to the return dict
+            if not any([compare(pkg1=x, oper='>=', pkg2=candidate)
+                        for x in installed]):
                 ret[name] = candidate
 
     # Return a string if only one package name passed
@@ -203,12 +204,7 @@ def refresh_db():
     '''
     ret = {}
     cmd = 'apt-get -q update'
-    out = __salt__['cmd.run_all'](cmd)
-    if out['retcode'] != 0:
-        msg = 'Error:  ' + out['stderr']
-        log.error(msg)
-        return msg
-    out = out['stdout']
+    out = __salt__['cmd.run_all'](cmd).get('stdout', '')
 
     lines = out.splitlines()
     for line in lines:
@@ -300,7 +296,8 @@ def install(name=None,
 
     pkg_params, pkg_type = __salt__['pkg_resource.parse_targets'](name,
                                                                   pkgs,
-                                                                  sources)
+                                                                  sources,
+                                                                  **kwargs)
 
     # Support old "repo" argument
     repo = kwargs.get('repo', '')
@@ -313,6 +310,9 @@ def install(name=None,
         except Exception as e:
             log.exception(e)
 
+    old = list_pkgs()
+
+    downgrade = False
     if pkg_params is None or len(pkg_params) == 0:
         return {}
     elif pkg_type == 'file':
@@ -322,18 +322,26 @@ def install(name=None,
             pkg=' '.join(pkg_params),
         )
     elif pkg_type == 'repository':
-        if pkgs is None and kwargs.get('version'):
+        if pkgs is None and kwargs.get('version') and len(pkg_params) == 1:
+            # Only use the 'version' param if 'name' was not specified as a
+            # comma-separated list
             pkg_params = {name: kwargs.get('version')}
         targets = []
-        for param, version in pkg_params.iteritems():
-            if version is None:
+        for param, version_num in pkg_params.iteritems():
+            if version_num is None:
                 targets.append(param)
             else:
-                targets.append('"{0}={1}"'.format(param, version))
+                cver = old.get(param)
+                if cver is not None \
+                        and __salt__['pkg.compare'](pkg1=version_num,
+                                                    oper='<', pkg2=cver):
+                    downgrade = True
+                targets.append('"{0}={1}"'.format(param, version_num))
         if fromrepo:
             log.info('Targeting repo "{0}"'.format(fromrepo))
-        cmd = 'apt-get -q -y {confold} {confdef} {verify} {target} install ' \
-              '{pkg}'.format(
+        cmd = 'apt-get -q -y {force_yes} {confold} {confdef} {verify} ' \
+              '{target} install {pkg}'.format(
+                  force_yes='--force-yes' if downgrade else '',
                   confold='-o DPkg::Options::=--force-confold',
                   confdef='-o DPkg::Options::=--force-confdef',
                   verify='--allow-unauthenticated' if skip_verify else '',
@@ -341,101 +349,111 @@ def install(name=None,
                   pkg=' '.join(targets),
               )
 
-    old = list_pkgs()
-    out = __salt__['cmd.run_all'](cmd, **kwargs)
-    if out['retcode'] != 0:
-        msg = 'Error:  ' + out['stderr']
-        log.error(msg)
-        return msg
-
+    __salt__['cmd.run_all'](cmd)
+    __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
     return __salt__['pkg_resource.find_changes'](old, new)
 
 
-def remove(pkg, **kwargs):
+def _uninstall(action='remove', name=None, pkgs=None, **kwargs):
     '''
-    Remove a single package via ``apt-get remove``
+    remove and purge do identical things but with different apt-get commands,
+    this function performs the common logic.
+    '''
+    if kwargs.get('env'):
+        try:
+            os.environ.update(kwargs.get('env'))
+        except Exception as e:
+            log.exception(e)
 
-    Returns a list containing the names of the removed packages.
+    pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
+    old = list_pkgs()
+    old_removed = list_pkgs(removed=True)
+    targets = [x for x in pkg_params if x in old]
+    if action == 'purge':
+        targets.extend([x for x in pkg_params if x in old_removed])
+    if not targets:
+        return {}
+    cmd = 'apt-get -q -y {0} {1}'.format(action, ' '.join(targets))
+    __salt__['cmd.run_all'](cmd)
+    __context__.pop('pkg.list_pkgs', None)
+    new = list_pkgs()
+    new_removed = list_pkgs(removed=True)
+
+    ret = {'installed': __salt__['pkg_resource.find_changes'](old, new)}
+    if action == 'purge':
+        ret['removed'] = __salt__['pkg_resource.find_changes'](old_removed,
+                                                               new_removed)
+        return ret
+    else:
+        return ret['installed']
+
+
+def remove(name=None, pkgs=None, **kwargs):
+    '''
+    Remove packages using ``apt-get remove``.
+
+    name
+        The name of the package to be deleted.
+
+
+    Multiple Package Options:
+
+    pkgs
+        A list of packages to delete. Must be passed as a python list. The
+        ``name`` parameter will be ignored if this option is passed.
+
+    .. versionadded:: 0.16.0
+
+
+    Returns a dict containing the changes.
 
     CLI Example::
 
         salt '*' pkg.remove <package name>
+        salt '*' pkg.remove <package1>,<package2>,<package3>
+        salt '*' pkg.remove pkgs='["foo", "bar"]'
     '''
-    ret_pkgs = []
-    old_pkgs = list_pkgs()
-
-    if kwargs.get('env'):
-        try:
-            os.environ.update(kwargs.get('env'))
-        except Exception as e:
-            log.exception(e)
-
-    cmd = 'apt-get -q -y remove {0}'.format(pkg)
-    out = __salt__['cmd.run_all'](cmd, **kwargs)
-    if out['retcode'] != 0:
-        msg = 'Error:  ' + out['stderr']
-        log.error(msg)
-        return msg
-
-    new_pkgs = list_pkgs()
-    for pkg in old_pkgs:
-        if pkg not in new_pkgs:
-            ret_pkgs.append(pkg)
-
-    return ret_pkgs
+    return _uninstall(action='remove', name=name, pkgs=pkgs, **kwargs)
 
 
-def purge(pkg, **kwargs):
+def purge(name=None, pkgs=None, **kwargs):
     '''
-    Remove a package via ``apt-get purge`` along with all configuration
-    files and unused dependencies.
+    Remove packages via ``apt-get purge`` along with all configuration files
+    and unused dependencies.
 
-    Returns a list containing the names of the removed packages
+    name
+        The name of the package to be deleted.
+
+
+    Multiple Package Options:
+
+    pkgs
+        A list of packages to delete. Must be passed as a python list. The
+        ``name`` parameter will be ignored if this option is passed.
+
+    .. versionadded:: 0.16.0
+
+
+    Returns a dict containing the changes.
 
     CLI Example::
 
         salt '*' pkg.purge <package name>
+        salt '*' pkg.purge <package1>,<package2>,<package3>
+        salt '*' pkg.purge pkgs='["foo", "bar"]'
     '''
-    ret_pkgs = []
-    old_pkgs = list_pkgs()
-
-    if kwargs.get('env'):
-        try:
-            os.environ.update(kwargs.get('env'))
-        except Exception as e:
-            log.exception(e)
-
-    # Remove initial package
-    purge_cmd = 'apt-get -q -y purge {0}'.format(pkg)
-    out = __salt__['cmd.run_all'](purge_cmd, **kwargs)
-    if out['retcode'] != 0:
-        msg = 'Error:  ' + out['stderr']
-        log.error(msg)
-        return msg
-
-    new_pkgs = list_pkgs()
-
-    for pkg in old_pkgs:
-        if pkg not in new_pkgs:
-            ret_pkgs.append(pkg)
-
-    return ret_pkgs
+    return _uninstall(action='purge', name=name, pkgs=pkgs, **kwargs)
 
 
 def upgrade(refresh=True, **kwargs):
     '''
     Upgrades all packages via ``apt-get dist-upgrade``
 
-    Returns a list of dicts containing the package names, and the new and old
-    versions::
+    Returns a dict containing the changes.
 
-        [
-            {'<package>':  {'old': '<old-version>',
-                            'new': '<new-version>'}
-            }',
-            ...
-        ]
+        {'<package>':  {'old': '<old-version>',
+                        'new': '<new-version>'}}
 
     CLI Example::
 
@@ -444,37 +462,37 @@ def upgrade(refresh=True, **kwargs):
     if salt.utils.is_true(refresh):
         refresh_db()
 
-    ret_pkgs = {}
-    old_pkgs = list_pkgs()
+    old = list_pkgs()
     cmd = ('apt-get -q -y -o DPkg::Options::=--force-confold '
            '-o DPkg::Options::=--force-confdef dist-upgrade')
-    out = __salt__['cmd.run_all'](cmd, **kwargs)
-    if out['retcode'] != 0:
-        msg = 'Error:  ' + out['stderr']
-        log.error(msg)
-        return msg
-
-    new_pkgs = list_pkgs()
-
-    for pkg in new_pkgs:
-        if pkg in old_pkgs:
-            if old_pkgs[pkg] == new_pkgs[pkg]:
-                continue
-            else:
-                ret_pkgs[pkg] = {'old': old_pkgs[pkg],
-                                 'new': new_pkgs[pkg]}
-        else:
-            ret_pkgs[pkg] = {'old': '',
-                             'new': new_pkgs[pkg]}
-
-    return ret_pkgs
+    __salt__['cmd.run_all'](cmd)
+    __context__.pop('pkg.list_pkgs', None)
+    new = list_pkgs()
+    return __salt__['pkg_resource.find_changes'](old, new)
 
 
-def list_pkgs(versions_as_list=False):
+def _clean_pkglist(pkgs):
+    '''
+    Go through package list and, if any packages have a mix of actual versions
+    and virtual package markers, remove the virtual package markers.
+    '''
+    for key in pkgs.keys():
+        if '1' in pkgs[key] and len(pkgs[key]) > 1:
+            while True:
+                try:
+                    pkgs[key].remove('1')
+                except ValueError:
+                    break
+
+
+def list_pkgs(versions_as_list=False, removed=False):
     '''
     List the packages currently installed in a dict::
 
         {'<package_name>': '<version>'}
+
+    If removed is ``True``, then only packages which have been removed (but not
+    purged) will be returned.
 
     External dependencies::
 
@@ -484,33 +502,46 @@ def list_pkgs(versions_as_list=False):
     CLI Example::
 
         salt '*' pkg.list_pkgs
-        salt '*' pkg.list_pkgs httpd
+        salt '*' pkg.list_pkgs versions_as_list=True
     '''
     versions_as_list = salt.utils.is_true(versions_as_list)
-    ret = {}
+    removed = salt.utils.is_true(removed)
+
+    if 'pkg.list_pkgs' in __context__:
+        if removed:
+            ret = copy.deepcopy(__context__['pkg.list_pkgs']['removed'])
+        else:
+            ret = copy.deepcopy(__context__['pkg.list_pkgs']['installed'])
+        if not versions_as_list:
+            __salt__['pkg_resource.stringify'](ret)
+        return ret
+
+    ret = {'installed': {}, 'removed': {}}
     cmd = 'dpkg-query --showformat=\'${Status} ${Package} ' \
           '${Version}\n\' -W'
 
-    out = __salt__['cmd.run_all'](cmd)
-    if out['retcode'] != 0:
-        msg = 'Error:  ' + out['stderr']
-        log.error(msg)
-        return msg
-
-    out = out['stdout']
-
-    # Typical line of output:
+    out = __salt__['cmd.run_all'](cmd).get('stdout', '')
+    # Typical lines of output:
     # install ok installed zsh 4.3.17-1ubuntu1
+    # deinstall ok config-files mc 3:4.8.1-2ubuntu1
     for line in out.splitlines():
         cols = line.split()
         try:
-            linetype, status, name, version = [cols[x] for x in (0, 2, 3, 4)]
+            linetype, status, name, version_num = \
+                [cols[x] for x in (0, 2, 3, 4)]
         except ValueError:
             continue
         name = _pkgname_without_arch(name)
-        if len(cols) and ('install' in linetype or 'hold' in linetype) and \
-                'installed' in status:
-            __salt__['pkg_resource.add_pkg'](ret, name, version)
+        if len(cols):
+            if ('install' in linetype or 'hold' in linetype) and \
+                    'installed' in status:
+                __salt__['pkg_resource.add_pkg'](ret['installed'],
+                                                 name,
+                                                 version_num)
+            elif 'deinstall' in linetype:
+                __salt__['pkg_resource.add_pkg'](ret['removed'],
+                                                 name,
+                                                 version_num)
 
     # Check for virtual packages. We need dctrl-tools for this.
     if __salt__['cmd.has_exec']('grep-available'):
@@ -528,7 +559,16 @@ def list_pkgs(versions_as_list=False):
             # Set virtual package versions to '1'
             __salt__['pkg_resource.add_pkg'](ret, virtname, '1')
 
-    __salt__['pkg_resource.sort_pkglist'](ret)
+    for pkglist_type in ('installed', 'removed'):
+        __salt__['pkg_resource.sort_pkglist'](ret[pkglist_type])
+        _clean_pkglist(ret[pkglist_type])
+
+    __context__['pkg.list_pkgs'] = copy.deepcopy(ret)
+
+    if removed:
+        ret = ret['removed']
+    else:
+        ret = ret['installed']
     if not versions_as_list:
         __salt__['pkg_resource.stringify'](ret)
     return ret
@@ -543,13 +583,7 @@ def _get_upgradable():
     '''
 
     cmd = 'apt-get --just-print dist-upgrade'
-    out = __salt__['cmd.run_all'](cmd)
-    if out['retcode'] != 0:
-        msg = 'Error:  ' + out['stderr']
-        log.error(msg)
-        return msg
-
-    out = out['stdout']
+    out = __salt__['cmd.run_all'](cmd).get('stdout', '')
 
     # rexp parses lines that look like the following:
     # Conf libxfont1 (1:1.4.5-1 Debian:testing [i386])
@@ -564,8 +598,8 @@ def _get_upgradable():
     ret = {}
     for line in upgrades:
         name = _get(line, 'name')
-        version = _get(line, 'version')
-        ret[name] = version
+        version_num = _get(line, 'version')
+        ret[name] = version_num
 
     return ret
 
@@ -677,7 +711,9 @@ def list_repos():
        salt '*' pkg.list_repos disabled=True
     '''
     if not apt_support:
-        return 'Error: aptsources.sourceslist python module not found'
+        msg = 'Error: aptsources.sourceslist python module not found'
+        log.error(msg)
+        return msg
 
     repos = {}
     sources = sourceslist.SourcesList()
@@ -761,7 +797,7 @@ def get_repo(repo, **kwargs):
     raise Exception('repo "{0}" was not found'.format(repo))
 
 
-def del_repo(repo, refresh=False, **kwargs):
+def del_repo(repo, **kwargs):
     '''
     Delete a repo from the sources.list / sources.list.d
 
@@ -775,7 +811,6 @@ def del_repo(repo, refresh=False, **kwargs):
     CLI Examples::
 
         salt '*' pkg.del_repo "myrepo definition"
-        salt '*' pkg.del_repo "myrepo definition" refresh=True
     '''
     if not apt_support:
         return 'Error: aptsources.sourceslist python module not found'
@@ -901,7 +936,10 @@ def mod_repo(repo, **kwargs):
             # implementation via apt-add-repository.  The code path for
             # secure PPAs should be the same as urllib method
             if ppa_format_support and 'ppa_auth' not in kwargs:
-                cmd = 'apt-add-repository -y {0}'.format(repo)
+                if float(__grains__['osrelease']) < 12.04:
+                    cmd = 'apt-add-repository {0}'.format(repo)
+                else:
+                    cmd = 'apt-add-repository -y {0}'.format(repo)
                 out = __salt__['cmd.run_stdout'](cmd, **kwargs)
                 # explicit refresh when a repo is modified.
                 refresh_db()

@@ -46,9 +46,9 @@ def fullversion():
     cmd = 'dnsmasq -v'
     out = __salt__['cmd.run'](cmd).splitlines()
     comps = out[0].split()
-    version = comps[2]
+    version_num = comps[2]
     comps = out[1].split()
-    return {'version': version,
+    return {'version': version_num,
             'compile options': comps[3:]}
 
 
@@ -109,7 +109,7 @@ def get_config(config_file='/etc/dnsmasq.conf'):
         salt '*' dnsmasq.get_config
         salt '*' dnsmasq.get_config file=/etc/dnsmasq.conf
     '''
-    dnsopts = _parse_file(config_file)
+    dnsopts = _parse_dnamasq(config_file)
     if 'conf-dir' in dnsopts:
         for filename in os.listdir(dnsopts['conf-dir']):
             if filename.startswith('.'):
@@ -118,12 +118,12 @@ def get_config(config_file='/etc/dnsmasq.conf'):
                 continue
             if filename.endswith('#') and filename.endswith('#'):
                 continue
-            dnsopts.update(_parse_file('{0}/{1}'.format(dnsopts['conf-dir'],
+            dnsopts.update(_parse_dnamasq('{0}/{1}'.format(dnsopts['conf-dir'],
                                                         filename)))
     return dnsopts
 
 
-def _parse_file(filename):
+def _parse_dnamasq(filename):
     '''
     Generic function for parsing dnsmasq files, including includes
     '''
@@ -148,5 +148,3 @@ def _parse_file(filename):
                     fileopts['unparsed'] = []
                 fileopts['unparsed'].append(line)
     return fileopts
-
-

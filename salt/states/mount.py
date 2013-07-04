@@ -19,17 +19,15 @@ Mount any type of mountable filesystem with the mounted function:
 from salt._compat import string_types
 
 
-def mounted(
-        name,
-        device,
-        fstype,
-        mkmnt=False,
-        opts=None,
-        dump=0,
-        pass_num=0,
-        config='/etc/fstab',
-        persist=True,
-        ):
+def mounted(name,
+            device,
+            fstype,
+            mkmnt=False,
+            opts=None,
+            dump=0,
+            pass_num=0,
+            config='/etc/fstab',
+            persist=True):
     '''
     Verify that a device is mounted
 
@@ -94,7 +92,10 @@ def mounted(
             ret['result'] = False
         elif out is True:
             # Remount worked!
+            ret['comment'] = 'Target was successfully mounted'
             ret['changes']['mount'] = True
+    else:
+        ret['comment'] = 'Target was already mounted'
 
     if persist:
         if __opts__['test']:
@@ -107,27 +108,98 @@ def mounted(
 
         # present, new, change, bad config
         # Make sure the entry is in the fstab
-        out = __salt__['mount.set_fstab'](
-                name,
-                device,
-                fstype,
-                opts,
-                dump,
-                pass_num,
-                config)
+        out = __salt__['mount.set_fstab'](name,
+                                          device,
+                                          fstype,
+                                          opts,
+                                          dump,
+                                          pass_num,
+                                          config)
         if out == 'present':
             return ret
         if out == 'new':
             ret['changes']['persist'] = 'new'
-            ret['comment'] += ' and added new entry to the fstab'
+            ret['comment'] += '. Added new entry to the fstab.'
             return ret
         if out == 'change':
             ret['changes']['persist'] = 'update'
-            ret['comment'] += ' and updated the entry in the fstab'
+            ret['comment'] += '. Updated the entry in the fstab.'
             return ret
         if out == 'bad config':
             ret['result'] = False
-            ret['comment'] += ' but the fstab was not found'
+            ret['comment'] += '. However, the fstab was not found.'
             return ret
 
+    return ret
+
+
+def swap(name, persist=True, config='/etc/fstab'):
+    '''
+    Activates a swap device
+
+    .. code-block:: yaml
+
+        /root/swapfile:
+          mount.swap
+    '''
+    ret = {'name': name,
+           'changes': {},
+           'result': True,
+           'comment': ''}
+    on_ = __salt__['mount.swaps']()
+
+    if name in on_:
+        ret['comment'] = 'Swap {0} already active'.format(name)
+    elif __opts__['test']:
+        ret['result'] = None
+        ret['comment'] = 'Swap {0} is set to be activated'.format(name)
+    else:
+        __salt__['mount.swapon'](name)
+
+        on_ = __salt__['mount.swaps']()
+
+        if name in on_:
+            ret['comment'] = 'Swap {0} activated'.format(name)
+            ret['changes'] = on_[name]
+        else:
+            ret['comment'] = 'Swap {0} failed to activate'.format(name)
+            ret['result'] = False
+
+    if persist:
+        fstab_data = __salt__['mount.fstab'](config)
+        if __opts__['test']:
+            if name not in fstab_data:
+                ret['result'] = None
+                if name in on_:
+                    ret['comment'] = ('Swap {0} is set to be added to the '
+                                      'fstab and to be activated').format(name)
+            return ret
+
+        if 'none' in fstab_data:
+            if fstab_data['none']['device'] == name:
+                return ret
+
+        # present, new, change, bad config
+        # Make sure the entry is in the fstab
+        out = __salt__['mount.set_fstab']('none',
+                                          name,
+                                          'swap',
+                                          ['defaults'],
+                                          0,
+                                          0,
+                                          config)
+        if out == 'present':
+            return ret
+        if out == 'new':
+            ret['changes']['persist'] = 'new'
+            ret['comment'] += '. Added new entry to the fstab.'
+            return ret
+        if out == 'change':
+            ret['changes']['persist'] = 'update'
+            ret['comment'] += '. Updated the entry in the fstab.'
+            return ret
+        if out == 'bad config':
+            ret['result'] = False
+            ret['comment'] += '. However, the fstab was not found.'
+            return ret
     return ret

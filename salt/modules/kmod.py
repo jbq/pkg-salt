@@ -85,7 +85,7 @@ def _set_persistent_module(mod):
         __salt__['file.uncomment'](conf, escape_mod)
     else:
         __salt__['file.append'](conf, mod)
-    return set([mod_name,])
+    return set([mod_name])
 
 
 def _remove_persistent_module(mod, comment):
@@ -102,7 +102,7 @@ def _remove_persistent_module(mod, comment):
         __salt__['file.comment'](conf, "^[\t ]*{}[\t ]?".format(escape_mod))
     else:
         __salt__['file.sed'](conf, "^[\t ]*{}[\t ]?".format(escape_mod), '')
-    return set([mod_name,])
+    return set([mod_name])
 
 
 def available():
@@ -183,7 +183,7 @@ def mod_list(only_persist=False):
     return sorted(list(mods))
 
 
-def load(mod, persist=False):    
+def load(mod, persist=False):
     '''
     Load the specified kernel module
 
@@ -208,6 +208,17 @@ def load(mod, persist=False):
         return sorted(list(mods | persist_mods))
     else:
         return 'Module {0} not found'.format(mod)
+
+
+def is_loaded(mod):
+    '''
+    Check to see if the specified kernel module is loaded
+
+    CLI Example::
+
+        salt '*' kmod.is_loaded kvm
+    '''
+    return mod in mod_list()
 
 
 def remove(mod, persist=False, comment=True):

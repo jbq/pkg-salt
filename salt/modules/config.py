@@ -69,13 +69,9 @@ def manage_mode(mode):
 
         salt '*' config.manage_mode
     '''
-    if mode:
-        mode = str(mode).lstrip('0')
-        if not mode:
-            return '0'
-        else:
-            return mode
-    return mode
+    if mode is None:
+        return None
+    return str(mode).lstrip('0').zfill(3)
 
 
 def valid_fileproto(uri):
@@ -147,7 +143,7 @@ def get(key, default=''):
 
     CLI Example::
 
-        salt '*' pillar.get pkg:apache
+        salt '*' config.get pkg:apache
     '''
     ret = salt.utils.traverse_dict(__opts__, key, '_|-')
     if ret != '_|-':
