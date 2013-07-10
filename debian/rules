@@ -5,7 +5,7 @@
 include /usr/share/python/python.mk
 
 %:
-	dh $@ --with python2,bash-completion
+	dh $@ --with python2,bash-completion --with=systemd
 
 override_dh_auto_build:
 	dh_auto_build
