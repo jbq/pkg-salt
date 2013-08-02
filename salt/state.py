@@ -28,7 +28,7 @@ import salt.minion
 import salt.pillar
 import salt.fileclient
 import salt.utils.event
-from salt._compat import string_types, callable
+from salt._compat import string_types
 from salt.template import compile_template, compile_template_str
 from salt.exceptions import SaltReqTimeoutError, SaltException
 
@@ -546,11 +546,7 @@ class State(object):
         Refresh all the modules
         '''
         self.load_modules()
-        module_refresh_path = os.path.join(
-            self.opts['cachedir'],
-            'module_refresh')
-        with salt.utils.fopen(module_refresh_path, 'w+') as ofile:
-            ofile.write('')
+        self.functions['saltutil.refresh_modules']()
 
     def check_refresh(self, data, ret):
         '''
@@ -569,6 +565,9 @@ class State(object):
                     self.module_refresh()
             elif data['fun'] == 'recurse':
                 self.module_refresh()
+            elif data['fun'] == 'symlink':
+                if 'bin' in data['name']:
+                    self.module_refresh()
         elif data['state'] == 'pkg':
             self.module_refresh()
 
@@ -1855,7 +1854,7 @@ class BaseHighState(object):
         if not self.opts['autoload_dynamic_modules']:
             return
         syncd = self.state.functions['saltutil.sync_all'](list(matches))
-        if syncd[2]:
+        if syncd['grains']:
             self.opts['grains'] = salt.loader.grains(self.opts)
         self.state.module_refresh()
 
@@ -1975,6 +1974,9 @@ class BaseHighState(object):
         return state, errors
 
     def _handle_state_decls(self, state, sls, env, errors):
+        '''
+        Add sls and env components to the state
+        '''
         for name in state:
             if not isinstance(state[name], dict):
                 if name == '__extend__':
@@ -2029,6 +2031,10 @@ class BaseHighState(object):
                 state[name]['__env__'] = env
 
     def _handle_extend(self, state, sls, env, errors):
+        '''
+        Take the extend dec out of state and apply to the highstate global
+        dec
+        '''
         if 'extend' in state:
             ext = state.pop('extend')
             if not isinstance(ext, dict):
@@ -2057,6 +2063,10 @@ class BaseHighState(object):
             state.setdefault('__extend__', []).append(ext)
 
     def _handle_exclude(self, state, sls, env, errors):
+        '''
+        Take the exclude dec out of the state and apply it to the highstate
+        global dec
+        '''
         if 'exclude' in state:
             exc = state.pop('exclude')
             if not isinstance(exc, list):

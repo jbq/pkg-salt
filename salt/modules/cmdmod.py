@@ -337,6 +337,11 @@ def _run(cmd,
     ret['stderr'] = err
     ret['pid'] = proc.process.pid
     ret['retcode'] = proc.process.returncode
+    try:
+        __context__['retcode'] = ret['retcode']
+    except NameError:
+        # Ignore the context error during grain generation
+        pass 
     return ret
 
 
@@ -694,17 +699,29 @@ def script(
         path = salt.utils.mkstemp(dir=cwd)
     else:
         path = __salt__['cp.cache_file'](source, env)
+        if not path:
+            return {'pid': 0,
+                    'retcode': 1,
+                    'stdout': '',
+                    'stderr': '',
+                    'cache_error': True}
     if template:
         __salt__['cp.get_template'](source, path, template, env, **kwargs)
     else:
         if not salt.utils.is_windows():
             fn_ = __salt__['cp.cache_file'](source, env)
+            if not fn_:
+                return {'pid': 0,
+                        'retcode': 1,
+                        'stdout': '',
+                        'stderr': '',
+                        'cache_error': True}
             shutil.copyfile(fn_, path)
     if not salt.utils.is_windows():
         os.chmod(path, 320)
         os.chown(path, __salt__['file.user_to_uid'](runas), -1)
     ret = _run(
-            path + ' ' + args if args else path,
+            path + ' ' + str(args) if args else path,
             cwd=cwd,
             stdin=stdin,
             quiet=kwargs.get('quiet', False),
@@ -750,12 +767,13 @@ def script_retcode(
         salt '*' cmd.script_retcode salt://scripts/runme.sh stdin='one\\ntwo\\nthree\\nfour\\nfive\\n'
     '''
     return script(
-            source,
-            cwd,
-            runas,
-            shell,
-            env,
-            template,
+            source=source,
+            cwd=cwd,
+            stdin=stdin,
+            runas=runas,
+            shell=shell,
+            env=env,
+            template=template,
             umask=umask,
             timeout=timeout,
             **kwargs)['retcode']

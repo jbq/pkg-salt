@@ -25,7 +25,6 @@ import salt.config as config
 import salt.loader as loader
 import salt.utils as utils
 import salt.version as version
-import salt.exceptions as exceptions
 
 
 def _sorted(mixins_or_funcs):
@@ -40,19 +39,19 @@ class MixInMeta(type):
     # attribute on your own MixIn
     _mixin_prio_ = 0
 
-    def __new__(cls, name, bases, attrs):
-        instance = super(MixInMeta, cls).__new__(cls, name, bases, attrs)
+    def __new__(mcs, name, bases, attrs):
+        instance = super(MixInMeta, mcs).__new__(mcs, name, bases, attrs)
         if not hasattr(instance, '_mixin_setup'):
             raise RuntimeError(
                 'Don\'t subclass {0} in {1} if you\'re not going to use it '
-                'as a salt parser mix-in.'.format(cls.__name__, name)
+                'as a salt parser mix-in.'.format(mcs.__name__, name)
             )
         return instance
 
 
 class OptionParserMeta(MixInMeta):
-    def __new__(cls, name, bases, attrs):
-        instance = super(OptionParserMeta, cls).__new__(cls,
+    def __new__(mcs, name, bases, attrs):
+        instance = super(OptionParserMeta, mcs).__new__(mcs,
                                                         name,
                                                         bases,
                                                         attrs)
@@ -163,7 +162,7 @@ class OptionParser(optparse.OptionParser):
                 )
 
         if self.config.get('conf_file', None) is not None:
-            logging.getLogger(__name__).info(
+            logging.getLogger(__name__).debug(
                 'Configuration file path: {0}'.format(
                     self.config['conf_file']
                 )
@@ -842,7 +841,7 @@ class OutputOptionsWithTextMixIn(OutputOptionsMixIn):
     _include_text_out_ = True
 
     def __new__(cls, *args, **kwargs):
-        instance = super(OutputOptionsMixIn, cls).__new__(cls, *args, **kwargs)
+        instance = super(OutputOptionsWithTextMixIn, cls).__new__(cls, *args, **kwargs)
         # Let the next warning show up at least once since DeprecationWarning's
         # are, by default, ignored by python default filters
         warnings.filterwarnings(

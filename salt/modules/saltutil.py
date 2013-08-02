@@ -293,14 +293,14 @@ def sync_all(env=None, refresh=True):
 
         salt '*' saltutil.sync_all
     '''
-    logging.debug('Syncing all')
-    ret = []
-    ret.append(sync_modules(env, False))
-    ret.append(sync_states(env, False))
-    ret.append(sync_grains(env, False))
-    ret.append(sync_renderers(env, False))
-    ret.append(sync_returners(env, False))
-    ret.append(sync_outputters(env, False))
+    log.debug('Syncing all')
+    ret = {}
+    ret['modules'] = sync_modules(env, False)
+    ret['states'] = sync_states(env, False)
+    ret['grains'] = sync_grains(env, False)
+    ret['renderers'] = sync_renderers(env, False)
+    ret['returners'] = sync_returners(env, False)
+    ret['outputters'] = sync_outputters(env, False)
     if refresh:
         refresh_modules()
     return ret
@@ -461,13 +461,13 @@ def regen_keys():
 
 def revoke_auth():
     '''
-    The minion sends a request to the master to revoke its own key, note that
-    the minion session will be revoked and the minion may not be able to return
-    the result o this command back to the master.
+    The minion sends a request to the master to revoke its own key.
+    Note that the minion session will be revoked and the minion may
+    not be able to return the result of this command back to the master.
 
     CLI Example::
 
-        salt '*' saltutil.revoke_key
+        salt '*' saltutil.revoke_auth
     '''
     sreq = salt.payload.SREQ(__opts__['master_uri'])
     auth = salt.crypt.SAuth(__opts__)

@@ -35,9 +35,6 @@ service, then set the reload value to True:
           - pkg: redis
 '''
 
-# Import python libs
-import sys
-
 
 def __virtual__():
     '''
@@ -46,13 +43,22 @@ def __virtual__():
     return 'service'
 
 
-def _enable(name, started, **kwargs):
+def _enabled_used_error(ret):
+    ret['result'] = False
+    ret['comment'] = (
+        'Service {0} uses non-existant option "enabled".  ' +
+        'Perhaps "enable" option was intended?'
+    ).format(ret['name'])
+    return ret
+
+
+def _enable(name, started, result=True, **kwargs):
     '''
     Enable the service
     '''
     ret = {'name': name,
            'changes': {},
-           'result': True,
+           'result': result,
            'comment': ''}
 
     # is service available?
@@ -135,13 +141,13 @@ def _enable(name, started, **kwargs):
         return ret
 
 
-def _disable(name, started, **kwargs):
+def _disable(name, started, result=True, **kwargs):
     '''
     Disable the service
     '''
     ret = {'name': name,
            'changes': {},
-           'result': True,
+           'result': result,
            'comment': ''}
 
     # is service available?
@@ -259,6 +265,10 @@ def running(name, enable=None, sig=None, **kwargs):
            'result': True,
            'comment': ''}
 
+    # Check for common error: using enabled option instead of enable
+    if 'enabled' in kwargs:
+        return _enabled_used_error(ret)
+
     # Check if the service is available
     ret = _available(name, ret)
     if not ret.pop('available', True):
@@ -280,22 +290,16 @@ def running(name, enable=None, sig=None, **kwargs):
         ret['comment'] = 'Service {0} is set to start'.format(name)
         return ret
 
-    # Clear cached service info
-    sys.modules[
-        __salt__['service.status'].__module__
-    ].__context__.pop('service.all', None)
-
     changes = {name: __salt__['service.start'](name)}
 
     if not changes[name]:
-        ret['result'] = False
-        ret['comment'] = 'Service {0} failed to start'.format(name)
         if enable is True:
-            ret = _enable(name, False, **kwargs)
-            ret['result'] = False
+            return _enable(name, False, result=False, **kwargs)
         elif enable is False:
-            return _disable(name, False, **kwargs)
+            return _disable(name, False, result=False, **kwargs)
         else:
+            ret['result'] = False
+            ret['comment'] = 'Service {0} failed to start'.format(name)
             return ret
 
     if enable is True:
@@ -328,6 +332,10 @@ def dead(name, enable=None, sig=None, **kwargs):
            'result': True,
            'comment': ''}
 
+    # Check for common error: using enabled option instead of enable
+    if 'enabled' in kwargs:
+        return _enabled_used_error(ret)
+
     # Check if the service is available
     ret = _available(name, ret)
     if not ret.pop('available', True):
@@ -348,21 +356,18 @@ def dead(name, enable=None, sig=None, **kwargs):
         ret['comment'] = 'Service {0} is set to be killed'.format(name)
         return ret
 
-    # Clear cached service info
-    sys.modules[
-        __salt__['service.status'].__module__
-    ].__context__.pop('service.all', None)
-
     changes = {name: __salt__['service.stop'](name)}
 
     if not changes[name]:
         ret['result'] = False
         ret['comment'] = 'Service {0} failed to die'.format(name)
         if enable is True:
-            return _enable(name, True)
+            return _enable(name, True, result=False)
         elif enable is False:
-            return _disable(name, True)
+            return _disable(name, True, result=False)
         else:
+            ret['result'] = False
+            ret['comment'] = 'Service {0} failed to die'.format(name)
             return ret
 
     if enable is True:

@@ -87,16 +87,6 @@ def _reconstruct_ppa_name(owner_name, ppa_name):
     return 'ppa:{0}/{1}'.format(owner_name, ppa_name)
 
 
-def _pkgname_without_arch(name):
-    '''
-    Check for ':arch' appended to pkg name (i.e. 32 bit installed on 64 bit
-    machine is ':i386')
-    '''
-    if name.find(':') >= 0:
-        return name.split(':')[0]
-    return name
-
-
 def _get_repo(**kwargs):
     '''
     Check the kwargs for either 'fromrepo' or 'repo' and return the value.
@@ -241,6 +231,10 @@ def install(name=None,
         software repository. To install a package file manually, use the
         "sources" option.
 
+        32-bit packages can be installed on 64-bit systems by appending the
+        architecture designation (``:i386``, etc.) to the end of the package
+        name.
+
         CLI Example::
             salt '*' pkg.install <package name>
 
@@ -278,6 +272,10 @@ def install(name=None,
         A list of DEB packages to install. Must be passed as a list of dicts,
         with the keys being package names, and the values being the source URI
         or local path to the package.
+
+        32-bit packages can be installed on 64-bit systems by appending the
+        architecture designation (``:i386``, etc.) to the end of the package
+        name.
 
         CLI Example::
             salt '*' pkg.install sources='[{"foo": "salt://foo.deb"},{"bar": "salt://bar.deb"}]'
@@ -473,16 +471,17 @@ def upgrade(refresh=True, **kwargs):
 
 def _clean_pkglist(pkgs):
     '''
-    Go through package list and, if any packages have a mix of actual versions
-    and virtual package markers, remove the virtual package markers.
+    Go through package list and, if any packages have more than one virtual
+    package marker and no actual package versions, remove all virtual package
+    markers. If there is a mix of actual package versions and virtual package
+    markers, remove the virtual package markers.
     '''
-    for key in pkgs.keys():
-        if '1' in pkgs[key] and len(pkgs[key]) > 1:
-            while True:
-                try:
-                    pkgs[key].remove('1')
-                except ValueError:
-                    break
+    for name, versions in pkgs.iteritems():
+        stripped = filter(lambda x: x != '1', versions)
+        if not stripped:
+            pkgs[name] = ['1']
+        elif versions != stripped:
+            pkgs[name] = stripped
 
 
 def list_pkgs(versions_as_list=False, removed=False):
@@ -518,7 +517,7 @@ def list_pkgs(versions_as_list=False, removed=False):
 
     ret = {'installed': {}, 'removed': {}}
     cmd = 'dpkg-query --showformat=\'${Status} ${Package} ' \
-          '${Version}\n\' -W'
+          '${Version} ${Architecture}\n\' -W'
 
     out = __salt__['cmd.run_all'](cmd).get('stdout', '')
     # Typical lines of output:
@@ -527,11 +526,13 @@ def list_pkgs(versions_as_list=False, removed=False):
     for line in out.splitlines():
         cols = line.split()
         try:
-            linetype, status, name, version_num = \
-                [cols[x] for x in (0, 2, 3, 4)]
+            linetype, status, name, version_num, arch = \
+                [cols[x] for x in (0, 2, 3, 4, 5)]
         except ValueError:
             continue
-        name = _pkgname_without_arch(name)
+        if __grains__.get('cpuarch', '') == 'x86_64' \
+                and re.match(r'i\d86', arch):
+            name += ':{0}'.format(arch)
         if len(cols):
             if ('install' in linetype or 'hold' in linetype) and \
                     'installed' in status:
@@ -544,7 +545,7 @@ def list_pkgs(versions_as_list=False, removed=False):
                                                  version_num)
 
     # Check for virtual packages. We need dctrl-tools for this.
-    if __salt__['cmd.has_exec']('grep-available'):
+    if not removed and __salt__['cmd.has_exec']('grep-available'):
         cmd = 'grep-available -F Provides -s Package,Provides -e "^.+$"'
         out = __salt__['cmd.run_stdout'](cmd)
 
@@ -553,11 +554,11 @@ def list_pkgs(versions_as_list=False, removed=False):
         for realpkg, provides in virtpkg_re.findall(out):
             # grep-available returns info on all virtual packages. Ignore any
             # virtual packages that do not have the real package installed.
-            if realpkg in ret:
+            if realpkg in ret['installed']:
                 virtpkgs.update(provides.split(', '))
         for virtname in virtpkgs:
             # Set virtual package versions to '1'
-            __salt__['pkg_resource.add_pkg'](ret, virtname, '1')
+            __salt__['pkg_resource.add_pkg'](ret['installed'], virtname, '1')
 
     for pkglist_type in ('installed', 'removed'):
         __salt__['pkg_resource.sort_pkglist'](ret[pkglist_type])
@@ -753,7 +754,7 @@ def get_repo(repo, **kwargs):
     if repo.startswith('ppa:') and __grains__['os'] == 'Ubuntu':
         # This is a PPA definition meaning special handling is needed
         # to derive the name.
-        dist = __grains__['lsb_codename']
+        dist = __grains__['lsb_distrib_codename']
         owner_name, ppa_name = repo[4:].split('/')
         if ppa_auth:
             auth_info = '{0}@'.format(ppa_auth)
@@ -763,7 +764,7 @@ def get_repo(repo, **kwargs):
             if ppa_format_support:
                 repo = softwareproperties.ppa.expand_ppa_line(
                     repo,
-                    __grains__['lsb_codename'])[0]
+                    __grains__['lsb_distrib_codename'])[0]
             else:
                 repo = LP_SRC_FORMAT.format(owner_name, ppa_name, dist)
 
@@ -820,7 +821,7 @@ def del_repo(repo, **kwargs):
         # This is a PPA definition meaning special handling is needed
         # to derive the name.
         is_ppa = True
-        dist = __grains__['lsb_codename']
+        dist = __grains__['lsb_distrib_codename']
         if not ppa_format_support:
             warning_str = 'Unable to use functions from ' \
                           '"python-software-properties" package, making ' \
@@ -961,7 +962,7 @@ def mod_repo(repo, **kwargs):
                               '(e.g. saltstack/salt) not found.  Received ' \
                               '"{0}" instead.'
                     raise Exception(err_str.format(repo[4:]))
-                dist = __grains__['lsb_codename']
+                dist = __grains__['lsb_distrib_codename']
                 # ppa has a lot of implicit arguments. Make them explicit.
                 # These will defer to any user-defined variants
                 kwargs['dist'] = dist
@@ -1196,7 +1197,7 @@ def expand_repo_def(repokwargs):
     repo = repokwargs['repo']
 
     if repo.startswith('ppa:') and __grains__['os'] == 'Ubuntu':
-        dist = __grains__['lsb_codename']
+        dist = __grains__['lsb_distrib_codename']
         owner_name, ppa_name = repo[4:].split('/', 1)
         if 'ppa_auth' in repokwargs:
             auth_info = '{0}@'.format(repokwargs['ppa_auth'])

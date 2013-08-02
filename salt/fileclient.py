@@ -24,7 +24,8 @@ import salt.utils
 import salt.utils.templates
 import salt.utils.gzip_util
 from salt._compat import (
-    URLError, HTTPError, BaseHTTPServer, urlparse, url_open)
+    URLError, HTTPError, BaseHTTPServer, urlparse, urlunparse, url_open,
+    url_passwd_mgr, url_auth_handler, url_build_opener, url_install_opener )
 
 log = logging.getLogger(__name__)
 
@@ -284,6 +285,13 @@ class Client(object):
         # Copy files from master
         for fn_ in self.file_list(env):
             if fn_.startswith(path):
+                # Prevent files in "salt://foobar/" (or salt://foo.sh) from
+                # matching a path of "salt://foo"
+                try:
+                    if fn_[len(path)] != '/':
+                        continue
+                except IndexError:
+                    continue
                 # Remove the leading directories from path to derive
                 # the relative path on the minion.
                 minion_relpath = string.lstrip(fn_[len(prefix):], '/')
@@ -297,6 +305,13 @@ class Client(object):
         # Replicate empty dirs from master
         for fn_ in self.file_list_emptydirs(env):
             if fn_.startswith(path):
+                # Prevent an empty dir "salt://foobar/" from matching a path of
+                # "salt://foo"
+                try:
+                    if fn_[len(path)] != '/':
+                        continue
+                except IndexError:
+                    continue
                 # Remove the leading directories from path to derive
                 # the relative path on the minion.
                 minion_relpath = string.lstrip(fn_[len(prefix):], '/')
@@ -332,8 +347,19 @@ class Client(object):
             destdir = os.path.dirname(dest)
             if not os.path.isdir(destdir):
                 os.makedirs(destdir)
+        if url_data.username is not None:
+            _, netloc = url_data.netloc.split('@', 1)
+            fixed_url = urlunparse((url_data.scheme, netloc, url_data.path,
+                url_data.params, url_data.query, url_data.fragment ))
+            passwd_mgr = url_passwd_mgr()
+            passwd_mgr.add_password(None, fixed_url, url_data.username, url_data.password)
+            auth_handler = url_auth_handler(passwd_mgr)
+            opener = url_build_opener(auth_handler)
+            url_install_opener(opener)
+        else:
+            fixed_url = url
         try:
-            with contextlib.closing(url_open(url)) as srcfp:
+            with contextlib.closing(url_open(fixed_url)) as srcfp:
                 with salt.utils.fopen(dest, 'wb') as destfp:
                     shutil.copyfileobj(srcfp, destfp)
             return dest
@@ -608,9 +634,8 @@ class RemoteClient(Client):
                     # This is a 0 byte file on the master
                     with self._cache_loc(data['dest'], env) as cache_dest:
                         dest = cache_dest
-                        if not os.path.exists(cache_dest):
-                            with salt.utils.fopen(cache_dest, 'wb+') as ofile:
-                                ofile.write(data['data'])
+                        with salt.utils.fopen(cache_dest, 'wb+') as ofile:
+                            ofile.write(data['data'])
                 if 'hsum' in data and d_tries < 3:
                     # Master has prompted a file verification, if the
                     # verification fails, redownload the file. Try 3 times

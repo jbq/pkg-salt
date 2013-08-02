@@ -69,7 +69,7 @@ The location of the daemon's process ID file
 
 .. code-block:: yaml
 
-    pidfie: /var/run/salt-minion.pid
+    pidfile: /var/run/salt-minion.pid
 
 .. conf_minion:: root_dir
 
@@ -104,13 +104,12 @@ The directory used to store the minion's public and private keys.
 ``id``
 ------
 
-Default: hostname (as returned by the Python call: ``socket.getfqdn()``)
+Default: the system's hostname (as returned by the Python function 
+``socket.getfqdn()``)
 
-Explicitly declare the id for this minion to use, if left commented the id
-will be the hostname as returned by the Python call: ``socket.getfqdn()``
-Since Salt uses detached ids it is possible to run multiple minions on the
-same machine but with different ids, this can be useful for Salt compute
-clusters.
+Explicitly declare the id for this minion to use. Since Salt uses detached ids
+it is possible to run multiple minions on the same machine but with different
+ids. This can be useful for Salt compute clusters.
 
 .. code-block:: yaml
 
@@ -212,6 +211,37 @@ master.
 .. code-block:: yaml
 
     acceptance_wait_time: 10
+
+.. conf_minion:: random_reauth_delay
+
+``random_reauth_delay``
+------------------------
+
+When the master key changes, the minion will try to re-auth itself to
+receive the new master key. In larger environments this can cause a syn-flood
+on the master because all minions try to re-auth immediately. To prevent this
+and have a minion wait for a random amount of time, use this optional
+parameter. The wait-time will be a random number of seconds between
+0 and the defined value.
+
+.. code-block:: yaml
+
+    random_reauth_delay: 60
+
+.. conf_minion:: acceptance_wait_time_max
+
+``acceptance_wait_time_max``
+------------------------
+
+Default: ``None``
+
+The maximum number of seconds to wait until attempting to re\-authenticate
+with the master. If set, the wait will increase by acceptance_wait_time
+seconds each iteration.
+
+.. code-block:: yaml
+
+    acceptance_wait_time_max: None
 
 .. conf_minion:: dns_check
 

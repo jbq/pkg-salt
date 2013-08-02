@@ -122,8 +122,11 @@ class SMaster(object):
             )
             cumask = os.umask(191)
             if user not in users:
-                log.error('ACL user {0} is not available'.format(user))
-                continue
+                try:
+                    founduser = pwd.getpwnam(user)
+                except KeyError:
+                    log.error('ACL user {0} is not available'.format(user))
+                    continue
             keyfile = os.path.join(
                 self.opts['cachedir'], '.{0}_key'.format(user)
             )
@@ -193,7 +196,7 @@ class Master(SMaster):
                                     self.opts['keep_jobs']:
                                 shutil.rmtree(f_path)
 
-            if self.opts.get('publish_sesion'):
+            if self.opts.get('publish_session'):
                 if now - rotate >= self.opts['publish_session'] * 60:
                     salt.crypt.dropfile(self.opts['cachedir'])
                     rotate = now

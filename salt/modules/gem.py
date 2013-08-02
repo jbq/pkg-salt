@@ -25,12 +25,12 @@ def _gem(command, ruby=None, runas=None):
         return False
 
 
-def install(gems,           # pylint: disable-msg=C0103
+def install(gems,           # pylint: disable=C0103
             ruby=None,
             runas=None,
             version=None,
             rdoc=False,
-            ri=False):      # pylint: disable-msg=C0103
+            ri=False):      # pylint: disable=C0103
     '''
     Installs one or several gems.
 
@@ -201,4 +201,5 @@ def sources_list(ruby=None, runas=None):
 
         salt '*' gem.sources_list
     '''
-    return _gem('sources', ruby, runas=runas).splitlines()[2:]
+    ret = _gem('sources', ruby, runas=runas)
+    return [] if ret is False else ret.splitlines()[2:]

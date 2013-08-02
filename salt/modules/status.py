@@ -119,19 +119,15 @@ def uptime():
 def loadavg():
     '''
     Return the load averages for this minion
-
+    
     CLI Example::
-
+    
         salt '*' status.loadavg
     '''
-    procf = '/proc/loadavg'
-    if not os.path.isfile(procf):
-        return {}
-    comps = salt.utils.fopen(procf, 'r').read().strip()
-    load_avg = comps.split()
-    return {'1-min':  _number(load_avg[0]),
-            '5-min':  _number(load_avg[1]),
-            '15-min': _number(load_avg[2])}
+    load_avg = os.getloadavg()
+    return {'1-min':  load_avg[0],
+            '5-min':  load_avg[1],
+            '15-min': load_avg[2]}
 
 
 def cpustats():
@@ -412,7 +408,7 @@ def netdev():
     return ret
 
 
-def w():  # pylint: disable-msg=C0103
+def w():  # pylint: disable=C0103
     '''
     Return a list of logged in users for this minion, using the w command
 

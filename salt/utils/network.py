@@ -23,7 +23,7 @@ import salt.utils
 log = logging.getLogger(__name__)
 
 
-# pylint: disable-msg=C0103
+# pylint: disable=C0103
 
 
 def sanitize_host(host):
@@ -82,7 +82,7 @@ def ip_to_host(ip):
         hostname = None
     return hostname
 
-# pylint: enable-msg=C0103
+# pylint: enable=C0103
 
 
 def _cidr_to_ipv4_netmask(cidr_bits):
@@ -102,7 +102,7 @@ def _cidr_to_ipv4_netmask(cidr_bits):
     return netmask
 
 
-def _number_of_set_bits_to_ipv4_netmask(set_bits):  # pylint: disable-msg=C0103
+def _number_of_set_bits_to_ipv4_netmask(set_bits):  # pylint: disable=C0103
     '''
     Returns an IPv4 netmask from the integer representation of that mask.
 
@@ -111,7 +111,7 @@ def _number_of_set_bits_to_ipv4_netmask(set_bits):  # pylint: disable-msg=C0103
     return _cidr_to_ipv4_netmask(_number_of_set_bits(set_bits))
 
 
-# pylint: disable-msg=C0103
+# pylint: disable=C0103
 def _number_of_set_bits(x):
     '''
     Returns the number of bits that are set in a 32bit int
@@ -124,7 +124,7 @@ def _number_of_set_bits(x):
     x += x >> 16
     return x & 0x0000003f
 
-# pylint: enable-msg=C0103
+# pylint: enable=C0103
 
 
 def _interfaces_ip(out):
@@ -141,9 +141,9 @@ def _interfaces_ip(out):
         '''
         brd = None
         if '/' in value:  # we have a CIDR in this address
-            ip, cidr = value.split('/')  # pylint: disable-msg=C0103
+            ip, cidr = value.split('/')  # pylint: disable=C0103
         else:
-            ip = value  # pylint: disable-msg=C0103
+            ip = value  # pylint: disable=C0103
             cidr = 32
 
         if type_ == 'inet':
@@ -441,7 +441,7 @@ def _ipv4_to_bits(ipaddr):
     return ''.join([bin(int(x))[2:].rjust(8, '0') for x in ipaddr.split('.')])
 
 
-def hwaddr(iface):
+def hw_addr(iface):
     '''
     Return the hardware address (a.k.a. MAC address) for a given interface
     '''

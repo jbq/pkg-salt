@@ -6,7 +6,7 @@ Set up the version of Salt
 import sys
 
 
-__version_info__ = (0, 16, 0)
+__version_info__ = (0, 16, 2)
 __version__ = '.'.join(map(str, __version_info__))
 
 GIT_DESCRIBE_REGEX = (
@@ -132,7 +132,7 @@ del __get_version
 
 def versions_information():
     '''
-    Report on all of the versions for dependant software
+    Report on all of the versions for dependent software
     '''
     libs = (
         ('Salt', None, __version__),

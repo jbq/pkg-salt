@@ -3,6 +3,15 @@ Manage groups on Solaris
 '''
 
 # Import python libs
+import logging
+
+# Import salt libs
+import salt.utils
+
+
+log = logging.getLogger(__name__)
+
+
 try:
     import grp
 except ImportError:
@@ -16,7 +25,7 @@ def __virtual__():
     return 'group' if __grains__['kernel'] == 'SunOS' else False
 
 
-def add(name, gid=None, system=False):
+def add(name, gid=None, **kwargs):
     '''
     Add the specified group
 
@@ -24,6 +33,12 @@ def add(name, gid=None, system=False):
 
         salt '*' group.add foo 3456
     '''
+    if salt.utils.is_true(kwargs.pop('system', False)):
+        log.warning('solaris_group module does not support the \'system\' '
+                    'argument')
+    if kwargs:
+        raise TypeError('Invalid keyword argument(s): {}'.format(kwargs))
+
     cmd = 'groupadd '
     if gid:
         cmd += '-g {0} '.format(gid)

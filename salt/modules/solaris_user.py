@@ -12,6 +12,7 @@ import logging
 from copy import deepcopy
 
 # Import salt libs
+import salt.utils
 from salt._compat import string_types
 
 log = logging.getLogger(__name__)
@@ -60,12 +61,12 @@ def add(name,
         home=None,
         shell=None,
         unique=True,
-        system=False,
         fullname='',
         roomnumber='',
         workphone='',
         homephone='',
-        createhome=True):
+        createhome=True,
+        **kwargs):
     '''
     Add a user to the minion
 
@@ -73,6 +74,12 @@ def add(name,
 
         salt '*' user.add name <uid> <gid> <groups> <home> <shell>
     '''
+    if salt.utils.is_true(kwargs.pop('system', False)):
+        log.warning('solaris_user module does not support the \'system\' '
+                    'argument')
+    if kwargs:
+        raise TypeError('Invalid keyword argument(s): {}'.format(kwargs))
+
     if isinstance(groups, string_types):
         groups = groups.split(',')
     cmd = 'useradd '
@@ -128,6 +135,9 @@ def delete(name, remove=False, force=False):
 
         salt '*' user.delete name remove=True force=True
     '''
+    if salt.utils.is_true(force):
+        log.error('userdel does not support force-deleting user while '
+                  'user is logged in')
     cmd = 'userdel '
     if remove:
         cmd += '-r '

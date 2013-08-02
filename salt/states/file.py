@@ -742,6 +742,20 @@ def managed(name,
         Default is None.  If specified, will use the given string as the
         contents of the file.  Should not be used in conjunction with a source
         file of any kind.  Ignores hashes and does not use a templating engine.
+
+        Note, including a multiline string from an external source (such as
+        Pillar) presents a formatting challenege since the multiline content
+        will not adhere to YAML's required indentation. The external content
+        must be indented manually at the Jinja level::
+
+            /tmp/myfile:
+              file:
+                - managed
+                - contents: |
+                    {{ salt['pillar.get']('some:multiline:text') | indent(8) }}
+
+            # Note the above example is indented by 8 spaces.
+
     '''
     # Make sure that leading zeros stripped by YAML loader are added back
     mode = __salt__['config.manage_mode'](mode)
@@ -1702,7 +1716,7 @@ def append(name,
           file.append:
             - text:
               - Trust no one unless you have eaten much salt with him.
-              - Salt is born of the purest of parents: the sun and the sea.
+              - "Salt is born of the purest of parents: the sun and the sea."
 
     .. versionadded:: 0.9.5
     '''
