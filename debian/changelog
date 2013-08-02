@@ -1,3 +1,14 @@
+salt (0.16.2-1) unstable; urgency=low
+
+  [ Joe Healy ]
+  * Team upload.
+  * [526271e] Updated debian/copyright to reflect minor upstream changes
+  * [1f38e01] updated debian/rules to use dh-systemd. Closes: #715249
+  * [21abc2e] Imported Upstream version 0.16.2
+  * [50da5a7] Updated *.service files to get rid of lintian warning.
+
+ -- Joe Healy <joehealy@gmail.com>  Fri, 02 Aug 2013 15:46:10 +1000
+
 salt (0.16.0-1) unstable; urgency=low
 
   [ Joe Healy ]
