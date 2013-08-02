@@ -8,12 +8,20 @@ try:
 except ImportError:
     pass
 
-# Import salt libs
-import salt.utils
-
 
 def __virtual__():
     return 'shadow' if 'BSD' in __grains__.get('os', '') else False
+
+
+def default_hash():
+    '''
+    Returns the default hash used for unset passwords
+
+    CLI Example::
+
+        salt '*' shadow.default_hash
+    '''
+    return '*' if __grains__['os'].lower() == 'freebsd' else '*************'
 
 
 def info(name):
@@ -28,7 +36,7 @@ def info(name):
         data = pwd.getpwnam(name)
         ret = {
             'name': data.pw_name,
-            'passwd': data.pw_passwd if data.pw_passwd.strip('*') else ''}
+            'passwd': data.pw_passwd}
     except KeyError:
         return {
             'name': '',
@@ -55,6 +63,9 @@ def set_password(name, password):
     hash. The password hash can be generated with this command:
 
     ``python -c "import crypt; print crypt.crypt('password', ciphersalt)"``
+
+    :strong:`NOTE:` When constructing the ``ciphersalt`` string, you must
+    escape any dollar signs, to avoid them being interpolated by the shell.
 
     ``'password'`` is, of course, the password for which you want to generate
     a hash.

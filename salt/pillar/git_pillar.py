@@ -9,15 +9,10 @@ ext_pillar:
 '''
 
 # Import python libs
-import logging
-
-import os
-
-# Import third party libs
-import yaml
-
 from copy import deepcopy
-from salt.pillar import Pillar
+import logging
+import os
+import time
 
 # Import third party libs
 HAS_GIT = False
@@ -27,6 +22,8 @@ try:
 except ImportError:
     pass
 
+# Import salt libs
+from salt.pillar import Pillar
 
 
 # Set up logging
@@ -37,9 +34,12 @@ def __virtual__():
     '''
     Only load if git-python is available
     '''
+    ext_pillar_sources = [x for x in __opts__.get('ext_pillar', [])]
+    if not any(['git' in x for x in ext_pillar_sources]):
+        return False
     if not HAS_GIT:
-        log.error('Git fileserver backend is enabled in configuration but '
-                  'could not be loaded, is git-python installed?')
+        log.error('Git-based ext_pillar is enabled in configuration but '
+                  'could not be loaded, is GitPython installed?')
         return False
     if not git.__version__ > '0.3.0':
         return False
@@ -141,6 +141,7 @@ def update(branch, repo_location):
     except (OSError, IOError):
         pass
 
+
 def envs(branch, repo_location):
     '''
     Return a list of refs that can be used as environments
@@ -161,85 +162,6 @@ def envs(branch, repo_location):
             ret.add(short)
     return list(ret)
 
-def find_file(path, short='base', **kwargs):
-    '''
-    Find the first file to match the path and ref, read the file out of git
-    and send the path to the newly cached file
-    '''
-    fnd = {'path': '',
-           'rel': ''}
-    if os.path.isabs(path):
-        return fnd
-    if short == 'base':
-        short = 'master'
-    dest = os.path.join(__opts__['cachedir'], 'pillar_gitfs/refs', short, path)
-    hashes_glob = os.path.join(__opts__['cachedir'],
-                                        'pillar_gitfs/hash',
-                                        short,
-                                        '{0}.hash.*'.format(path))
-    blobshadest = os.path.join(
-            __opts__['cachedir'],
-            'pillar_gitfs/hash',
-            short,
-            '{0}.hash.blob_sha1'.format(path))
-    lk_fn = os.path.join(
-            __opts__['cachedir'],
-            'pillar_gitfs/hash',
-            short,
-            '{0}.lk'.format(path))
-    destdir = os.path.dirname(dest)
-    hashdir = os.path.dirname(blobshadest)
-    if not os.path.isdir(destdir):
-        os.makedirs(destdir)
-    if not os.path.isdir(hashdir):
-        os.makedirs(hashdir)
-    repos = init()
-    if 'index' in kwargs:
-        try:
-            repos = [repos[int(kwargs['index'])]]
-        except IndexError:
-            # Invalid index param
-            return fnd
-        except ValueError:
-            # Invalid index option
-            return fnd
-    for repo in repos:
-        ref = _get_ref(repo, short)
-        if not ref:
-            # Branch or tag not found in repo, try the next
-            continue
-        tree = ref.commit.tree
-        try:
-            blob = tree/path
-        except KeyError:
-            continue
-        _wait_lock(lk_fn, dest)
-        if os.path.isfile(blobshadest) and os.path.isfile(dest):
-            with open(blobshadest, 'r') as fp_:
-                sha = fp_.read()
-                if sha == blob.hexsha:
-                    fnd['rel'] = path
-                    fnd['path'] = dest
-                    return fnd
-        with open(lk_fn, 'w+') as fp_:
-            fp_.write('')
-        for filename in glob.glob(hashes_glob):
-            try:
-                os.remove(filename)
-            except Exception:
-                pass
-        with open(dest, 'w+') as fp_:
-            blob.stream_data(fp_)
-        with open(blobshadest, 'w+') as fp_:
-            fp_.write(blob.hexsha)
-        try:
-            os.remove(lk_fn)
-        except (OSError, IOError):
-            pass
-        fnd['rel'] = path
-        fnd['path'] = dest
-        return fnd
-    return fnd
 
 def ext_pillar(pillar, repo_string):
     '''
@@ -267,9 +189,9 @@ def ext_pillar(pillar, repo_string):
         return {}
 
     update(branch, repo_location)
-    git = repo.git
+    git_ = repo.git
 
-    git.checkout(branch)
+    git_.checkout(branch)
 
     opts = deepcopy(__opts__)
 

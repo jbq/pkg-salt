@@ -71,14 +71,16 @@ def is_temp_logging_configured():
 if sys.version_info < (2, 7):
     # Since the NullHandler is only available on python >= 2.7, here's a copy
     class NullHandler(logging.Handler):
-        """ This is 1 to 1 copy of python's 2.7 NullHandler"""
+        '''
+        This is 1 to 1 copy of python's 2.7 NullHandler
+        '''
         def handle(self, record):
             pass
 
         def emit(self, record):
             pass
 
-        def createLock(self):  # pylint: disable-msg=C0103
+        def createLock(self):  # pylint: disable=C0103
             self.lock = None
 
     logging.NullHandler = NullHandler
@@ -136,10 +138,19 @@ class LoggingMixInMeta(type):
         )
 
 
-class SaltLoggingClass(LOGGING_LOGGER_CLASS):
+class _NewStyleClassMixIn(object):
+    '''
+    Simple new style class to make pylint shut up!
+    This is required because SaltLoggingClass can't subclass object directly:
+
+        'Cannot create a consistent method resolution order (MRO) for bases'
+    '''
+
+
+class SaltLoggingClass(LOGGING_LOGGER_CLASS, _NewStyleClassMixIn):
     __metaclass__ = LoggingMixInMeta
 
-    def __new__(mcs, logger_name):
+    def __new__(cls, *args):
         '''
         We override `__new__` in our logging logger class in order to provide
         some additional features like expand the module name padding if length
@@ -151,7 +162,7 @@ class SaltLoggingClass(LOGGING_LOGGER_CLASS):
             logging.getLogger(__name__)
 
         '''
-        instance = super(SaltLoggingClass, mcs).__new__(mcs)
+        instance = super(SaltLoggingClass, cls).__new__(cls)
 
         try:
             max_logger_length = len(max(
@@ -202,7 +213,7 @@ class SaltLoggingClass(LOGGING_LOGGER_CLASS):
             pass
         return instance
 
-    # pylint: disable-msg=C0103
+    # pylint: disable=C0103
     def makeRecord(self, name, level, fn, lno, msg, args, exc_info, func=None,
                    extra=None):
         # Let's try to make every logging message unicode
@@ -222,7 +233,7 @@ class SaltLoggingClass(LOGGING_LOGGER_CLASS):
         return LOGGING_LOGGER_CLASS.makeRecord(
             self, name, level, fn, lno, msg, args, exc_info, func, extra
         )
-    # pylint: enable-msg=C0103
+    # pylint: enable=C0103
 
 
 # Override the python's logging logger class as soon as this module is imported
@@ -239,11 +250,11 @@ if logging.getLoggerClass() is not SaltLoggingClass:
 
         # Add a Null logging handler until logging is configured(will be
         # removed at a later stage) so we stop getting:
-        #   No handlers could be found for logger "foo"
+        #   No handlers could be found for logger 'foo'
         logging.getLogger().addHandler(LOGGING_NULL_HANDLER)
 
 
-def getLogger(name):  # pylint: disable-msg=C0103
+def getLogger(name):  # pylint: disable=C0103
     '''
     This function is just a helper, an alias to:
         logging.getLogger(name)

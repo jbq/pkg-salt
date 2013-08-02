@@ -12,10 +12,9 @@ Modules Are Easy to Write!
 ==========================
 
 Salt modules are amazingly simple to write. Just write a regular Python module
-or a regular `Cython`_ module and place it in the ``salt/modules`` directory.
-You can also place them in a directory called ``_modules/`` within the
-:conf_master:`file_roots` specified by the master config file, and they will be
-synced to the minions when :mod:`state.highstate
+or a regular `Cython`_ module and place it a directory called ``_modules/``
+within the :conf_master:`file_roots` specified by the master config file, and
+they will be synced to the minions when :mod:`state.highstate
 <salt.modules.state.highstate>` is run, or by executing the
 :mod:`saltutil.sync_modules <salt.modules.saltutil.sync_modules>` or
 :mod:`saltutil.sync_all <salt.modules.saltutil.sync_all>` functions.
@@ -170,7 +169,7 @@ documentation for all available modules:
 
     salt '*' sys.doc
 
-This function simple prints out the docstrings found in the modules, when
+This function simply prints out the docstrings found in the modules; when
 writing Salt modules, please follow the formatting conventions for docstrings as
 they appear in the other modules.
 
@@ -265,7 +264,7 @@ Depends Decorator
 When writing custom modules there are many times where some of the module will
 work on all hosts, but some functions require (for example) a service to be installed.
 Instead of trying to wrap much of the code in large try/except blocks you can use
-a simple decorator to do this. If the dependancies passed to the decorator don't
+a simple decorator to do this. If the dependencies passed to the decorator don't
 exist, then the salt minion will remove those functions from the module on that host.
 If a "fallback_funcion" is defined, it will replace the function instead of removing it
 
@@ -273,15 +272,15 @@ If a "fallback_funcion" is defined, it will replace the function instead of remo
 
     from salt.utils.decorators import depends
     try:
-        import dependancy_that_sometimes_exists
+        import dependency_that_sometimes_exists
     except ImportError:
         pass
 
-    @depends('dependancy_that_sometimes_exists')
+    @depends('dependency_that_sometimes_exists')
     def foo():
         '''
-        Function with a dependancy on the "dependancy_that_sometimes_exists" module,
-        if the "dependancy_that_sometimes_exists" is missing this function will not exist
+        Function with a dependency on the "dependency_that_sometimes_exists" module,
+        if the "dependency_that_sometimes_exists" is missing this function will not exist
         '''
         return True
 
@@ -289,13 +288,13 @@ If a "fallback_funcion" is defined, it will replace the function instead of remo
         '''
         Fallback function for the depends decorator to replace a function with
         '''
-        return '"dependancy_that_sometimes_exists" needs to be installed for this function to exist'
+        return '"dependency_that_sometimes_exists" needs to be installed for this function to exist'
 
-    @depends('dependancy_that_sometimes_exists', fallback_funcion=_fallback)
+    @depends('dependency_that_sometimes_exists', fallback_funcion=_fallback)
     def foo():
         '''
-        Function with a dependancy on the "dependancy_that_sometimes_exists" module.
-        If the "dependancy_that_sometimes_exists" is missing this function will be
+        Function with a dependency on the "dependency_that_sometimes_exists" module.
+        If the "dependency_that_sometimes_exists" is missing this function will be
         replaced with "_fallback"
         '''
         return True

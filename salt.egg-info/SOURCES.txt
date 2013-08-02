@@ -148,6 +148,7 @@ doc/ref/modules/all/salt.modules.augeas_cfg.rst
 doc/ref/modules/all/salt.modules.bluez.rst
 doc/ref/modules/all/salt.modules.brew.rst
 doc/ref/modules/all/salt.modules.bridge.rst
+doc/ref/modules/all/salt.modules.bsd_shadow.rst
 doc/ref/modules/all/salt.modules.cassandra.rst
 doc/ref/modules/all/salt.modules.cmdmod.rst
 doc/ref/modules/all/salt.modules.config.rst
@@ -233,6 +234,7 @@ doc/ref/modules/all/salt.modules.pkg_resource.rst
 doc/ref/modules/all/salt.modules.pkgin.rst
 doc/ref/modules/all/salt.modules.pkgng.rst
 doc/ref/modules/all/salt.modules.pkgutil.rst
+doc/ref/modules/all/salt.modules.portage_config.rst
 doc/ref/modules/all/salt.modules.postgres.rst
 doc/ref/modules/all/salt.modules.poudriere.rst
 doc/ref/modules/all/salt.modules.ps.rst
@@ -412,6 +414,7 @@ doc/ref/states/all/salt.states.pip.rst
 doc/ref/states/all/salt.states.pkg.rst
 doc/ref/states/all/salt.states.pkgng.rst
 doc/ref/states/all/salt.states.pkgrepo.rst
+doc/ref/states/all/salt.states.portage_config.rst
 doc/ref/states/all/salt.states.postgres_database.rst
 doc/ref/states/all/salt.states.postgres_group.rst
 doc/ref/states/all/salt.states.postgres_user.rst
@@ -437,6 +440,7 @@ doc/ref/tops/all/index.rst
 doc/ref/tops/all/salt.tops.cobbler.rst
 doc/ref/tops/all/salt.tops.ext_nodes.rst
 doc/ref/tops/all/salt.tops.mongo.rst
+doc/ref/tops/all/salt.tops.reclass_adapter.rst
 doc/ref/wheel/all/index.rst
 doc/ref/wheel/all/salt.wheel.config.rst
 doc/ref/wheel/all/salt.wheel.file_roots.rst
@@ -490,6 +494,7 @@ doc/topics/releases/0.14.0.rst
 doc/topics/releases/0.15.0.rst
 doc/topics/releases/0.15.1.rst
 doc/topics/releases/0.16.0.rst
+doc/topics/releases/0.16.2.rst
 doc/topics/releases/0.6.0.rst
 doc/topics/releases/0.7.0.rst
 doc/topics/releases/0.8.0.rst
@@ -533,6 +538,7 @@ doc/topics/tutorials/starting_states.rst
 doc/topics/tutorials/states_pt1.rst
 doc/topics/tutorials/states_pt2.rst
 doc/topics/tutorials/states_pt3.rst
+doc/topics/tutorials/states_pt4.rst
 doc/topics/tutorials/walkthrough.rst
 doc/topics/virt/index.rst
 doc/topics/virt/nic.rst
@@ -924,6 +930,7 @@ tests/integration/client/standard.py
 tests/integration/client/syndic.py
 tests/integration/files/ext.yaml
 tests/integration/files/hosts
+tests/integration/files/conf/grains
 tests/integration/files/conf/master
 tests/integration/files/conf/minion
 tests/integration/files/conf/sub_minion

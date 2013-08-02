@@ -17,6 +17,17 @@ def __virtual__():
     return 'shadow' if __grains__.get('kernel', '') == 'Linux' else False
 
 
+def default_hash():
+    '''
+    Returns the default hash used for unset passwords
+
+    CLI Example::
+
+        salt '*' shadow.default_hash
+    '''
+    return '!'
+
+
 def info(name):
     '''
     Return information for the specified user
@@ -29,7 +40,7 @@ def info(name):
         data = spwd.getspnam(name)
         ret = {
             'name': data.sp_nam,
-            'passwd': data.sp_pwd if data.sp_pwd != '!' else '',
+            'passwd': data.sp_pwd,
             'lstchg': data.sp_lstchg,
             'min': data.sp_min,
             'max': data.sp_max,
@@ -112,7 +123,7 @@ def set_password(name, password, use_usermod=False):
     hash. The password hash can be generated with this command:
 
     ``python -c "import crypt; print crypt.crypt('password',
-    '$6$SALTsalt')"``
+    '\\$6\\$SALTsalt')"``
 
     ``SALTsalt`` is the 8-character crpytographic salt. Valid characters in the
     salt are ``.``, ``/``, and any alphanumeric character.

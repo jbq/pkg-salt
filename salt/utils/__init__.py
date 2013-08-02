@@ -419,6 +419,10 @@ def prep_jid(cachedir, sum_type, user='root', nocache=False):
 
     jid_dir_ = jid_dir(jid, cachedir, sum_type)
     if not os.path.isdir(jid_dir_):
+        if os.path.exists(jid_dir_):
+            # Somehow we ended up with a file at our jid destination.
+            # Delete it.
+            os.remove(jid_dir_)
         os.makedirs(jid_dir_)
         with fopen(os.path.join(jid_dir_, 'jid'), 'w+') as fn_:
             fn_.write(jid)
@@ -709,7 +713,7 @@ def istextfile(fp_, blocksize=512):
     If more than 30% of the chars in the block are non-text, or there
     are NUL ('\x00') bytes in the block, assume this is a binary file.
     '''
-    PY3 = sys.version_info[0] == 3  # pylint: disable-msg=C0103
+    PY3 = sys.version_info[0] == 3  # pylint: disable=C0103
     int2byte = (lambda x: bytes((x,))) if PY3 else chr
     text_characters = (
         b''.join(int2byte(i) for i in range(32, 127)) +
@@ -823,9 +827,9 @@ def fopen(*args, **kwargs):
         # modify the file descriptor on systems with fcntl
         # unix and unix-like systems only
         try:
-            FD_CLOEXEC = fcntl.FD_CLOEXEC   # pylint: disable-msg=C0103
+            FD_CLOEXEC = fcntl.FD_CLOEXEC   # pylint: disable=C0103
         except AttributeError:
-            FD_CLOEXEC = 1                  # pylint: disable-msg=C0103
+            FD_CLOEXEC = 1                  # pylint: disable=C0103
         old_flags = fcntl.fcntl(fhandle.fileno(), fcntl.F_GETFD)
         fcntl.fcntl(fhandle.fileno(), fcntl.F_SETFD, old_flags | FD_CLOEXEC)
     return fhandle

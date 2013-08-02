@@ -4,7 +4,7 @@ States tutorial, part 3
 
 .. note::
 
-  This tutorial builds on the topic covered in :doc:`part1 <states_pt1>` and
+  This tutorial builds on topics covered in :doc:`part 1 <states_pt1>` and
   :doc:`part 2 <states_pt2>`. It is recommended that you begin there.
 
 This part of the tutorial will cover more advanced templating and
@@ -42,6 +42,21 @@ This templated sls file once generated will look like this:
     curly:
       user.present
 
+Here's a more complex example:
+
+.. code-blocK:: yaml
+
+    {% for usr in 'moe','larry','curly' %}
+    {{ usr }}:
+      group:
+        - present
+      user:
+        - present
+        - gid_from_name: True
+        - require:
+          - group: {{ usr }}
+    {% endfor %}
+
 Using Grains in SLS modules
 ===========================
 
@@ -72,21 +87,18 @@ The Salt module functions are also made available in the template context as
 
 .. code-block:: yaml
 
-    {% for usr in 'moe','larry','curly' %}
-    {{ usr }}:
-      group:
-        - present
+    basepi:
       user:
         - present
-        - gid: {{ salt['file.group_to_gid'](usr) }}
-        - require:
-          - group: {{ usr }}
-    {% endfor %}
+        - gid: {{ salt['file.group_to_gid']('some_group_that_exists') }}
 
-Below is an example that uses the ``network.hwaddr`` function to retrieve the
+Note that for the above example to work, ``some_group_that_exists`` must exist
+before the state file is processed by the templating engine.
+
+Below is an example that uses the ``network.hw_addr`` function to retrieve the
 MAC address for eth0::
 
-    salt['network.hwaddr']('eth0')
+    salt['network.hw_addr']('eth0')
 
 Advanced SLS module syntax
 ==========================
@@ -198,16 +210,9 @@ can be rewritten without the loop:
           - larry
           - curly
 
-Continue learning
-=================
+Next steps
+==========
 
-The best way to continue learning about Salt States is to read through the
-:doc:`reference documentation </ref/states/index>` and to look through examples
-of existing :term:`state trees <state tree>`. You can find examples in the
-`salt-states repository`_ and please send a pull-request on GitHub with any
-state trees that you build and want to share!
-
-.. _`salt-states repository`: https://github.com/saltstack/salt-states
-
-If you have any questions, suggestions, or just want to chat with other people
-who are using Salt we have an :doc:`active community </topics/community>`.
+In :doc:`part 4 <states_pt4>` we will discuss how to use salt's
+:conf_master:`file_roots` to set up a workflow in which states can be
+"promoted" from dev, to QA, to production.

@@ -12,7 +12,6 @@ import salt.log
 import salt.crypt
 from salt.exceptions import SaltReqTimeoutError
 from salt._compat import pickle
-from salt.utils.odict import OrderedDict
 
 # Import third party libs
 import zmq
@@ -122,8 +121,15 @@ class Serial(object):
                 # This means iterating through all elements of a dictionary or
                 # list/tuple
                 def odict_encoder(obj):
-                    if isinstance(obj, OrderedDict):
+                    if isinstance(obj, dict):
+                        for key, value in obj.copy().iteritems():
+                            obj[key] = odict_encoder(value)
                         return dict(obj)
+                    elif isinstance(obj, (list, tuple)):
+                        obj = list(obj)
+                        for idx, entry in enumerate(obj):
+                            obj[idx] = odict_encoder(entry)
+                        return obj
                     return obj
 
                 if isinstance(msg, dict):
@@ -133,6 +139,7 @@ class Serial(object):
                     msg = list(msg)
                     for idx, entry in enumerate(msg):
                         msg[idx] = odict_encoder(entry)
+
                 return msgpack.dumps(msg)
 
     def dump(self, msg, fn_):

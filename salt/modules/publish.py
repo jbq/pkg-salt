@@ -69,13 +69,21 @@ def _publish(
         return '{0!r} publish timed out'.format(fun)
     if not peer_data:
         return {}
-    time.sleep(timeout)
+    # CLI args are passed as strings, re-cast to keep time.sleep happy
+    time.sleep(float(timeout))
     load = {'cmd': 'pub_ret',
             'id': __opts__['id'],
             'tok': tok,
             'jid': peer_data['jid']}
-    return auth.crypticle.loads(
+    ret = auth.crypticle.loads(
             sreq.send('aes', auth.crypticle.dumps(load), 5))
+    if form == 'clean':
+        cret = {}
+        for host in ret:
+            cret[host] = ret[host]['ret']
+        return cret
+    else:
+        return ret
 
 
 def _normalize_arg(arg):

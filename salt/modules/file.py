@@ -21,6 +21,7 @@ import difflib
 import fnmatch
 import errno
 import logging
+import itertools
 try:
     import grp
     import pwd
@@ -52,8 +53,11 @@ def __clean_tmp(sfn):
     Clean out a template temp file
     '''
     if sfn.startswith(tempfile.gettempdir()):
+        # Don't remove if it exists in file_roots (any env)
+        all_roots = itertools.chain.from_iterable(__opts__['file_roots'].itervalues())
+        in_roots = any(sfn.startswith(root) for root in all_roots)
         # Only clean up files that exist
-        if os.path.exists(sfn):
+        if os.path.exists(sfn) and not in_roots:
             os.remove(sfn)
 
 
@@ -61,6 +65,28 @@ def _error(ret, err_msg):
     ret['result'] = False
     ret['comment'] = err_msg
     return ret
+
+
+def _binary_replace(old, new):
+    '''
+    This function does NOT do any diffing, it just checks the old and new files
+    to see if either is binary, and provides an appropriate string noting the
+    difference between the two files. If neither file is binary, an empty
+    string is returned.
+
+    This function should only be run AFTER it has been determined that the
+    files differ.
+    '''
+    old_isbin = not salt.utils.istextfile(old)
+    new_isbin = not salt.utils.istextfile(new)
+    if any((old_isbin, new_isbin)):
+        if all((old_isbin, new_isbin)):
+            return 'Replace binary file'
+        elif old_isbin:
+            return 'Replace binary file with text file'
+        elif new_isbin:
+            return 'Replace text file with binary file'
+    return ''
 
 
 def gid_to_group(gid):
@@ -564,10 +590,10 @@ def psed(path, before, after, limit='', backup='.bak', flags='gMS',
         Flags to modify the search. Valid values are :
             ``g``: Replace all occurrences of the pattern, not just the first.
             ``I``: Ignore case.
-            ``L``: Make ``\w``, ``\W``, ``\\b``, ``\B``, ``\s`` and ``\S`` dependent on the locale.
+            ``L``: Make ``\\w``, ``\\W``, ``\\b``, ``\\B``, ``\\s`` and ``\\S`` dependent on the locale.
             ``M``: Treat multiple lines as a single line.
             ``S``: Make `.` match all characters, including newlines.
-            ``U``: Make ``\w``, ``\W``, ``\\b``, ``\B``, ``\d``, ``\D``, ``\s`` and ``\S`` dependent on Unicode.
+            ``U``: Make ``\\w``, ``\\W``, ``\\b``, ``\\B``, ``\\d``, ``\\D``, ``\\s`` and ``\\S`` dependent on Unicode.
             ``X``: Verbose (whitespace is ignored).
     multi: ``False``
         If True, treat the entire file as a single line
@@ -1245,15 +1271,6 @@ def check_perms(name, ret, user, group, mode):
     '''
     Check the permissions on files and chown if needed
 
-    Note: 'mode' here is expected to be either a string or an integer,
-          in which case it will be converted into a base-10 string.
-
-          What this means is that in your YAML salt file, you can specify
-          mode as an integer(eg, 644) or as a string(eg, '644'). But, to
-          specify mode 0777, for example, it must be specified as the string,
-          '0777' otherwise, 0777 will be parsed as an octal and you'd get 511
-          instead.
-
     CLI Example::
 
         salt '*' file.check_perms /etc/sudoers '{}' root root 400
@@ -1385,7 +1402,7 @@ def check_managed(
                               group, mode, env, template, contents)
     __clean_tmp(sfn)
     if changes:
-        log.critical(changes)
+        log.info(changes)
         comments = ['The following values are set to be changed:\n']
         comments.extend('{0}: {1}\n'.format(key, val) for key, val in changes.iteritems())
         return None, ''.join(comments)
@@ -1422,18 +1439,24 @@ def check_file_meta(
             if not sfn and source:
                 sfn = __salt__['cp.cache_file'](source, env)
             if sfn:
-                with contextlib.nested(
-                        salt.utils.fopen(sfn, 'rb'),
-                        salt.utils.fopen(name, 'rb')) as (src, name_):
-                    slines = src.readlines()
-                    nlines = name_.readlines()
                 if __salt__['config.option']('obfuscate_templates'):
                     changes['diff'] = '<Obfuscated Template>'
                 else:
-                    changes['diff'] = \
-                        ''.join(difflib.unified_diff(nlines, slines))
+                    # Check to see if the files are bins
+                    bdiff = _binary_replace(name, sfn)
+                    if bdiff:
+                        changes['diff'] = bdiff
+                    else:
+                        with contextlib.nested(
+                                salt.utils.fopen(sfn, 'rb'),
+                                salt.utils.fopen(name, 'rb')) as (src, name_):
+                            slines = src.readlines()
+                            nlines = name_.readlines()
+                        changes['diff'] = \
+                            ''.join(difflib.unified_diff(nlines, slines))
             else:
                 changes['sum'] = 'Checksum differs'
+
     if contents is not None:
         # Write a tempfile with the static contents
         tmp = salt.utils.mkstemp(text=True)
@@ -1449,8 +1472,12 @@ def check_file_meta(
             if __salt__['config.option']('obfuscate_templates'):
                 changes['diff'] = '<Obfuscated Template>'
             else:
-                changes['diff'] = (''.join(difflib.unified_diff(nlines,
-                                                                slines)))
+                if salt.utils.istextfile(name):
+                    changes['diff'] = \
+                        ''.join(difflib.unified_diff(nlines, slines))
+                else:
+                    changes['diff'] = 'Replace binary file with text file'
+
     if user is not None and user != lstats['user']:
         changes['user'] = user
     if group is not None and group != lstats['group']:
@@ -1487,10 +1514,13 @@ def get_diff(
                 as (src, name_):
             slines = src.readlines()
             nlines = name_.readlines()
-        diff = difflib.unified_diff(nlines, slines, minionfile, masterfile)
-        if diff:
-            for line in diff:
-                ret = ret + line
+        if ''.join(nlines) != ''.join(slines):
+            bdiff = _binary_replace(minionfile, sfn)
+            if bdiff:
+                ret += bdiff
+            else:
+                ret += ''.join(difflib.unified_diff(nlines, slines,
+                                                    minionfile, masterfile))
     else:
         ret = 'Failed to copy file from master'
 
@@ -1550,24 +1580,25 @@ def manage_file(name,
                     ret['result'] = False
                     return ret
 
-            # Check to see if the files are bins
-            if not salt.utils.istextfile(sfn) \
-                    or not salt.utils.istextfile(name):
-                ret['changes']['diff'] = 'Replace binary file'
+            # Print a diff equivalent to diff -u old new
+            if __salt__['config.option']('obfuscate_templates'):
+                ret['changes']['diff'] = '<Obfuscated Template>'
+            elif not show_diff:
+                ret['changes']['diff'] = '<show_diff=False>'
             else:
-                with contextlib.nested(
-                        salt.utils.fopen(sfn, 'rb'),
-                        salt.utils.fopen(name, 'rb')) as (src, name_):
-                    slines = src.readlines()
-                    nlines = name_.readlines()
-                    # Print a diff equivalent to diff -u old new
-                    if __salt__['config.option']('obfuscate_templates'):
-                        ret['changes']['diff'] = '<Obfuscated Template>'
-                    elif not show_diff:
-                        ret['changes']['diff'] = '<show_diff=False>'
-                    else:
-                        ret['changes']['diff'] = \
-                            ''.join(difflib.unified_diff(nlines, slines))
+                # Check to see if the files are bins
+                bdiff = _binary_replace(name, sfn)
+                if bdiff:
+                    ret['changes']['diff'] = bdiff
+                else:
+                    with contextlib.nested(
+                            salt.utils.fopen(sfn, 'rb'),
+                            salt.utils.fopen(name, 'rb')) as (src, name_):
+                        slines = src.readlines()
+                        nlines = name_.readlines()
+                    ret['changes']['diff'] = \
+                        ''.join(difflib.unified_diff(nlines, slines))
+
             # Pre requisites are met, and the file needs to be replaced, do it
             try:
                 salt.utils.copyfile(sfn,
@@ -1599,8 +1630,12 @@ def manage_file(name,
                 elif not show_diff:
                     ret['changes']['diff'] = '<show_diff=False>'
                 else:
-                    ret['changes']['diff'] = \
-                        ''.join(difflib.unified_diff(nlines, slines))
+                    if salt.utils.istextfile(name):
+                        ret['changes']['diff'] = \
+                            ''.join(difflib.unified_diff(nlines, slines))
+                    else:
+                        ret['changes']['diff'] = \
+                            'Replace binary file with text file'
 
                 # Pre requisites are met, the file needs to be replaced, do it
                 try:
@@ -1732,16 +1767,10 @@ def mkdir(dir_path, user=None, group=None, mode=None):
     directory = os.path.normpath(dir_path)
 
     if not os.path.isdir(directory):
-        # turn on the executable bits for user, group and others.
-        # Note: the special bits are set to 0.
-        if mode:
-            mode = int(str(mode)[-3:], 8) | 0111
-
+        # If a caller such as managed() is invoked  with makedirs=True, make
+        # sure that any created dirs are created with the same user and group
+        # to follow the principal of least surprise method.
         makedirs_perms(directory, user, group, mode)
-        # If a caller such as managed() is invoked  with
-        # makedirs=True, make sure that any created dirs
-        # are created with the same user  and  group  to
-        # follow the principal of least surprise method.
 
 
 def makedirs(path, user=None, group=None, mode=None):
