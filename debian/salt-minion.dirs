@@ -1,1 +1,2 @@
 /etc/salt/minion.d/
+/var/cache/salt/minion/proc
