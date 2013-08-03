@@ -1,3 +1,11 @@
+salt (0.16.2-2) unstable; urgency=low
+
+  [ Joe Healy ]
+  * Team upload.
+  * [5fb2336] Fix upstream issue #6502 "Fix traceback in salt-call --local"
+
+ -- Joe Healy <joehealy@gmail.com>  Sat, 03 Aug 2013 21:29:18 +1000
+
 salt (0.16.2-1) unstable; urgency=low
 
   [ Joe Healy ]
