@@ -25,28 +25,34 @@ SCRIPTNAME=/etc/init.d/$NAME
 # Read configuration variable file if it is present
 [ -r /etc/default/$NAME ] && . /etc/default/$NAME
 
-. /lib/init/vars.sh
 . /lib/lsb/init-functions
 
 do_start() {
+    # Return
+    #   0 if daemon has been started
+    #   1 if daemon was already running
+    #   2 if daemon could not be started
     pid=$(pidofproc -p $PIDFILE $DAEMON)
     if [ -n "$pid" ] ; then
-        log_begin_msg "$DESC already running."
-        log_end_msg 0
-        exit 0
+        return 1
     fi
 
-    log_daemon_msg "Starting salt-master daemon: "
-    start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- $DAEMON_ARGS
-    log_end_msg $?
+    start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- \
+            $DAEMON_ARGS \
+            || return 2
 }
 
 do_stop() {
-    log_begin_msg "Stopping $DESC ..."
-    start-stop-daemon --stop --retry TERM/5 --quiet --oknodo --pidfile $PIDFILE
-    RC=$?
-    [ $RC -eq 0 ] && rm -f $PIDFILE
-    log_end_msg $RC
+    # Return
+    #   0 if daemon has been stopped
+    #   1 if daemon was already stopped
+    #   2 if daemon could not be stopped
+    #   other if a failure occurred
+    start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE --name $NAME
+    RETVAL="$?"
+    [ "$RETVAL" = 2 ] && return 2
+    rm -f $PIDFILE
+    return "$RETVAL"
 }
 
 case "$1" in
