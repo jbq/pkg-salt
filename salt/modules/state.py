@@ -170,6 +170,9 @@ def highstate(test=None, **kwargs):
     CLI Example::
 
         salt '*' state.highstate
+
+        salt '*' state.highstate exclude=sls_to_exclude
+        salt '*' state.highstate exclude="[{'id': 'id_to_exclude'}, {'sls': 'sls_to_exclude'}]"
     '''
     conflict = running()
     if conflict:
@@ -228,6 +231,8 @@ def sls(mods, env='base', test=None, exclude=None, **kwargs):
     CLI Example::
 
         salt '*' state.sls core,edit.vim dev
+
+        salt '*' state.sls core exclude="[{'id': 'id_to_exclude'}, {'sls': 'sls_to_exclude'}]"
     '''
 
     conflict = running()
@@ -309,6 +314,9 @@ def top(topfn, test=None, **kwargs):
     CLI Example::
 
         salt '*' state.top reverse_top.sls
+
+        salt '*' state.top reverse_top.sls exclude=sls_to_exclude
+        salt '*' state.top reverse_top.sls exclude="[{'id': 'id_to_exclude'}, {'sls': 'sls_to_exclude'}]"
     '''
     conflict = running()
     if conflict:
@@ -346,6 +354,10 @@ def show_highstate():
 
         salt '*' state.show_highstate
     '''
+    conflict = running()
+    if conflict:
+        __context__['retcode'] = 1
+        return conflict
     st_ = salt.state.HighState(__opts__)
     st_.push_active()
     try:
@@ -365,6 +377,10 @@ def show_lowstate():
 
         salt '*' state.show_lowstate
     '''
+    conflict = running()
+    if conflict:
+        __context__['retcode'] = 1
+        return conflict
     st_ = salt.state.HighState(__opts__)
     st_.push_active()
     try:
@@ -385,6 +401,10 @@ def show_sls(mods, env='base', test=None, **kwargs):
 
         salt '*' state.show_sls core,edit.vim dev
     '''
+    conflict = running()
+    if conflict:
+        __context__['retcode'] = 1
+        return conflict
     opts = copy.copy(__opts__)
     if salt.utils.test_mode(test=test, **kwargs):
         opts['test'] = True
@@ -413,6 +433,10 @@ def show_top():
 
         salt '*' state.show_top
     '''
+    conflict = running()
+    if conflict:
+        __context__['retcode'] = 1
+        return conflict
     st_ = salt.state.HighState(__opts__)
     ret = {}
     static = st_.get_top()

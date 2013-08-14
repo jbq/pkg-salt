@@ -305,7 +305,7 @@ insecure!
 ``client_acl``
 --------------
 
-Default: {}
+Default: ``{}``
 
 Enable user accounts on the master to execute specific modules. These modules
 can be expressed as regular expressions
@@ -316,6 +316,74 @@ can be expressed as regular expressions
       fred:
         - test.ping
         - pkg.*
+
+.. conf_master:: client_acl_blacklist
+
+``client_acl_blacklist``
+------------------------
+
+Default: ``{}``
+
+Blacklist users or modules
+
+This example would blacklist all non sudo users, including root from
+running any commands. It would also blacklist any use of the "cmd"
+module.
+
+This is completely disabled by default.
+
+.. code-block:: yaml
+
+    client_acl_blacklist:
+      users:
+        - root
+        - '^(?!sudo_).*$'   #  all non sudo users
+      modules:
+        - cmd
+
+.. conf_master:: external_auth
+
+``external_auth``
+-----------------
+
+Default: ``{}``
+
+The external auth system uses the Salt auth modules to authenticate and
+validate users to access areas of the Salt system.
+
+.. code-block:: yaml
+
+    external_auth:
+      pam:
+        fred:
+          - test.*
+
+.. conf_master:: token_expire
+
+``token_expire``
+----------------
+
+Default: ``43200``
+
+Time (in seconds) for a newly generated token to live. Default: 12 hours
+
+.. code-block:: yaml
+
+    token_expire: 43200
+
+.. conf_master:: file_recv
+
+``file_recv``
+-------------
+
+Default: ``False``
+
+Allow minions to push files to the master. This is disabled by default, for
+security purposes.
+
+.. code-block:: yaml
+
+    file_recv: False 
 
 
 Master Module Management
@@ -461,7 +529,12 @@ Master File Server Settings
 ``file_roots``
 --------------
 
-Default: ``base: [/srv/salt]``
+Default:
+
+.. code-block:: yaml
+
+    base:
+      - /srv/salt
 
 Salt runs a lightweight file server written in ZeroMQ to deliver files to
 minions. This file server is built into the master daemon and does not
@@ -485,11 +558,6 @@ Example:
         - /srv/salt/prod/services
         - /srv/salt/prod/states
 
-.. code-block:: yaml
-
-    base:
-      - /srv/salt
-
 .. conf_master:: hash_type
 
 ``hash_type``
@@ -498,7 +566,7 @@ Example:
 Default: ``md5``
 
 The hash_type is the hash to use when discovering the hash of a file on
-the master server, the default is md5, but sha1, sha224, sha256, sha384
+the master server. The default is md5, but sha1, sha224, sha256, sha384
 and sha512 are also supported.
 
 .. code-block:: yaml
@@ -528,25 +596,25 @@ Pillar Configuration
 ``pillar_roots``
 ----------------
 
-Set the environments and directories used to hold pillar sls data. This
-configuration is the same as file_roots:
-
-Default: ``base: [/srv/pillar]``
-
-.. code-block:: yaml
-
-    pillar_roots:
-      base:
-        - /srv/pillar/
-      dev:
-        - /srv/pillar/dev/
-      prod:
-        - /srv/pillar/prod/
+Default:
 
 .. code-block:: yaml
 
     base:
       - /srv/pillar
+
+Set the environments and directories used to hold pillar sls data. This
+configuration is the same as :conf_master:`file_roots`:
+
+.. code-block:: yaml
+
+    pillar_roots:
+      base:
+        - /srv/pillar
+      dev:
+        - /srv/pillar/dev
+      prod:
+        - /srv/pillar/prod
 
 .. conf_master:: ext_pillar
 
