@@ -1322,6 +1322,8 @@ class State(object):
                     for chunk in chunks:
                         req_key = next(iter(req))
                         req_val = req[req_key]
+                        if req_val is None:
+                            continue
                         if (fnmatch.fnmatch(chunk['name'], req_val) or
                             fnmatch.fnmatch(chunk['__id__'], req_val)):
                             if chunk['state'] == req_key:
@@ -1398,11 +1400,15 @@ class State(object):
                     for chunk in chunks:
                         req_key = next(iter(req))
                         req_val = req[req_key]
+                        if req_val is None:
+                            continue
                         if (fnmatch.fnmatch(chunk['name'], req_val) or
                             fnmatch.fnmatch(chunk['__id__'], req_val)):
                             if chunk['state'] == req_key:
                                 if requisite == 'prereq':
                                     chunk['__prereq__'] = True
+                                elif requisite == 'prerequired':
+                                    chunk['__prerequired__'] = True
                                 reqs.append(chunk)
                                 found = True
                         elif req_key == 'sls':
@@ -1417,10 +1423,15 @@ class State(object):
             if lost['require'] or lost['watch'] or lost['prereq'] or lost.get('prerequired'):
                 comment = 'The following requisites were not found:\n'
                 for requisite, lreqs in lost.items():
+                    if not lreqs:
+                        continue
+                    comment += \
+                        '{0}{1}:\n'.format(' ' * 19, requisite)
                     for lreq in lreqs:
-                        comment += '{0}{1}: {2}\n'.format(' ' * 19,
-                                requisite,
-                                lreq)
+                        req_key = next(iter(lreq))
+                        req_val = lreq[req_key]
+                        comment += \
+                            '{0}{1}: {2}\n'.format(' ' * 23, req_key, req_val)
                 running[tag] = {'changes': {},
                                 'result': False,
                                 'comment': comment,
@@ -1433,8 +1444,14 @@ class State(object):
                 ctag = _gen_tag(chunk)
                 if ctag not in running:
                     if ctag in self.active:
-                        log.error('Recursive requisite found')
-                        if ctag not in running:
+                        if chunk.get('__prerequired__'):
+                            # Prereq recusive, run this chunk with prereq on
+                            if tag not in self.pre:
+                                low['__prereq__'] = True
+                                self.pre[ctag] = self.call(low)
+                                return running
+                        elif ctag not in running:
+                            log.error('Recursive requisite found')
                             running[tag] = {
                                     'changes': {},
                                     'result': False,
@@ -1446,7 +1463,14 @@ class State(object):
                     if self.check_failhard(chunk, running):
                         running['__FAILHARD__'] = True
                         return running
-            running = self.call_chunk(low, running, chunks)
+            if low.get('__prereq__'):
+                status = self.check_requisite(low, running, chunks)
+                self.pre[tag] = self.call(low)
+                if not self.pre[tag]['changes'] and status == 'change':
+                    self.pre[tag]['changes'] = {'watch': 'watch'}
+                    self.pre[tag]['result'] = None
+            else:
+                running = self.call_chunk(low, running, chunks)
             if self.check_failhard(chunk, running):
                 running['__FAILHARD__'] = True
                 return running
@@ -1786,6 +1810,10 @@ class BaseHighState(object):
                        'laid out as a dict').format(env)
                 errors.append(err)
             for slsmods in matches.values():
+                if not isinstance(slsmods, list):
+                    errors.append('Malformed topfile (state declarations not '
+                                  'formed as a list)')
+                    continue
                 for slsmod in slsmods:
                     if isinstance(slsmod, dict):
                         # This value is a match option
@@ -2248,7 +2276,8 @@ class HighState(BaseHighState):
     compound state derived from a group of template files stored on the
     salt master or in the local cache.
     '''
-    stack = [] # a stack of active HighState objects during a state.highstate run.
+    # a stack of active HighState objects during a state.highstate run
+    stack = []
 
     def __init__(self, opts, pillar=None):
         self.client = salt.fileclient.get_file_client(opts)

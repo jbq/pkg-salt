@@ -3,7 +3,6 @@ Resources needed by pkg providers
 '''
 
 # Import python libs
-import collections
 import distutils.version  # pylint: disable=E0611
 import fnmatch
 import logging
@@ -98,7 +97,8 @@ def _parse_pkg_meta(path):
                     except AttributeError:
                         continue
         if arch:
-            name += ':{0}'.format(arch)
+            if cpuarch == 'x86_64' and arch != 'amd64':
+                name += ':{0}'.format(arch)
         return name, version
 
     if __grains__['os_family'] in ('Suse', 'RedHat', 'Mandriva'):
