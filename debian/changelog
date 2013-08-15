@@ -1,3 +1,15 @@
+salt (0.16.3-1) unstable; urgency=low
+
+  [ Joe Healy ]
+  * Team upload.
+  * [911d75a] Overhaul of init.d scripts. Fixes lintian issue and closes: 692066
+  * [77ec715] Imported Upstream version 0.16.3
+  * [ee76ab8] Undo packaging fix upstream issue #6502
+  * [ed508f0] Added lintian override for awkward spacing in man page table
+  * [70573cb] Ensure all minion processes are killed when stopping/restarting
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 15 Aug 2013 23:06:02 +1000
+
 salt (0.16.2-2) unstable; urgency=low
 
   [ Joe Healy ]
