@@ -1778,6 +1778,14 @@ class ClearFuncs(object):
             if token['name'] not in self.opts['external_auth'][token['eauth']]:
                 log.warning('Authentication failure of type "token" occurred.')
                 return ''
+            good = self.ckminions.wheel_check(
+                    self.opts['external_auth'][token['eauth']][token['name']] if token['name'] in self.opts['external_auth'][token['eauth']] else self.opts['external_auth'][token['eauth']]['*'],
+                    clear_load['fun'])
+            if not good:
+                msg = ('Authentication failure of type "token" occurred for '
+                       'user {0}.').format(clear_load.get('username', 'UNKNOWN'))
+                log.warning(msg)
+                return ''
 
             try:
                 fun = clear_load.pop('fun')
@@ -1878,9 +1886,16 @@ class ClearFuncs(object):
 
         # check if the cmd is blacklisted
         for module_re in self.opts['client_acl_blacklist'].get('modules', []):
-            if re.match(module_re, clear_load['fun']):
-                good = False
-                break
+            # if this is a regular command, its a single function
+            if type(clear_load['fun']) == str:
+                funs_to_check = [ clear_load['fun'] ]
+            # if this a compound function
+            else:
+                funs_to_check = clear_load['fun']
+            for fun in funs_to_check:
+                if re.match(module_re, fun):
+                    good = False
+                    break
 
         if good is False:
             log.error(
