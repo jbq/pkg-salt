@@ -6,7 +6,7 @@ Set up the version of Salt
 import sys
 
 
-__version_info__ = (0, 16, 3)
+__version_info__ = (0, 16, 4)
 __version__ = '.'.join(map(str, __version_info__))
 
 GIT_DESCRIBE_REGEX = (
@@ -22,7 +22,7 @@ def __get_version(version, version_info):
     '''
     try:
         # Try to import the version information provided at install time
-        from salt._version import __version__, __version_info__
+        from salt._version import __version__, __version_info__  # pylint: disable=E0611
         return __version__, __version_info__
     except ImportError:
         pass
@@ -55,7 +55,8 @@ def __get_version(version, version_info):
             # Let's not import `salt.utils` for the above check
             kwargs['close_fds'] = True
 
-        process = subprocess.Popen(['git', 'describe', '--tags'], **kwargs)
+        process = subprocess.Popen(
+                ['git', 'describe', '--tags', '--match', 'v[0-9]*'], **kwargs)
         out, err = process.communicate()
         out = out.strip()
         err = err.strip()
