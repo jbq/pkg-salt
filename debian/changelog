@@ -1,3 +1,11 @@
+salt (0.16.4-1) unstable; urgency=low
+
+  [ Joe Healy ]
+  * Team upload.
+  * [fa55b16] Imported Upstream version 0.16.4
+
+ -- Joe Healy <joehealy@gmail.com>  Sun, 08 Sep 2013 10:47:07 +1000
+
 salt (0.16.3-1) unstable; urgency=low
 
   [ Joe Healy ]
