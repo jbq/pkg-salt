@@ -1,6 +1,6 @@
 Source: salt
 Section: admin
-Priority: optional
+Priority: extra
 Maintainer: Debian Salt Team <pkg-salt-team@lists.alioth.debian.org>
 Uploaders: Joe Healy <joehealy@gmail.com>,
            Franklin G Mendoza <franklin.g.mendoza@gmail.com>,
