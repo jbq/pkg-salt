@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Define some generic socket functions for network modules
 '''
@@ -162,7 +163,7 @@ def _interfaces_ip(out):
         for line in group.splitlines():
             if not ' ' in line:
                 continue
-            match = re.match(r'^\d*:\s+([\w.]+)(?:@)?(\w+)?:\s+<(.+)>', line)
+            match = re.match(r'^\d*:\s+([\w.]+)(?:@)?([\w.]+)?:\s+<(.+)>', line)
             if match:
                 iface, parent, attrs = match.groups()
                 if 'UP' in attrs.split(','):
@@ -290,11 +291,13 @@ def linux_interfaces():
         cmd1 = subprocess.Popen(
             'ip link show',
             shell=True,
+            close_fds=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT).communicate()[0]
         cmd2 = subprocess.Popen(
             'ip addr show',
             shell=True,
+            close_fds=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT).communicate()[0]
         ifaces = _interfaces_ip(cmd1 + '\n' + cmd2)
@@ -377,11 +380,11 @@ def win_interfaces():
                         item = {'address': ip,
                                 'label': iface.Description}
                         if iface.DefaultIPGateway:
-                            broadcast = next(( i for i in iface.DefaultIPGateway if '.' in i ), '')
+                            broadcast = next((i for i in iface.DefaultIPGateway if '.' in i), '')
                             if broadcast:
                                 item['broadcast'] = broadcast
                         if iface.IPSubnet:
-                            netmask = next(( i for i in iface.IPSubnet if '.' in i ), '')
+                            netmask = next((i for i in iface.IPSubnet if '.' in i), '')
                             if netmask:
                                 item['netmask'] = netmask
                         ifaces[iface.Description]['inet'].append(item)
@@ -390,11 +393,11 @@ def win_interfaces():
                             ifaces[iface.Description]['inet6'] = []
                         item = {'address': ip}
                         if iface.DefaultIPGateway:
-                            broadcast = next(( i for i in iface.DefaultIPGateway if ':' in i ), '')
+                            broadcast = next((i for i in iface.DefaultIPGateway if ':' in i), '')
                             if broadcast:
                                 item['broadcast'] = broadcast
                         if iface.IPSubnet:
-                            netmask = next(( i for i in iface.IPSubnet if ':' in i ), '')
+                            netmask = next((i for i in iface.IPSubnet if ':' in i), '')
                             if netmask:
                                 item['netmask'] = netmask
                         ifaces[iface.Description]['inet6'].append(item)

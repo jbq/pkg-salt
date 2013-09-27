@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 The caller module is used as a front-end to manage direct calls to the salt
 minion modules.
@@ -67,8 +68,12 @@ class Caller(object):
                     'pid': os.getpid(),
                     'jid': ret['jid'],
                     'tgt': 'salt-call'}
-            with salt.utils.fopen(proc_fn, 'w+') as fp_:
-                fp_.write(self.serial.dumps(sdata))
+            try:
+                with salt.utils.fopen(proc_fn, 'w+') as fp_:
+                    fp_.write(self.serial.dumps(sdata))
+            except NameError:
+                # Don't require msgpack with local
+                pass
             func = self.minion.functions[fun]
             ret['return'] = func(*args, **kwargs)
             ret['retcode'] = sys.modules[func.__module__].__context__.get(
@@ -130,14 +135,8 @@ class Caller(object):
         Execute the salt call logic
         '''
         ret = self.call()
-        out = ret['return']
-        # If the type of return is not a dict we wrap the return data
-        # This will ensure that --local and local functions will return the
-        # same data structure as publish commands.
-        if not isinstance(ret['return'], dict):
-            out = {'local': ret['return']}
         salt.output.display_output(
-                out,
+                {'local': ret.get('return', {})},
                 ret.get('out', 'nested'),
                 self.opts)
         if self.opts.get('retcode_passthrough', False):

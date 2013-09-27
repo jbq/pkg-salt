@@ -18,6 +18,14 @@ A Salt Minion Windows installer can be found here:
 
 .. admonition:: Download here
 
+    * 0.16.3
+    * http://saltstack.com/downloads/Salt-Minion-0.16.3-win32-Setup.exe
+    * http://saltstack.com/downloads/Salt-Minion-0.16.3-AMD64-Setup.exe
+
+    * 0.16.2
+    * http://saltstack.com/downloads/Salt-Minion-0.16.2-win32-Setup.exe
+    * http://saltstack.com/downloads/Salt-Minion-0.16.2-AMD64-Setup.exe
+
     * 0.16.0
     * http://saltstack.com/downloads/Salt-Minion-0.16.0-win32-Setup.exe
     * http://saltstack.com/downloads/Salt-Minion-0.16.0-AMD64-Setup.exe
@@ -227,6 +235,11 @@ You can execute the above command remotely from a Linux host using winexe:
 
 
 For more info check `http://csa-net.dk/salt`_
+
+Packages management under Windows 2003
+======================================
+
+On windows server 2003, you need to install optional component "wmi windows installer provider" to have full list of installed packages. If you don't have this, salt-minion can't report some installed softwares.
 
 
 .. _http://csa-net.dk/salt: http://csa-net.dk/salt

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Many aspects of the salt payload need to be managed, from the return of
 encrypted keys to general payload dynamics and packaging, these happen
@@ -5,7 +6,8 @@ in here
 '''
 
 # Import python libs
-import sys
+#import sys  # Use of sys is commented out below
+import logging
 
 # Import salt libs
 import salt.log
@@ -14,9 +16,13 @@ from salt.exceptions import SaltReqTimeoutError
 from salt._compat import pickle
 
 # Import third party libs
-import zmq
+try:
+    import zmq
+except ImportError:
+    # No need for zeromq in local mode
+    pass
 
-log = salt.log.logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 try:
     # Attempt to import msgpack
@@ -35,7 +41,9 @@ except ImportError:
         LOG_FORMAT = '[%(levelname)-8s] %(message)s'
         salt.log.setup_console_logger(log_format=LOG_FORMAT)
         log.fatal('Unable to import msgpack or msgpack_pure python modules')
-        sys.exit(1)
+        # Don't exit if msgpack is not available, this is to make local mode
+        # work without msgpack
+        #sys.exit(1)
 
 
 def package(payload):

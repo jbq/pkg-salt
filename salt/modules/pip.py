@@ -1,21 +1,18 @@
+# -*- coding: utf-8 -*-
 '''
 Install Python packages with pip to either the system or a virtualenv
 '''
 
 # Import python libs
 import os
+import re
 import logging
 import shutil
-import warnings
 
 # Import salt libs
 import salt.utils
 from salt._compat import string_types
 from salt.exceptions import CommandExecutionError, CommandNotFoundError
-
-warnings.filterwarnings(
-    'once', '(.*)runas(.*)', DeprecationWarning, __name__
-)
 
 # It would be cool if we could use __virtual__() in this module, though, since
 # pip can be installed on a virtualenv anywhere on the filesystem, there's no
@@ -28,7 +25,7 @@ __func_alias__ = {
     'list_': 'list'
 }
 
-VALID_PROTOS = ['http', 'https', 'ftp']
+VALID_PROTOS = ['http', 'https', 'ftp', 'file']
 
 
 def _get_pip_bin(bin_env):
@@ -81,7 +78,7 @@ def _get_env_activate(bin_env):
 
     if os.path.isdir(bin_env):
         if salt.utils.is_windows():
-            pip_bin = os.path.join(bin_env, 'Scripts', 'activate.bat')
+            activate_bin = os.path.join(bin_env, 'Scripts', 'activate.bat')
         else:
             activate_bin = os.path.join(bin_env, 'bin', 'activate')
         if os.path.isfile(activate_bin):
@@ -93,6 +90,7 @@ def install(pkgs=None,
             requirements=None,
             env=None,
             bin_env=None,
+            use_wheel=False,
             log=None,
             proxy=None,
             timeout=None,
@@ -114,12 +112,14 @@ def install(pkgs=None,
             no_deps=False,
             no_install=False,
             no_download=False,
+            global_options=None,
             install_options=None,
             user=None,
             runas=None,
             no_chown=False,
             cwd=None,
             activate=False,
+            pre_releases=False,
             __env__='base'):
     '''
     Install packages with pip
@@ -139,6 +139,8 @@ def install(pkgs=None,
         (/home/code/path/to/virtualenv/)
     env
         deprecated, use bin_env now
+    use_wheel
+        Prefer wheel archives (requires pip>=1.4)
     log
         Log file where a complete (maximum verbosity) record will be kept
     proxy
@@ -162,7 +164,7 @@ def install(pkgs=None,
     no_index
         Ignore package index
     mirrors
-        Specific mirror URLs to query (automatically adds --use-mirrors)
+        Specific mirror URL(s) to query (automatically adds --use-mirrors)
     build
         Unpack packages into ``build`` dir
     target
@@ -181,7 +183,8 @@ def install(pkgs=None,
     ignore_installed
         Ignore the installed packages (reinstalling instead)
     exists_action
-        Default action when a path already exists: (s)witch, (i)gnore, (w)wipe, (b)ackup
+        Default action when a path already exists: (s)witch, (i)gnore, (w)wipe,
+        (b)ackup
     no_deps
         Ignore package dependencies
     no_install
@@ -197,11 +200,14 @@ def install(pkgs=None,
         option options to pass multiple options to setup.py
         install.  If you are using an option with a directory
         path, be sure to use absolute path.
+    global_options
+        Extra global options to be supplied to the setup.py call before the
+        install command.
     user
         The user under which to run pip
 
     .. note::
-        The ``runas`` argument is deprecated as of 0.16.1. ``user`` should be
+        The ``runas`` argument is deprecated as of 0.16.2. ``user`` should be
         used instead.
 
     no_chown
@@ -212,16 +218,17 @@ def install(pkgs=None,
     activate
         Activates the virtual environment, if given via bin_env,
         before running install.
+    pre_releases
+        Include pre-releases in the available versions
 
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pip.install <package name>,<package2 name>
-
         salt '*' pip.install requirements=/path/to/requirements.txt
-
         salt '*' pip.install <package name> bin_env=/path/to/virtualenv
-
         salt '*' pip.install <package name> bin_env=/path/to/pip_bin
 
     Complicated CLI example::
@@ -238,188 +245,250 @@ def install(pkgs=None,
     if env and not bin_env:
         bin_env = env
 
-    # Support deprecated 'runas' arg
-    if not user and runas is not None:
-        user = str(runas)
-        warnings.warn(
+    if runas is not None:
+        # The user is using a deprecated argument, warn!
+        salt.utils.warn_until(
+            (0, 18),
             'The \'runas\' argument to pip.install is deprecated, and will be '
-            'removed in 0.18.0. Please use \'user\' instead.',
-            DeprecationWarning
+            'removed in 0.18.0. Please use \'user\' instead.'
         )
 
-    cmd = '{0} install'.format(_get_pip_bin(bin_env))
+    # "There can only be one"
+    if runas is not None and user:
+        raise CommandExecutionError(
+            'The \'runas\' and \'user\' arguments are mutually exclusive. '
+            'Please use \'user\' as \'runas\' is being deprecated.'
+        )
+
+    # Support deprecated 'runas' arg
+    elif runas is not None and not user:
+        user = str(runas)
+
+    cmd = [_get_pip_bin(bin_env), 'install']
 
     if activate and bin_env:
-        if salt.utils.is_windows():
-            source_cmd = ''
-        else:
-            source_cmd = '. '
-        cmd = '{0}{1} && {2}'.format(source_cmd, _get_env_activate(bin_env), cmd)
+        if not salt.utils.is_windows():
+            cmd = ['.', _get_env_activate(bin_env), '&&'] + cmd
 
-    if pkgs:
-        pkg = pkgs.replace(',', ' ')
-        # It's possible we replaced version-range commas with semicolons so
-        # they would survive the previous line (in the pip.installed state).
-        # Put the commas back in
-        pkg = pkg.replace(';', ',')
-        cmd = '{cmd} {pkg} '.format(
-            cmd=cmd, pkg=pkg)
+    cleanup_requirements = []
+    if requirements is not None:
+        if isinstance(requirements, string_types):
+            requirements = [r.strip() for r in requirements.split(',')]
 
-    treq = None
-    if requirements:
-        if requirements.startswith('salt://'):
-            cached_requirements = _get_cached_requirements(requirements,
-                                                           __env__)
-            if not cached_requirements:
-                return {
-                    'result': False,
-                    'comment': (
-                        'pip requirements file \'{0}\' not found'.format(
-                            requirements
+        for requirement in requirements:
+            treq = None
+            if requirement.startswith('salt://'):
+                cached_requirements = _get_cached_requirements(
+                    requirement, __env__
+                )
+                if not cached_requirements:
+                    return {
+                        'result': False,
+                        'comment': (
+                            'pip requirements file {0!r} not found'.format(
+                                requirement
+                            )
                         )
-                    )
-                }
-            requirements = cached_requirements
+                    }
+                requirement = cached_requirements
 
-        if user and not no_chown:
-            # Need to make a temporary copy since the user will, most
-            # likely, not have the right permissions to read the file
-            treq = salt.utils.mkstemp()
-            shutil.copyfile(requirements, treq)
-            logger.debug(
-                'Changing ownership of requirements file \'{0}\' to '
-                'user \'{1}\''.format(treq, user)
+            if user and not no_chown:
+                # Need to make a temporary copy since the user will, most
+                # likely, not have the right permissions to read the file
+                treq = salt.utils.mkstemp()
+                shutil.copyfile(requirement, treq)
+                logger.debug(
+                    'Changing ownership of requirements file {0!r} to '
+                    'user {1!r}'.format(treq, user)
+                )
+                __salt__['file.chown'](treq, user, None)
+                cleanup_requirements.append(treq)
+            cmd.append('--requirement={0!r}'.format(treq or requirement))
+
+    if use_wheel:
+        min_version = '1.4'
+        cur_version = __salt__['pip.version'](bin_env)
+        if not salt.utils.compare_versions(ver1=cur_version, oper='>=',
+                                           ver2=min_version):
+            log.error(
+                ('The --use-wheel option is only supported in pip {0} and '
+                 'newer. The version of pip detected is {1}. This option '
+                 'will be ignored.'.format(min_version, cur_version))
             )
-            __salt__['file.chown'](treq, user, None)
-
-        cmd = '{cmd} --requirement "{requirements}" '.format(
-            cmd=cmd,
-            requirements=treq or requirements
-        )
+        else:
+            cmd.append('--use-wheel')
 
     if log:
         try:
             # TODO make this check if writeable
             os.path.exists(log)
         except IOError:
-            raise IOError('\'{0}\' is not writeable'.format(log))
-        cmd = '{cmd} --log {log} '.format(
-            cmd=cmd, log=log)
+            raise IOError('{0!r} is not writeable'.format(log))
+
+        cmd.append('--log={0}'.format(log))
 
     if proxy:
-        cmd = '{cmd} --proxy={proxy} '.format(
-            cmd=cmd, proxy=proxy)
+        cmd.append('--proxy={0!r}'.format(proxy))
 
     if timeout:
         try:
             int(timeout)
         except ValueError:
             raise ValueError(
-                '\'{0}\' is not a valid integer base 10.'.format(timeout)
+                '{0!r} is not a valid integer base 10.'.format(timeout)
             )
-        cmd = '{cmd} --timeout={timeout} '.format(
-            cmd=cmd, timeout=timeout)
-
-    if editable:
-        # Is the editable local?
-        if not editable.startswith(('file://', '/')):
-            import re
-            match = re.search(r'(?:#|#.*?&)egg=([^&]*)', editable)
-
-            if not match or not match.group(1):
-                # Missing #egg=theEggName
-                raise Exception('You must specify an egg for this editable')
-        cmd = '{0} install --editable={editable}'.format(
-            _get_pip_bin(bin_env), editable=editable)
+        cmd.append('--timeout={0}'.format(timeout))
 
     if find_links:
-        if not salt.utils.valid_url(find_links, VALID_PROTOS):
-            raise Exception('\'{0}\' must be a valid URL'.format(find_links))
-        cmd = '{cmd} --find-links={find_links}'.format(
-            cmd=cmd, find_links=find_links)
+        if isinstance(find_links, string_types):
+            find_links = [l.strip() for l in find_links.split(',')]
+
+        for link in find_links:
+            if not salt.utils.valid_url(link, VALID_PROTOS) or os.path.exists(link):
+                raise CommandExecutionError(
+                    '{0!r} must be a valid URL or path'.format(link)
+                )
+            cmd.append('--find-links={0}'.format(link))
+
+    if no_index and (index_url or extra_index_url):
+        raise CommandExecutionError(
+            '\'no_index\' and (\'index_url\' or \'extra_index_url\') are '
+            'mutually exclusive.'
+        )
 
     if index_url:
         if not salt.utils.valid_url(index_url, VALID_PROTOS):
-            raise Exception('\'{0}\' must be a valid URL'.format(index_url))
-        cmd = '{cmd} --index-url="{index_url}" '.format(
-            cmd=cmd, index_url=index_url)
+            raise CommandExecutionError(
+                '{0!r} must be a valid URL'.format(index_url)
+            )
+        cmd.append('--index-url={0!r}'.format(index_url))
 
     if extra_index_url:
         if not salt.utils.valid_url(extra_index_url, VALID_PROTOS):
-            raise Exception(
-                '\'{0}\' must be a valid URL'.format(extra_index_url)
+            raise CommandExecutionError(
+                '{0!r} must be a valid URL'.format(extra_index_url)
             )
-        cmd = '{cmd} --extra-index-url="{extra_index_url}" '.format(
-            cmd=cmd, extra_index_url=extra_index_url)
+        cmd.append('--extra-index-url={0!r}'.format(extra_index_url))
 
     if no_index:
-        cmd = '{cmd} --no-index '.format(cmd=cmd)
+        cmd.append('--no-index')
 
     if mirrors:
-        if not mirrors.startswith('http://'):
-            raise Exception('\'{0}\' must be a valid URL'.format(mirrors))
-        cmd = '{cmd} --use-mirrors --mirrors={mirrors} '.format(
-            cmd=cmd, mirrors=mirrors)
+        if isinstance(mirrors, string_types):
+            mirrors = [m.strip() for m in mirrors.split(',')]
+
+        cmd.append('--use-mirrors')
+        for mirror in mirrors:
+            if not mirror.startswith('http://'):
+                raise CommandExecutionError(
+                    '{0!r} must be a valid URL'.format(mirror)
+                )
+            cmd.append('--mirrors={0}'.format(mirror))
 
     if build:
-        cmd = '{cmd} --build={build} '.format(
-            cmd=cmd, build=build)
+        cmd.append('--build={0}'.format(build))
 
     if target:
-        cmd = '{cmd} --target={target} '.format(
-            cmd=cmd, target=target)
+        cmd.append('--target={0}'.format(target))
 
     if download:
-        cmd = '{cmd} --download={download} '.format(
-            cmd=cmd, download=download)
+        cmd.append('--download={0}'.format(download))
 
     if download_cache:
-        cmd = '{cmd} --download-cache={download_cache} '.format(
-            cmd=cmd, download_cache=download_cache)
+        cmd.append('--download-cache={0}'.format(download_cache))
 
     if source:
-        cmd = '{cmd} --source={source} '.format(
-            cmd=cmd, source=source)
+        cmd.append('--source={0}'.format(source))
 
     if upgrade:
-        cmd = '{cmd} --upgrade '.format(cmd=cmd)
+        cmd.append('--upgrade')
 
     if force_reinstall:
-        cmd = '{cmd} --force-reinstall '.format(cmd=cmd)
+        cmd.append('--force-reinstall')
 
     if ignore_installed:
-        cmd = '{cmd} --ignore-installed '.format(cmd=cmd)
+        cmd.append('--ignore-installed')
 
     if exists_action:
-        cmd = '{cmd} --exists-action={action} '.format(
-            cmd=cmd, action=exists_action)
+        if exists_action.lower() not in ('s', 'i', 'w', 'b'):
+            raise CommandExecutionError(
+                'The `exists_action`(`--exists-action`) pip option only '
+                'allows one of (s, i, w, b) to be passed. The {0!r} value '
+                'is not valid.'.format(exists_action)
+            )
+        cmd.append('--exists-action={0}'.format(exists_action))
 
     if no_deps:
-        cmd = '{cmd} --no-deps '.format(cmd=cmd)
+        cmd.append('--no-deps')
 
     if no_install:
-        cmd = '{cmd} --no-install '.format(cmd=cmd)
+        cmd.append('--no-install')
 
     if no_download:
-        cmd = '{cmd} --no-download '.format(cmd=cmd)
+        cmd.append('--no-download')
+
+    if pre_releases:
+        # Check the locally installed pip version
+        pip_version_cmd = '{0} --version'.format(_get_pip_bin(bin_env))
+        output = __salt__['cmd.run_all'](pip_version_cmd).get('stdout', '')
+        pip_version = output.split()[1]
+
+        # From pip v1.4 the --pre flag is available
+        if salt.utils.compare_versions(ver1=pip_version, oper='>=', ver2='1.4'):
+            cmd.append('--pre')
+
+    if global_options:
+        if isinstance(global_options, string_types):
+            global_options = [go.strip() for go in global_options.split(',')]
+
+        for opt in global_options:
+            cmd.append('--global-option={0!r}'.format(opt))
 
     if install_options:
-        opts = ''
-
         if isinstance(install_options, string_types):
-            install_options = [install_options]
+            install_options = [io.strip() for io in install_options.split(',')]
 
         for opt in install_options:
-            opts += '--install-option={opt} '.format(opt=opt)
+            cmd.append('--install-option={0!r}'.format(opt))
 
-        cmd = '{cmd} {opts} '.format(cmd=cmd, opts=opts)
+    if pkgs:
+        if isinstance(pkgs, string_types):
+            pkgs = [p.strip() for p in pkgs.split(',')]
+
+        # It's possible we replaced version-range commas with semicolons so
+        # they would survive the previous line (in the pip.installed state).
+        # Put the commas back in while making sure the names are contained in
+        # quotes, this allows for proper version spec passing salt>=0.17.0
+        cmd.extend(
+            ['{0!r}'.format(p.replace(';', ',')) for p in pkgs]
+        )
+
+    if editable:
+        egg_match = re.compile(r'(?:#|#.*?&)egg=([^&]*)')
+        if isinstance(editable, string_types):
+            editable = [e.strip() for e in editable.split(',')]
+
+        for entry in editable:
+            # Is the editable local?
+            if not entry.startswith(('file://', '/')):
+                match = egg_match.search(entry)
+
+                if not match or not match.group(1):
+                    # Missing #egg=theEggName
+                    raise CommandExecutionError(
+                        'You must specify an egg for this editable'
+                    )
+            cmd.append('--editable={0}'.format(entry))
 
     try:
-        return __salt__['cmd.run_all'](cmd, runas=user, cwd=cwd)
+        cmd_kwargs = dict(runas=user, cwd=cwd)
+        if bin_env and os.path.isdir(bin_env):
+            cmd_kwargs['env'] = {'VIRTUAL_ENV': bin_env}
+        return __salt__['cmd.run_all'](' '.join(cmd), **cmd_kwargs)
     finally:
-        if treq is not None:
+        for requirement in cleanup_requirements:
             try:
-                os.remove(treq)
+                os.remove(requirement)
             except Exception:
                 pass
 
@@ -432,6 +501,7 @@ def uninstall(pkgs=None,
               timeout=None,
               user=None,
               runas=None,
+              no_chown=False,
               cwd=None,
               __env__='base'):
     '''
@@ -465,7 +535,7 @@ def uninstall(pkgs=None,
         The user under which to run pip
 
     .. note::
-        The ``runas`` argument is deprecated as of 0.16.1. ``user`` should be
+        The ``runas`` argument is deprecated as of 0.16.2. ``user`` should be
         used instead.
 
     no_chown
@@ -474,74 +544,110 @@ def uninstall(pkgs=None,
     cwd
         Current working directory to run pip from
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pip.uninstall <package name>,<package2 name>
-
         salt '*' pip.uninstall requirements=/path/to/requirements.txt
-
         salt '*' pip.uninstall <package name> bin_env=/path/to/virtualenv
-
         salt '*' pip.uninstall <package name> bin_env=/path/to/pip_bin
 
     '''
-    cmd = '{0} uninstall -y '.format(_get_pip_bin(bin_env))
+    cmd = [_get_pip_bin(bin_env), 'uninstall', '-y']
 
-    # Support deprecated 'runas' arg
-    if not user and runas is not None:
-        user = str(runas)
-        warnings.warn(
+    if runas is not None:
+        # The user is using a deprecated argument, warn!
+        salt.utils.warn_until(
+            (0, 18),
             'The \'runas\' argument to pip.install is deprecated, and will be '
-            'removed in 0.18.0. Please use \'user\' instead.',
-            DeprecationWarning
+            'removed in 0.18.0. Please use \'user\' instead.'
         )
 
-    if pkgs:
-        pkg = pkgs.replace(',', ' ')
-        cmd = '{cmd} {pkg} '.format(
-            cmd=cmd, pkg=pkg)
+    # "There can only be one"
+    if runas is not None and user:
+        raise CommandExecutionError(
+            'The \'runas\' and \'user\' arguments are mutually exclusive. '
+            'Please use \'user\' as \'runas\' is being deprecated.'
+        )
 
-    treq = None
-    if requirements:
-        if requirements.startswith('salt://'):
-            req = __salt__['cp.cache_file'](requirements, __env__)
-            treq = salt.utils.mkstemp()
-            shutil.copyfile(req, treq)
-        cmd = '{cmd} --requirements "{requirements}" '.format(
-            cmd=cmd, requirements=treq or requirements)
+    # Support deprecated 'runas' arg
+    elif runas is not None and not user:
+        user = str(runas)
+
+    cleanup_requirements = []
+    if requirements is not None:
+        if isinstance(requirements, string_types):
+            requirements = [r.strip() for r in requirements.split(',')]
+
+        for requirement in requirements:
+            treq = None
+            if requirement.startswith('salt://'):
+                cached_requirements = _get_cached_requirements(
+                    requirement, __env__
+                )
+                if not cached_requirements:
+                    return {
+                        'result': False,
+                        'comment': (
+                            'pip requirements file {0!r} not found'.format(
+                                requirement
+                            )
+                        )
+                    }
+                requirement = cached_requirements
+
+            if user and not no_chown:
+                # Need to make a temporary copy since the user will, most
+                # likely, not have the right permissions to read the file
+                treq = salt.utils.mkstemp()
+                shutil.copyfile(requirement, treq)
+                logger.debug(
+                    'Changing ownership of requirements file {0!r} to '
+                    'user {1!r}'.format(treq, user)
+                )
+                __salt__['file.chown'](treq, user, None)
+                cleanup_requirements.append(treq)
+            cmd.append('--requirement={0!r}'.format(treq or requirement))
 
     if log:
         try:
             # TODO make this check if writeable
             os.path.exists(log)
         except IOError:
-            raise IOError('\'{0}\' is not writeable'.format(log))
-        cmd = '{cmd} --{log} '.format(
-            cmd=cmd, log=log)
+            raise IOError('{0!r} is not writeable'.format(log))
+
+        cmd.append('--log={0}'.format(log))
 
     if proxy:
-        cmd = '{cmd} --proxy={proxy} '.format(
-            cmd=cmd, proxy=proxy)
+        cmd.append('--proxy={0!r}'.format(proxy))
 
     if timeout:
         try:
             int(timeout)
         except ValueError:
             raise ValueError(
-                '\'{0}\' is not a valid integer base 10.'.format(timeout)
+                '{0!r} is not a valid integer base 10.'.format(timeout)
             )
-        cmd = '{cmd} --timeout={timeout} '.format(
-            cmd=cmd, timeout=timeout)
+        cmd.append('--timeout={0}'.format(timeout))
 
-    result = __salt__['cmd.run_all'](cmd, runas=user, cwd=cwd)
+    if pkgs:
+        if isinstance(pkgs, string_types):
+            pkgs = [p.strip() for p in pkgs.split(',')]
+        cmd.extend(pkgs)
 
-    if treq and requirements.startswith('salt://'):
-        try:
-            os.remove(treq)
-        except Exception:
-            pass
+    cmd_kwargs = dict(runas=user, cwd=cwd)
+    if bin_env and os.path.isdir(bin_env):
+        cmd_kwargs['env'] = {'VIRTUAL_ENV': bin_env}
 
-    return result
+    try:
+        return __salt__['cmd.run_all'](' '.join(cmd), **cmd_kwargs)
+    finally:
+        for requirement in cleanup_requirements:
+            try:
+                os.remove(requirement)
+            except Exception:
+                pass
 
 
 def freeze(bin_env=None,
@@ -562,30 +668,42 @@ def freeze(bin_env=None,
         The user under which to run pip
 
     .. note::
-        The ``runas`` argument is deprecated as of 0.16.1. ``user`` should be
+        The ``runas`` argument is deprecated as of 0.16.2. ``user`` should be
         used instead.
 
     cwd
         Current working directory to run pip from
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pip.freeze /home/code/path/to/virtualenv/
     '''
-    # Support deprecated 'runas' arg
-    if not user and runas is not None:
-        user = str(runas)
-        warnings.warn(
+    if runas is not None:
+        # The user is using a deprecated argument, warn!
+        salt.utils.warn_until(
+            (0, 18),
             'The \'runas\' argument to pip.install is deprecated, and will be '
-            'removed in 0.18.0. Please use \'user\' instead.',
-            DeprecationWarning
+            'removed in 0.18.0. Please use \'user\' instead.'
         )
 
-    pip_bin = _get_pip_bin(bin_env)
+    # "There can only be one"
+    if runas is not None and user:
+        raise CommandExecutionError(
+            'The \'runas\' and \'user\' arguments are mutually exclusive. '
+            'Please use \'user\' as \'runas\' is being deprecated.'
+        )
 
-    cmd = '{0} freeze'.format(_get_pip_bin(bin_env))
+    # Support deprecated 'runas' arg
+    elif runas is not None and not user:
+        user = str(runas)
 
-    result = __salt__['cmd.run_all'](cmd, runas=user, cwd=cwd)
+    cmd = [_get_pip_bin(bin_env), 'freeze']
+    cmd_kwargs = dict(runas=user, cwd=cwd)
+    if bin_env and os.path.isdir(bin_env):
+        cmd_kwargs['env'] = {'VIRTUAL_ENV': bin_env}
+    result = __salt__['cmd.run_all'](' '.join(cmd), **cmd_kwargs)
 
     if result['retcode'] > 0:
         raise CommandExecutionError(result['stderr'])
@@ -602,25 +720,49 @@ def list_(prefix=None,
     Filter list of installed apps from ``freeze`` and check to see if
     ``prefix`` exists in the list of packages installed.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pip.list salt
     '''
     packages = {}
 
-    cmd = '{0} freeze'.format(_get_pip_bin(bin_env))
+    pip_bin = _get_pip_bin(bin_env)
+    pip_version_cmd = [pip_bin, '--version']
+    cmd = [pip_bin, 'freeze']
 
-    result = __salt__['cmd.run_all'](cmd, runas=user, cwd=cwd)
-
-    # Support deprecated 'runas' arg
-    if not user and runas is not None:
-        user = str(runas)
-        warnings.warn(
+    if runas is not None:
+        # The user is using a deprecated argument, warn!
+        salt.utils.warn_until(
+            (0, 18),
             'The \'runas\' argument to pip.install is deprecated, and will be '
-            'removed in 0.18.0. Please use \'user\' instead.',
-            DeprecationWarning
+            'removed in 0.18.0. Please use \'user\' instead.'
         )
 
+    # "There can only be one"
+    if runas is not None and user:
+        raise CommandExecutionError(
+            'The \'runas\' and \'user\' arguments are mutually exclusive. '
+            'Please use \'user\' as \'runas\' is being deprecated.'
+        )
+
+    # Support deprecated 'runas' arg
+    elif runas is not None and not user:
+        user = str(runas)
+
+    cmd_kwargs = dict(runas=user, cwd=cwd)
+    if bin_env and os.path.isdir(bin_env):
+        cmd_kwargs['env'] = {'VIRTUAL_ENV': bin_env}
+
+    if not prefix or prefix in ('p', 'pi', 'pip'):
+        pip_version_result = __salt__['cmd.run_all'](' '.join(pip_version_cmd),
+                                                     **cmd_kwargs)
+        if pip_version_result['retcode'] > 0:
+            raise CommandExecutionError(pip_version_result['stderr'])
+        packages['pip'] = pip_version_result['stdout'].split()[1]
+
+    result = __salt__['cmd.run_all'](' '.join(cmd), **cmd_kwargs)
     if result['retcode'] > 0:
         raise CommandExecutionError(result['stderr'])
 
@@ -630,17 +772,39 @@ def list_(prefix=None,
             continue
         elif line.startswith('-e'):
             line = line.split('-e ')[1]
-            version, name = line.split('#egg=')
+            version_, name = line.split('#egg=')
         elif len(line.split('==')) >= 2:
             name = line.split('==')[0]
-            version = line.split('==')[1]
+            version_ = line.split('==')[1]
         else:
             logger.error("Can't parse line '%s'", line)
             continue
 
         if prefix:
             if name.lower().startswith(prefix.lower()):
-                packages[name] = version
+                packages[name] = version_
         else:
-            packages[name] = version
+            packages[name] = version_
     return packages
+
+
+def version(bin_env=None):
+    '''
+    .. versionadded:: 0.17.0
+
+    Returns the version of pip. Use ``bin_env`` to specify the path to a
+    virtualenv and get the version of pip in that virtualenv.
+
+    If unable to detect the pip version, returns ``None``.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' pip.version
+    '''
+    output = __salt__['cmd.run']('{0} --version'.format(_get_pip_bin(bin_env)))
+    try:
+        return re.match(r'^pip (\S+)', output).group(1)
+    except AttributeError:
+        return None

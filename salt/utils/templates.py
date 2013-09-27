@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Template render systems
 '''
@@ -21,6 +22,7 @@ import jinja2.ext
 import salt.utils
 import salt.exceptions
 from salt.utils.jinja import SaltCacheLoader as JinjaSaltCacheLoader
+from salt.utils.jinja import SerializerExtension as JinjaSerializerExtension
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +55,9 @@ def wrap_tmpl_func(render_str):
                     with codecs.open(tmplsrc, 'r', SLS_ENCODING) as _tmplsrc:
                         tmplstr = _tmplsrc.read()
                 except (UnicodeDecodeError, ValueError) as exc:
+                    if salt.utils.is_bin_file(tmplsrc):
+                        # Template is a bin file, return the raw file
+                        return dict(result=True, data=tmplsrc)
                     log.error('Exception ocurred while reading file {0}: {1}'
                               .format(tmplsrc, exc))
                     raise exc
@@ -95,7 +100,8 @@ def render_jinja_tmpl(tmplstr, context, tmplpath=None):
     if not env:
         if tmplpath:
             # ie, the template is from a file outside the state tree
-            loader = jinja2.FileSystemLoader(context, os.path.dirname(tmplpath))
+            loader = jinja2.FileSystemLoader(
+                context, os.path.dirname(tmplpath))
     else:
         loader = JinjaSaltCacheLoader(opts, context['env'])
     env_args = {'extensions': [], 'loader': loader}
@@ -106,17 +112,39 @@ def render_jinja_tmpl(tmplstr, context, tmplpath=None):
         env_args['extensions'].append('jinja2.ext.do')
     if hasattr(jinja2.ext, 'loopcontrols'):
         env_args['extensions'].append('jinja2.ext.loopcontrols')
+    env_args['extensions'].append(JinjaSerializerExtension)
 
     if opts.get('allow_undefined', False):
         jinja_env = jinja2.Environment(**env_args)
     else:
         jinja_env = jinja2.Environment(
                         undefined=jinja2.StrictUndefined, **env_args)
+    jinja_env.filters['strftime'] = salt.utils.date_format
+
+    unicode_context = {}
+    for key, value in context.iteritems():
+        if not isinstance(value, basestring):
+            unicode_context[key] = value
+            continue
+
+        # Let's try UTF-8 and fail if this still fails, that's why this is not
+        # wrapped in a try/except
+        unicode_context[key] = unicode(value, 'utf-8')
+
     try:
-        output = jinja_env.from_string(tmplstr).render(**context)
+        output = jinja_env.from_string(tmplstr).render(**unicode_context)
+        if isinstance(output, unicode):
+            # Let's encode the output back to utf-8 since that's what's assumed
+            # in salt
+            output = output.encode('utf-8')
     except jinja2.exceptions.TemplateSyntaxError as exc:
         error = '{0}; line {1} in template'.format(
                 exc,
+                traceback.extract_tb(sys.exc_info()[2])[-1][1]
+        )
+        raise SaltTemplateRenderError(error)
+    except jinja2.exceptions.UndefinedError:
+        error = 'Undefined jinja variable; line {0} in template'.format(
                 traceback.extract_tb(sys.exc_info()[2])[-1][1]
         )
         raise SaltTemplateRenderError(error)

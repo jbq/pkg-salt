@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Salt module to manage unix mounts and the fstab file
 '''
@@ -12,7 +13,6 @@ import salt.utils
 from salt._compat import string_types
 from salt.utils import which as _which
 from salt.exceptions import CommandNotFoundError, CommandExecutionError
-
 
 # Set up logger
 log = logging.getLogger(__name__)
@@ -54,6 +54,7 @@ def _active_mounts(ret):
                              'opts': comps[3].split(',')}
     return ret
 
+
 def _active_mounts_freebsd(ret):
     for line in __salt__['cmd.run_stdout']('mount -p').split('\n'):
         comps = re.sub(r"\s+", " ", line).split()
@@ -62,11 +63,14 @@ def _active_mounts_freebsd(ret):
                          'opts': comps[3].split(',')}
     return ret
 
+
 def active():
     '''
     List the active mounts.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.active
     '''
@@ -85,7 +89,9 @@ def fstab(config='/etc/fstab'):
     '''
     List the contents of the fstab
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.fstab
     '''
@@ -116,7 +122,9 @@ def rm_fstab(name, config='/etc/fstab'):
     '''
     Remove the mount point from the fstab
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.rm_fstab /mnt/foo
     '''
@@ -172,7 +180,9 @@ def set_fstab(
     Verify that this mount is represented in the fstab, change the mount
     to match the data passed, or add the mount if it is not present.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.set_fstab /mnt/foo /dev/sdz1 ext4
     '''
@@ -282,7 +292,9 @@ def mount(name, device, mkmnt=False, fstype='', opts='defaults'):
     '''
     Mount a device
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.mount /mnt/foo /dev/sdz1 True
     '''
@@ -306,7 +318,9 @@ def remount(name, device, mkmnt=False, fstype='', opts='defaults'):
     Attempt to remount a device, if the device is not already mounted, mount
     is called
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.remount /mnt/foo /dev/sdz1 True
     '''
@@ -334,7 +348,9 @@ def umount(name):
     '''
     Attempt to unmount a device by specifying the directory it is mounted on
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.umount /mnt/foo
     '''
@@ -353,7 +369,9 @@ def is_fuse_exec(cmd):
     '''
     Returns true if the command passed is a fuse mountable application.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.is_fuse_exec sshfs
     '''
@@ -373,12 +391,14 @@ def swaps():
     '''
     Return a dict containing information on active swap
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.swaps
     '''
     ret = {}
-    with open('/proc/swaps') as fp_:
+    with salt.utils.fopen('/proc/swaps') as fp_:
         for line in fp_:
             if line.startswith('Filename'):
                 continue
@@ -395,7 +415,9 @@ def swapon(name, priority=None):
     '''
     Activate a swap disk
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.swapon /root/swapfile
     '''
@@ -421,7 +443,9 @@ def swapoff(name):
     '''
     Deactivate a named swap mount
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' mount.swapoff /root/swapfile
     '''

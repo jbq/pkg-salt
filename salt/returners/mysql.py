@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Return data to a mysql server
 
@@ -61,8 +62,6 @@ import sys
 import json
 import logging
 
-log  = logging.getLogger( __name__ )
-
 # Import third party libs
 try:
     import MySQLdb
@@ -70,11 +69,14 @@ try:
 except ImportError:
     HAS_MYSQL = False
 
+log = logging.getLogger(__name__)
+
 
 def __virtual__():
     if not HAS_MYSQL:
         return False
     return 'mysql'
+
 
 def _get_options():
     '''
@@ -89,12 +91,13 @@ def _get_options():
     for attr in defaults:
         _attr = __salt__['config.option']('mysql.{0}'.format(attr))
         if not _attr:
-            log.debug('Using default for Mysql {0}'.format(attr))
+            log.debug('Using default for MySQL {0}'.format(attr))
             _options[attr] = defaults[attr]
             continue
         _options[attr] = _attr
 
     return _options
+
 
 @contextmanager
 def _get_serv(commit=False):

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Support for YUM
 
@@ -62,9 +63,11 @@ try:
                 yum.constants.TS_OBSOLETING: 'Installed',
                 yum.constants.TS_UPDATED: 'Cleanup'
             }
-            self.logger = logging.getLogger('yum.filelogging.RPMInstallCallback')
+            self.logger = logging.getLogger(
+                'yum.filelogging.RPMInstallCallback')
 
-        def event(self, package, action, te_current, te_total, ts_current, ts_total):
+        def event(self, package, action, te_current, te_total, ts_current,
+                  ts_total):
             # This would be used for a progress counter according to Yum docs
             pass
 
@@ -137,7 +140,9 @@ def list_upgrades(refresh=True):
     '''
     Check whether or not an upgrade is available for all packages
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.list_upgrades
     '''
@@ -205,12 +210,19 @@ def latest_version(*names, **kwargs):
 
     A specific repo can be requested using the ``fromrepo`` keyword argument.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.latest_version <package name>
         salt '*' pkg.latest_version <package name> fromrepo=epel-testing
         salt '*' pkg.latest_version <package1> <package2> <package3> ...
     '''
+    refresh = salt.utils.is_true(kwargs.pop('refresh', True))
+    # FIXME: do stricter argument checking that somehow takes _get_repo_options() into account
+    # if kwargs:
+    #     raise TypeError('Got unexpected keyword argument(s): {0!r}'.format(kwargs))
+
     if len(names) == 0:
         return ''
     ret = {}
@@ -219,7 +231,7 @@ def latest_version(*names, **kwargs):
         ret[name] = ''
 
     # Refresh before looking for the latest version available
-    if salt.utils.is_true(kwargs.get('refresh', True)):
+    if refresh:
         refresh_db()
 
     yumbase = yum.YumBase()
@@ -254,7 +266,9 @@ def upgrade_available(name):
     '''
     Check whether or not an upgrade is available for a given package
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.upgrade_available <package name>
     '''
@@ -267,7 +281,9 @@ def version(*names, **kwargs):
     installed. If more than one package name is specified, a dict of
     name/version pairs is returned.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.version <package name>
         salt '*' pkg.version <package1> <package2> <package3> ...
@@ -281,7 +297,9 @@ def list_pkgs(versions_as_list=False, **kwargs):
 
         {'<package_name>': '<version>'}
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.list_pkgs
     '''
@@ -317,12 +335,58 @@ def list_pkgs(versions_as_list=False, **kwargs):
     return ret
 
 
+def check_db(*names, **kwargs):
+    '''
+    .. versionadded:: 0.17.0
+
+    Returns a dict containing the following information for each specified
+    package:
+
+    1. A key ``found``, which will be a boolean value denoting if a match was
+       found in the package database.
+    2. If ``found`` is ``False``, then a second key called ``suggestions`` will
+       be present, which will contain a list of possible matches.
+
+    The ``fromrepo``, ``enablerepo``, and ``disablerepo`` arguments are
+    supported, as used in pkg states.
+
+    CLI Examples:
+
+    .. code-block:: bash
+
+        salt '*' pkg.check_db <package1> <package2> <package3>
+        salt '*' pkg.check_db <package1> <package2> <package3> fromrepo=epel-testing
+    '''
+    yumbase = yum.YumBase()
+    error = _set_repo_options(yumbase, **kwargs)
+    if error:
+        log.error(error)
+        return {}
+
+    ret = {}
+    for name in names:
+        ret.setdefault(name, {})['found'] = bool(
+            [x for x in yumbase.searchPackages(('name',), (name,))
+             if x.name == name]
+        )
+        if ret[name]['found'] is False:
+            provides = yumbase.whatProvides(name, None, None).returnPackages()
+            if provides:
+                for pkg in provides:
+                    ret[name].setdefault('suggestions', []).append(pkg.name)
+            else:
+                ret[name]['suggestions'] = []
+    return ret
+
+
 def refresh_db():
     '''
     Since yum refreshes the database automatically, this runs a yum clean,
     so that the next yum operation will have a clean database
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.refresh_db
     '''
@@ -335,7 +399,9 @@ def clean_metadata():
     '''
     Cleans local yum metadata.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.clean_metadata
     '''
@@ -360,7 +426,9 @@ def group_install(name=None,
     groups
         The names of multiple packages which are to be installed.
 
-        CLI Example::
+        CLI Example:
+
+        .. code-block:: bash
 
             salt '*' pkg.group_install groups='["Group 1", "Group 2"]'
 
@@ -369,7 +437,9 @@ def group_install(name=None,
         installed by the package group ("default" packages), which should not
         be installed.
 
-        CLI Examples::
+        CLI Examples:
+
+        .. code-block:: bash
 
             salt '*' pkg.group_install 'My Group' skip='["foo", "bar"]'
 
@@ -379,7 +449,9 @@ def group_install(name=None,
         this will nor enforce group membership; if you include packages which
         are not members of the specified groups, they will still be installed.
 
-        CLI Examples::
+        CLI Examples:
+
+        .. code-block:: bash
 
             salt '*' pkg.group_install 'My Group' include='["foo", "bar"]'
 
@@ -438,7 +510,10 @@ def install(name=None,
         architecture designation (``.i686``, ``.i586``, etc.) to the end of the
         package name.
 
-        CLI Example::
+        CLI Example:
+
+        .. code-block:: bash
+
             salt '*' pkg.install <package name>
 
     refresh
@@ -475,7 +550,10 @@ def install(name=None,
         by using a single-element dict representing the package and its
         version.
 
-        CLI Examples::
+        CLI Examples:
+
+        .. code-block:: bash
+
             salt '*' pkg.install pkgs='["foo", "bar"]'
             salt '*' pkg.install pkgs='["foo", {"bar": "1.2.3-4.el6"}]'
 
@@ -484,7 +562,10 @@ def install(name=None,
         with the keys being package names, and the values being the source URI
         or local path to the package.
 
-        CLI Example::
+        CLI Example:
+
+        .. code-block:: bash
+
             salt '*' pkg.install sources='[{"foo": "salt://foo.rpm"}, {"bar": "salt://bar.rpm"}]'
 
 
@@ -588,7 +669,9 @@ def upgrade(refresh=True):
         {'<package>': {'old': '<old-version>',
                        'new': '<new-version>'}}
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.upgrade
     '''
@@ -639,7 +722,9 @@ def remove(name=None, pkgs=None, **kwargs):
 
     Returns a dict containing the changes.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.remove <package name>
         salt '*' pkg.remove <package1>,<package2>,<package3>
@@ -703,7 +788,9 @@ def purge(name=None, pkgs=None, **kwargs):
 
     Returns a dict containing the changes.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.purge <package name>
         salt '*' pkg.purge <package1>,<package2>,<package3>
@@ -716,7 +803,9 @@ def verify(*package):
     '''
     Runs an rpm -Va on a system, and returns the results in a dict
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.verify
     '''
@@ -727,7 +816,9 @@ def group_list():
     '''
     Lists all groups known by yum on this system
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.group_list
     '''
@@ -750,7 +841,9 @@ def group_info(groupname):
     '''
     Lists packages belonging to a certain group
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.group_info 'Perl Support'
     '''
@@ -769,7 +862,9 @@ def group_diff(groupname):
     '''
     Lists packages belonging to a certain group, and which are installed
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.group_diff 'Perl Support'
     '''
@@ -811,7 +906,9 @@ def list_repos(basedir='/etc/yum.repos.d'):
     '''
     Lists all repos in <basedir> (default: /etc/yum.repos.d/).
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' pkg.list_repos
     '''
@@ -832,7 +929,9 @@ def get_repo(repo, basedir='/etc/yum.repos.d', **kwargs):
     '''
     Display a repo from <basedir> (default basedir: /etc/yum.repos.d).
 
-    CLI Examples::
+    CLI Examples:
+
+    .. code-block:: bash
 
         salt '*' pkg.get_repo myrepo
         salt '*' pkg.get_repo myrepo basedir=/path/to/dir
@@ -859,7 +958,9 @@ def del_repo(repo, basedir='/etc/yum.repos.d', **kwargs):
     If the .repo file that the repo exists in does not contain any other repo
     configuration, the file itself will be deleted.
 
-    CLI Examples::
+    CLI Examples:
+
+    .. code-block:: bash
 
         salt '*' pkg.del_repo myrepo
         salt '*' pkg.del_repo myrepo basedir=/path/to/dir
@@ -867,7 +968,8 @@ def del_repo(repo, basedir='/etc/yum.repos.d', **kwargs):
     repos = list_repos(basedir)
 
     if repo not in repos:
-        return 'Error: the {0} repo does not exist in {1}'.format(repo, basedir)
+        return 'Error: the {0} repo does not exist in {1}'.format(
+            repo, basedir)
 
     # Find out what file the repo lives in
     repofile = ''
@@ -903,9 +1005,9 @@ def del_repo(repo, basedir='/etc/yum.repos.d', **kwargs):
         for line in filerepos[stanza]:
             content += '\n{0}={1}'.format(line, filerepos[stanza][line])
         content += '\n{0}\n'.format(comments)
-    fileout = open(repofile, 'w')
-    fileout.write(content)
-    fileout.close()
+
+    with salt.utils.fopen(repofile, 'w') as fileout:
+        fileout.write(content)
 
     return 'Repo {0} has been removed from {1}'.format(repo, repofile)
 
@@ -913,17 +1015,24 @@ def del_repo(repo, basedir='/etc/yum.repos.d', **kwargs):
 def mod_repo(repo, basedir=None, **kwargs):
     '''
     Modify one or more values for a repo. If the repo does not exist, it will
-    be created, so long as the following values are specified::
+    be created, so long as the following values are specified:
 
-        repo (name by which the yum refers to the repo)
-        name (a human-readable name for the repo)
-        baseurl or mirrorlist (the URL for yum to reference)
+    repo
+        name by which the yum refers to the repo
+    name
+        a human-readable name for the repo
+    baseurl
+        the URL for yum to reference
+    mirrorlist
+        the URL for yum to reference
 
     Key/Value pairs may also be removed from a repo's configuration by setting
     a key to a blank value. Bear in mind that a name cannot be deleted, and a
     baseurl can only be deleted if a mirrorlist is specified (or vice versa).
 
-    CLI Examples::
+    CLI Examples:
+
+    .. code-block:: bash
 
         salt '*' pkg.mod_repo reponame enabled=1 gpgcheck=1
         salt '*' pkg.mod_repo reponame basedir=/path/to/dir enabled=1
@@ -995,9 +1104,9 @@ def mod_repo(repo, basedir=None, **kwargs):
         for line in filerepos[stanza].keys():
             content += '\n{0}={1}'.format(line, filerepos[stanza][line])
         content += '\n{0}\n'.format(comments)
-    fileout = open(repofile, 'w')
-    fileout.write(content)
-    fileout.close()
+
+    with salt.utils.fopen(repofile, 'w') as fileout:
+        fileout.write(content)
 
     return {repofile: filerepos}
 
@@ -1006,61 +1115,35 @@ def _parse_repo_file(filename):
     '''
     Turn a single repo file into a dict
     '''
-    rfile = open(filename, 'r')
     repos = {}
     header = ''
     repo = ''
-    for line in rfile:
-        if line.startswith('['):
-            repo = line.strip().replace('[', '').replace(']', '')
-            repos[repo] = {}
+    with salt.utils.fopen(filename, 'r') as rfile:
+        for line in rfile:
+            if line.startswith('['):
+                repo = line.strip().replace('[', '').replace(']', '')
+                repos[repo] = {}
 
-        # Even though these are essentially uselss, I want to allow the user
-        # to maintain their own comments, etc
-        if not line:
-            if not repo:
-                header += line
-        if line.startswith('#'):
-            if not repo:
-                header += line
-            else:
-                if 'comments' not in repos[repo]:
-                    repos[repo]['comments'] = []
-                repos[repo]['comments'].append(line.strip())
-            continue
+            # Even though these are essentially uselss, I want to allow the
+            # user to maintain their own comments, etc
+            if not line:
+                if not repo:
+                    header += line
+            if line.startswith('#'):
+                if not repo:
+                    header += line
+                else:
+                    if 'comments' not in repos[repo]:
+                        repos[repo]['comments'] = []
+                    repos[repo]['comments'].append(line.strip())
+                continue
 
-        # These are the actual configuration lines that matter
-        if '=' in line:
-            comps = line.strip().split('=')
-            repos[repo][comps[0].strip()] = '='.join(comps[1:])
+            # These are the actual configuration lines that matter
+            if '=' in line:
+                comps = line.strip().split('=')
+                repos[repo][comps[0].strip()] = '='.join(comps[1:])
 
     return (header, repos)
-
-
-def perform_cmp(pkg1='', pkg2=''):
-    '''
-    Do a cmp-style comparison on two packages. Return -1 if pkg1 < pkg2, 0 if
-    pkg1 == pkg2, and 1 if pkg1 > pkg2. Return None if there was a problem
-    making the comparison.
-
-    CLI Example::
-
-        salt '*' pkg.perform_cmp '0.2.4-0' '0.2.4.1-0'
-        salt '*' pkg.perform_cmp pkg1='0.2.4-0' pkg2='0.2.4.1-0'
-    '''
-    return __salt__['pkg_resource.perform_cmp'](pkg1=pkg1, pkg2=pkg2)
-
-
-def compare(pkg1='', oper='==', pkg2=''):
-    '''
-    Compare two version strings.
-
-    CLI Example::
-
-        salt '*' pkg.compare '0.2.4-0' '<' '0.2.4.1-0'
-        salt '*' pkg.compare pkg1='0.2.4-0' oper='<' pkg2='0.2.4.1-0'
-    '''
-    return __salt__['pkg_resource.compare'](pkg1=pkg1, oper=oper, pkg2=pkg2)
 
 
 def file_list(*packages):
@@ -1069,7 +1152,9 @@ def file_list(*packages):
     return a list of _every_ file on the system's rpm database (not generally
     recommended).
 
-    CLI Examples::
+    CLI Examples:
+
+    .. code-block:: bash
 
         salt '*' pkg.file_list httpd
         salt '*' pkg.file_list httpd postfix
@@ -1084,7 +1169,9 @@ def file_dict(*packages):
     specifying any packages will return a list of _every_ file on the system's
     rpm database (not generally recommended).
 
-    CLI Examples::
+    CLI Examples:
+
+    .. code-block:: bash
 
         salt '*' pkg.file_list httpd
         salt '*' pkg.file_list httpd postfix

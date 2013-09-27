@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 The Salt Key backend API and interface used by the CLI. The Key class can be
 used to manage salt keys directly without interfacing with the CLI.
@@ -12,6 +13,7 @@ import fnmatch
 import salt.crypt
 import salt.utils
 import salt.utils.event
+from salt.utils.event import tagify
 
 
 class KeyCLI(object):
@@ -331,6 +333,31 @@ class Key(object):
         keys.update(self.local_keys())
         return keys
 
+    def list_status(self, match):
+        '''
+        Return a dict of managed keys under a named status
+        '''
+        acc, pre, rej = self._check_minions_directories()
+        ret = {}
+        if match.startswith('acc'):
+            ret[os.path.basename(acc)] = []
+            for fn_ in salt.utils.isorted(os.listdir(acc)):
+                if os.path.isfile(os.path.join(acc, fn_)):
+                    ret[os.path.basename(acc)].append(fn_)
+        elif match.startswith('pre') or match.startswith('un'):
+            ret[os.path.basename(pre)] = []
+            for fn_ in salt.utils.isorted(os.listdir(pre)):
+                if os.path.isfile(os.path.join(pre, fn_)):
+                    ret[os.path.basename(pre)].append(fn_)
+        elif match.startswith('rej'):
+            ret[os.path.basename(rej)] = []
+            for fn_ in salt.utils.isorted(os.listdir(rej)):
+                if os.path.isfile(os.path.join(rej, fn_)):
+                    ret[os.path.basename(rej)].append(fn_)
+        elif match.startswith('all'):
+            return self.all_keys()
+        return ret
+
     def key_str(self, match):
         '''
         Return the specified public key or keys based on a glob
@@ -379,7 +406,7 @@ class Key(object):
                     eload = {'result': True,
                              'act': 'accept',
                              'id': key}
-                    self.event.fire_event(eload, 'key')
+                    self.event.fire_event(eload, tagify(prefix='key'))
                 except (IOError, OSError):
                     pass
         return self.name_match(match)
@@ -404,7 +431,7 @@ class Key(object):
                 eload = {'result': True,
                          'act': 'accept',
                          'id': key}
-                self.event.fire_event(eload, 'key')
+                self.event.fire_event(eload, tagify(prefix='key'))
             except (IOError, OSError):
                 pass
         return self.list_keys()
@@ -420,7 +447,7 @@ class Key(object):
                     eload = {'result': True,
                              'act': 'delete',
                              'id': key}
-                    self.event.fire_event(eload, 'key')
+                    self.event.fire_event(eload, tagify(prefix='key'))
                 except (OSError, IOError):
                     pass
         self.check_minion_cache()
@@ -438,7 +465,7 @@ class Key(object):
                     eload = {'result': True,
                              'act': 'delete',
                              'id': key}
-                    self.event.fire_event(eload, 'key')
+                    self.event.fire_event(eload, tagify(prefix='key'))
                 except (OSError, IOError):
                     pass
         self.check_minion_cache()
@@ -466,7 +493,7 @@ class Key(object):
                     eload = {'result': True,
                              'act': 'reject',
                              'id': key}
-                    self.event.fire_event(eload, 'key')
+                    self.event.fire_event(eload, tagify(prefix='key'))
                 except (IOError, OSError):
                     pass
         self.check_minion_cache()
@@ -493,7 +520,7 @@ class Key(object):
                 eload = {'result': True,
                          'act': 'reject',
                          'id': key}
-                self.event.fire_event(eload, 'key')
+                self.event.fire_event(eload, tagify(prefix='key'))
             except (IOError, OSError):
                 pass
         self.check_minion_cache()

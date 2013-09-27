@@ -1,14 +1,10 @@
 # -*- coding: utf-8 -*-
 '''
-    salt.modules.alternatives
-    ~~~~~~~~~~~~~~~~~~~~~~~~~
+Support for Alternatives system
 
-    Support for Alternatives system
-
-    :codeauthor: Radek Rada <radek.rada@gmail.com>
-    :copyright: © 2012 by the SaltStack Team, see AUTHORS for more details.
-    :license: Apache 2.0, see LICENSE for more details.
-
+:codeauthor: Radek Rada <radek.rada@gmail.com>
+:copyright: © 2012 by the SaltStack Team, see AUTHORS for more details.
+:license: Apache 2.0, see LICENSE for more details.
 '''
 
 # Import python libs
@@ -22,6 +18,11 @@ __outputter__ = {
 }
 
 log = logging.getLogger(__name__)
+
+# Don't shadow built-in's.
+__func_alias__ = {
+    'set_': 'set'
+}
 
 
 def __virtual__():
@@ -39,15 +40,16 @@ def _get_cmd():
     '''
     if __grains__['os_family'] == 'RedHat':
         return 'alternatives'
-    else:
-        return 'update-alternatives'
+    return 'update-alternatives'
 
 
 def display(name):
     '''
     Display alternatives settings for defined command name
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' alternatives.display editor
     '''
@@ -64,7 +66,9 @@ def show_current(name):
     Display the current highest-priority alternative for a given alternatives
     link
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' alternatives.show_current editor
     '''
@@ -83,7 +87,9 @@ def check_installed(name, path):
     Check if the current highest-priority match for a given alternatives link
     is set to the desired path
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' alternatives.check_installed name path
     '''
@@ -94,7 +100,9 @@ def install(name, link, path, priority):
     '''
     Install symbolic links determining default commands
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' alternatives.install editor /usr/bin/editor /usr/bin/emacs23 50
     '''
@@ -111,12 +119,51 @@ def remove(name, path):
     '''
     Remove symbolic links determining the default commands.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' alternatives.remove name path
     '''
 
     cmd = '{0} --remove {1} {2}'.format(_get_cmd(), name, path)
+    out = __salt__['cmd.run_all'](cmd)
+    if out['retcode'] > 0:
+        return out['stderr']
+    return out['stdout']
+
+
+def auto(name):
+    '''
+    Trigger alternatives to set the path for <name> as
+    specified by priority.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' alternatives.auto name
+    '''
+
+    cmd = '{0} --auto {1}'.format(_get_cmd(), name)
+    out = __salt__['cmd.run_all'](cmd)
+    if out['retcode'] > 0:
+        return out['stderr']
+    return out['stdout']
+
+
+def set_(name, path):
+    '''
+    Manually set the alternative <path> for <name>.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' alternatives.set name path
+    '''
+
+    cmd = '{0} --set {1} {2}'.format(_get_cmd(), name, path)
     out = __salt__['cmd.run_all'](cmd)
     if out['retcode'] > 0:
         return out['stderr']

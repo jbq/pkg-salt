@@ -1,7 +1,6 @@
+# -*- coding: utf-8 -*-
 '''
-Service support for RHEL-based systems. This interface uses the service and
-chkconfig commands, and for upstart support uses helper functions from the
-upstart module, as well as the ``start``, ``stop``, and ``status`` commands.
+Service support for RHEL-based systems, including support for both upstart and sysvinit
 '''
 
 # Import python libs
@@ -205,7 +204,9 @@ def get_enabled(limit=''):
     Return the enabled services. Use the ``limit`` param to restrict results
     to services of that type.
 
-    CLI Examples::
+    CLI Examples:
+
+    .. code-block:: bash
 
         salt '*' service.get_enabled
         salt '*' service.get_enabled limit=upstart
@@ -233,7 +234,9 @@ def get_disabled(limit=''):
     Return the disabled services. Use the ``limit`` param to restrict results
     to services of that type.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.get_disabled
         salt '*' service.get_disabled limit=upstart
@@ -261,7 +264,9 @@ def get_all(limit=''):
     Return all installed services. Use the ``limit`` param to restrict results
     to services of that type.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.get_all
         salt '*' service.get_all limit=upstart
@@ -281,7 +286,9 @@ def available(name, limit=''):
     Return True is the named service is available.  Use the ``limit`` param to
     restrict results to services of that type.
 
-    CLI Examples::
+    CLI Examples:
+
+    .. code-block:: bash
 
         salt '*' service.get_enabled
         salt '*' service.get_enabled limit=upstart
@@ -299,7 +306,9 @@ def start(name):
     '''
     Start the specified service
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.start <service name>
     '''
@@ -314,7 +323,9 @@ def stop(name):
     '''
     Stop the specified service
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.stop <service name>
     '''
@@ -325,11 +336,13 @@ def stop(name):
     return not __salt__['cmd.retcode'](cmd)
 
 
-def restart(name, **kwargs):
+def restart(name):
     '''
     Restart the named service
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.restart <service name>
     '''
@@ -340,11 +353,13 @@ def restart(name, **kwargs):
     return not __salt__['cmd.retcode'](cmd)
 
 
-def reload_(name, **kwargs):
+def reload_(name):
     '''
     Reload the named service
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.reload <service name>
     '''
@@ -360,7 +375,9 @@ def status(name, sig=None):
     Return the status for a service, returns a bool whether the service is
     running.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.status <service name>
     '''
@@ -377,7 +394,9 @@ def enable(name, **kwargs):
     '''
     Enable the named service to start at boot
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.enable <service name>
     '''
@@ -391,7 +410,9 @@ def disable(name, **kwargs):
     '''
     Disable the named service to start at boot
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.disable <service name>
     '''
@@ -405,7 +426,9 @@ def enabled(name):
     '''
     Check to see if the named service is enabled to start on boot
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.enabled <service name>
     '''
@@ -419,7 +442,9 @@ def disabled(name):
     '''
     Check to see if the named service is disabled to start on boot
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' service.disabled <service name>
     '''

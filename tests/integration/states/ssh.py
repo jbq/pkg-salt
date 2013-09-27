@@ -1,10 +1,17 @@
 '''
 Test the ssh_known_hosts state
 '''
+
+# Import python libs
 import os
 import shutil
-import integration
 
+# Import Salt Testing libs
+from salttesting.helpers import ensure_in_syspath
+ensure_in_syspath('../../')
+
+# Import salt libs
+import integration
 
 KNOWN_HOSTS = os.path.join(integration.TMP, 'known_hosts')
 GITHUB_FINGERPRINT = '16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48'
@@ -42,7 +49,7 @@ class SSHKnownHostsStateTest(integration.ModuleCase,
         except AssertionError as err:
             try:
                 self.assertInSaltComment(
-                    ret, 'Unable to receive remote host key'
+                    'Unable to receive remote host key', ret
                 )
                 self.skipTest('Unable to receive remote host key')
             except AssertionError:

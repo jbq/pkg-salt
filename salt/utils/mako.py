@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import absolute_import
 
 # Import python libs
@@ -9,6 +10,7 @@ from mako.lookup import TemplateCollection, TemplateLookup
 
 # Import salt libs
 import salt.fileclient
+
 
 class SaltMakoTemplateLookup(TemplateCollection):
     """

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Manage the password database on BSD systems
 '''
@@ -17,7 +18,9 @@ def default_hash():
     '''
     Returns the default hash used for unset passwords
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' shadow.default_hash
     '''
@@ -28,7 +31,9 @@ def info(name):
     '''
     Return information for the specified user
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' shadow.info someuser
     '''
@@ -78,7 +83,9 @@ def set_password(name, password):
 
     It is important to make sure that a supported cipher is used.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' shadow.set_password someuser '$1$UYCIxa628.9qXjpQCjM4a..'
     '''

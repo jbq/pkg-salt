@@ -5,9 +5,13 @@ Test the ssh module
 import os
 import shutil
 
-# Import Salt libs
-import salt.utils
+# Import Salt Testing libs
+from salttesting.helpers import ensure_in_syspath
+ensure_in_syspath('../../')
+
+# Import salt libs
 import integration
+import salt.utils
 
 SUBSALT_DIR = os.path.join(integration.TMP, 'subsalt')
 AUTHORIZED_KEYS = os.path.join(SUBSALT_DIR, 'authorized_keys')
@@ -49,10 +53,19 @@ class SSHModuleTest(integration.ModuleCase):
         ret = self.run_function('ssh.auth_keys', ['root', AUTHORIZED_KEYS])
         self.assertEqual(len(list(ret.items())), 1)  # exactly one key is found
         key_data = list(ret.items())[0][1]
-        self.assertEqual(key_data['comment'], 'github.com')
-        self.assertEqual(key_data['enc'], 'ssh-rsa')
-        self.assertEqual(key_data['options'], ['command="/usr/local/lib/ssh-helper"'])
-        self.assertEqual(key_data['fingerprint'], GITHUB_FINGERPRINT)
+        try:
+            self.assertEqual(key_data['comment'], 'github.com')
+            self.assertEqual(key_data['enc'], 'ssh-rsa')
+            self.assertEqual(
+                key_data['options'], ['command="/usr/local/lib/ssh-helper"']
+            )
+            self.assertEqual(key_data['fingerprint'], GITHUB_FINGERPRINT)
+        except AssertionError as exc:
+            raise AssertionError(
+                'AssertionError: {0}. Function returned: {1}'.format(
+                    exc, ret
+                )
+            )
 
     def test_get_known_host(self):
         '''
@@ -64,9 +77,16 @@ class SSHModuleTest(integration.ModuleCase):
         arg = ['root', 'github.com']
         kwargs = {'config': KNOWN_HOSTS}
         ret = self.run_function('ssh.get_known_host', arg, **kwargs)
-        self.assertEqual(ret['enc'], 'ssh-rsa')
-        self.assertEqual(ret['key'], self.key)
-        self.assertEqual(ret['fingerprint'], GITHUB_FINGERPRINT)
+        try:
+            self.assertEqual(ret['enc'], 'ssh-rsa')
+            self.assertEqual(ret['key'], self.key)
+            self.assertEqual(ret['fingerprint'], GITHUB_FINGERPRINT)
+        except AssertionError as exc:
+            raise AssertionError(
+                'AssertionError: {0}. Function returned: {1}'.format(
+                    exc, ret
+                )
+            )
 
     def test_recv_known_host(self):
         '''
@@ -155,17 +175,38 @@ class SSHModuleTest(integration.ModuleCase):
         # add item
         ret = self.run_function('ssh.set_known_host', ['root', 'github.com'],
                                 config=KNOWN_HOSTS)
-        self.assertEqual(ret['status'], 'updated')
-        self.assertEqual(ret['old'], None)
-        self.assertEqual(ret['new']['fingerprint'], GITHUB_FINGERPRINT)
+        try:
+            self.assertEqual(ret['status'], 'updated')
+            self.assertEqual(ret['old'], None)
+            self.assertEqual(ret['new']['fingerprint'], GITHUB_FINGERPRINT)
+        except AssertionError as exc:
+            raise AssertionError(
+                'AssertionError: {0}. Function returned: {1}'.format(
+                    exc, ret
+                )
+            )
         # check that item does exist
         ret = self.run_function('ssh.get_known_host', ['root', 'github.com'],
                                 config=KNOWN_HOSTS)
-        self.assertEqual(ret['fingerprint'], GITHUB_FINGERPRINT)
+        try:
+            self.assertEqual(ret['fingerprint'], GITHUB_FINGERPRINT)
+        except AssertionError as exc:
+            raise AssertionError(
+                'AssertionError: {0}. Function returned: {1}'.format(
+                    exc, ret
+                )
+            )
         # add the same item once again
         ret = self.run_function('ssh.set_known_host', ['root', 'github.com'],
                                 config=KNOWN_HOSTS)
-        self.assertEqual(ret['status'], 'exists')
+        try:
+            self.assertEqual(ret['status'], 'exists')
+        except AssertionError as exc:
+            raise AssertionError(
+                'AssertionError: {0}. Function returned: {1}'.format(
+                    exc, ret
+                )
+            )
 
 
 if __name__ == '__main__':

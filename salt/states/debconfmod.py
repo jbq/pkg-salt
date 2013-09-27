@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Management of debconf selections.
 =================================
@@ -29,6 +30,11 @@ set_file
         - name: ferm
         - data:
             'ferm/enable': {'type': 'boolean', 'value': True}
+
+.. note::
+    Due to how PyYAML imports nested dicts (see :doc:`here
+    </topics/troubleshooting/yaml_idiosyncrasies>`), the values in the ``data``
+    dict must be indented four spaces instead of two.
 '''
 
 
@@ -43,6 +49,7 @@ def __virtual__():
         return False
 
     return 'debconf'
+
 
 def set_file(name, source, **kwargs):
     '''
@@ -78,6 +85,7 @@ def set_file(name, source, **kwargs):
         ret['comment'] = 'Unable to set debconf selections from file.'
 
     return ret
+
 
 def set(name, data):
     '''

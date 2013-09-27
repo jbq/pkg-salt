@@ -1,6 +1,7 @@
+# -*- coding: utf-8 -*-
 '''
-Installation of packages using OS package managers such as yum or apt-get.
-==========================================================================
+Installation of packages using OS package managers such as yum or apt-get
+=========================================================================
 
 Salt can manage software packages via the pkg state module, packages can be
 set up to be installed, latest, removed and purged. Package management
@@ -55,9 +56,17 @@ if salt.utils.is_windows():
     # The following imports are used by the namespaced win_pkg funcs
     # and need to be included in their globals.
     import msgpack
-    from distutils.version import LooseVersion
+    from distutils.version import LooseVersion  # pylint: disable=E0611
 
 log = logging.getLogger(__name__)
+
+
+def __virtual__():
+    '''
+    Only make these states available if a pkg provider has been detected or
+    assigned for this minion
+    '''
+    return 'pkg' if 'pkg.install' in __salt__ else False
 
 
 def __gen_rtag():
@@ -73,12 +82,19 @@ def _fulfills_version_spec(versions, oper, desired_version):
     otherwise returns False
     '''
     for ver in versions:
-        if __salt__['pkg.compare'](pkg1=ver, oper=oper, pkg2=desired_version):
+        if salt.utils.compare_versions(ver1=ver,
+                                       oper=oper,
+                                       ver2=desired_version,
+                                       cmp_func=__salt__.get('version_cmp')):
             return True
     return False
 
 
-def _find_install_targets(name=None, version=None, pkgs=None, sources=None):
+def _find_install_targets(name=None,
+                          version=None,
+                          pkgs=None,
+                          sources=None,
+                          **kwargs):
     '''
     Inspect the arguments to pkg.installed and discover what packages need to
     be installed. Return a dict of desired packages
@@ -140,12 +156,29 @@ def _find_install_targets(name=None, version=None, pkgs=None, sources=None):
     if sources:
         targets = [x for x in desired if x not in cur_pkgs]
     else:
-        problems = __salt__['pkg_resource.check_desired'](desired)
-        if problems:
+        # Perform platform-specific pre-flight checks
+        problems = _preflight_check(desired, **kwargs)
+        comments = []
+        if problems.get('no_suggest'):
+            comments.append(
+                'The following package(s) were not found, and no possible '
+                'matches were found in the package db: '
+                '{0}'.format(', '.join(sorted(problems['no_suggest'])))
+            )
+        if problems.get('suggest'):
+            for pkgname, suggestions in problems['suggest'].iteritems():
+                comments.append(
+                    'Package {0!r} not found (possible matches: {1})'
+                    .format(pkgname, ', '.join(suggestions))
+                )
+        if comments:
+            if len(comments) > 1:
+                comments.append('')
             return {'name': name,
                     'changes': {},
                     'result': False,
-                    'comment': ' '.join(problems)}
+                    'comment': '. '.join(comments).rstrip()}
+
         # Check current versions against desired versions
         targets = {}
         problems = []
@@ -155,8 +188,12 @@ def _find_install_targets(name=None, version=None, pkgs=None, sources=None):
             if not cver:
                 targets[pkgname] = pkgver
                 continue
+            elif not __salt__['pkg_resource.check_extra_requirements'](pkgname,
+                                                                       pkgver):
+                targets[pkgname] = pkgver
+                continue
             # No version specified and pkg is installed, do not add to targets
-            elif pkgver is None:
+            elif __salt__['pkg_resource.version_clean'](pkgver) is None:
                 continue
             version_spec = True
             match = re.match('^([<>])?(=)?([^<>=]+)$', pkgver)
@@ -169,7 +206,7 @@ def _find_install_targets(name=None, version=None, pkgs=None, sources=None):
                 comparison = gt_lt or ''
                 comparison += eq or ''
                 # A comparison operator of "=" is redundant, but possible.
-                # Change it to "==" so that it works in pkg.compare.
+                # Change it to "==" so that the version comparison works
                 if comparison in ['=', '']:
                     comparison = '=='
                 if not _fulfills_version_spec(cver, comparison, verstr):
@@ -206,7 +243,7 @@ def _verify_install(desired, new_pkgs):
         if not cver:
             failed.append(pkgname)
             continue
-        elif not pkgver:
+        elif not __salt__['pkg_resource.version_clean'](pkgver):
             ok.append(pkgname)
             continue
         match = re.match('^([<>])?(=)?([^<>=]+)$', pkgver)
@@ -214,7 +251,7 @@ def _verify_install(desired, new_pkgs):
         comparison = gt_lt or ''
         comparison += eq or ''
         # A comparison operator of "=" is redundant, but possible.
-        # Change it to "==" so that it works in pkg.compare.
+        # Change it to "==" so that the version comparison works.
         if comparison in ('=', ''):
             comparison = '=='
         if _fulfills_version_spec(cver, comparison, verstr):
@@ -236,6 +273,25 @@ def _get_desired_pkg(name, desired):
         oper = '='
     return '{0}{1}{2}'.format(name, oper,
                               '' if not desired[name] else desired[name])
+
+
+def _preflight_check(desired, fromrepo, **kwargs):
+    '''
+    Perform platform-specifc checks on desired packages
+    '''
+    if 'pkg.check_db' not in __salt__:
+        return {}
+    ret = {'suggest': {}, 'no_suggest': []}
+    pkginfo = __salt__['pkg.check_db'](
+        *desired.keys(), fromrepo=fromrepo, **kwargs
+    )
+    for pkgname in pkginfo:
+        if pkginfo[pkgname]['found'] is False:
+            if pkginfo[pkgname]['suggestions']:
+                ret['suggest'][pkgname] = pkginfo[pkgname]['suggestions']
+            else:
+                ret['no_suggest'].append(pkgname)
+    return ret
 
 
 def installed(
@@ -327,6 +383,18 @@ def installed(
     ``NOTE:`` When using comparison operators, the expression must be enclosed
     in quotes to avoid a YAML render error.
 
+    With :mod:`ebuild <salt.modules.ebuild>` is also possible to specify a use
+    flag list and/or if the given packages should be in package.accept_keywords
+    file and/or the overlay from which you want the package to be installed.
+    Example::
+
+        mypkgs:
+            pkg.installed:
+                - pkgs:
+                    - foo: '~'
+                    - bar: '~>=1.2:slot::overlay[use,-otheruse]'
+                    - baz
+
     sources
         A list of packages to install, along with the source URI or local path
         from which to install each package. In the example below, ``foo``,
@@ -349,7 +417,8 @@ def installed(
     if not isinstance(version, basestring) and version is not None:
         version = str(version)
 
-    result = _find_install_targets(name, version, pkgs, sources)
+    result = _find_install_targets(name, version, pkgs, sources,
+                                   fromrepo=fromrepo, **kwargs)
     try:
         desired, targets = result
     except ValueError:
@@ -371,6 +440,8 @@ def installed(
                                      for x in targets])
             comment = 'The following packages are set to be ' \
                       'installed/updated: {0}.'.format(summary)
+        else:
+            comment = ''
         return {'name': name,
                 'changes': {},
                 'result': None,
@@ -544,10 +615,12 @@ def latest(
                 msg = 'No information found for "{0}".'.format(pkg)
                 log.error(msg)
                 problems.append(msg)
-        elif not cur[pkg] or \
-                __salt__['pkg.compare'](pkg1=cur[pkg],
-                                        oper='<',
-                                        pkg2=avail[pkg]):
+        elif not cur[pkg] \
+                or salt.utils.compare_versions(
+                    ver1=cur[pkg],
+                    oper='<',
+                    ver2=avail[pkg],
+                    cmp_func=__salt__.get('version_cmp')):
             targets[pkg] = avail[pkg]
 
     if problems:
@@ -595,7 +668,8 @@ def latest(
 
         if changes:
             # Find failed and successful updates
-            failed = [x for x in targets if changes[x]['new'] != targets[x]]
+            failed = [x for x in targets
+                      if not changes.get(x) or changes[x]['new'] != targets[x]]
             successful = [x for x in targets if x not in failed]
 
             comments = []
@@ -763,6 +837,10 @@ def mod_init(low):
     It sets a flag for a number of reasons, primarily due to timeline logic.
     When originally setting up the mod_init for pkg a number of corner cases
     arose with different package managers and how they refresh package data.
+
+    It also runs the "ex_mod_init" from the package manager module that is
+    currently loaded. The "ex_mod_init" is expected to work as a normal
+    "mod_init" function.
     '''
     ret = True
     if 'pkg.ex_mod_init' in __salt__:

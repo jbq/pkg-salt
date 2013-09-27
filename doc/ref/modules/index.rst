@@ -19,6 +19,12 @@ they will be synced to the minions when :mod:`state.highstate
 :mod:`saltutil.sync_modules <salt.modules.saltutil.sync_modules>` or
 :mod:`saltutil.sync_all <salt.modules.saltutil.sync_all>` functions.
 
+Any custom modules which have been synced to a minion, that are named the
+same as one of Salt's default set of modules, will take the place of the default
+module with the same name. Note that a module's default name is its filename
+(i.e. ``foo.py`` becomes module ``foo``), but that its name can be overridden
+by using a :ref:`__virtual__ function <virtual-modules>`.
+
 Since Salt modules are just Python/Cython modules, there are no restraints on
 what you can put inside of a Salt module. If a Salt module has errors and
 cannot be imported, the Salt minion will continue to load without issue and the
@@ -39,12 +45,11 @@ This means that, when creating a module, functions in modules that already exist
 can be called.
 
 The variable ``__salt__`` is packed into the modules after they are loaded into
-the Salt minion. This variable is a `Python dictionary`_ of all of the Salt
-functions, laid out in the same way that they are made available to the Salt
-command.
+the Salt minion. This variable is a :ref:`Python dictionary <python2:typesmapping>`
+of all of the Salt functions, laid out in the same way that they are made available
+to the Salt command.
 
-Salt modules can be cross called by accessing the value in the ``__salt__``
-dict:
+Salt modules can be cross called by accessing the value in the ``__salt__`` dict:
 
 .. code-block:: python
 
@@ -54,7 +59,6 @@ dict:
 This code will call the Salt cmd module's ``run`` function and pass the argument
 ``bar``.
 
-.. _`Python dictionary`: http://docs.python.org/library/stdtypes.html#typesmapping
 
 Preloaded Modules Data
 ======================
@@ -75,9 +79,9 @@ and operating system. This information is referred to as Salt Grains, or
 relying on a Ruby application from a Python application was both slow and
 inefficient. Grains support replaces Facter in all Salt releases after 0.8
 
-The values detected by the Salt Grains on the minion are available in a `dict`_
-named ``__grains__`` and can be accessed from within callable objects in
-the Python modules.
+The values detected by the Salt Grains on the minion are available in a 
+:ref:`dict <python2:typesmapping>` named ``__grains__`` and can be accessed
+from within callable objects in the Python modules.
 
 To see the contents of the grains dict for a given system in your deployment
 run the :func:`grains.items` function:
@@ -90,7 +94,6 @@ To use the ``__grains__`` dict simply call it as a Python dict from within your
 code, an excellent example is available in the Grains module:
 :mod:`salt.modules.grains`.
 
-.. _`dict`: http://docs.python.org/library/stdtypes.html#typesmapping
 
 Module Configuration
 --------------------
@@ -132,6 +135,9 @@ Outputter.
 
 This will ensure that the text outputter is used.
 
+
+.. _virtual-modules:
+
 Virtual Modules
 ===============
 
@@ -143,7 +149,8 @@ package manager can be presented in a generic way.
 The Salt modules for package managers all contain a ``__virtual__`` function
 which is called to define what systems the module should be loaded on.
 
-The ``__virtual__`` function is used to return either a `string`_ or `False`_. If
+The ``__virtual__`` function is used to return either a
+:ref:`string <python2:typesseq>` or :py:data:`False`. If
 False is returned then the module is not loaded, if a string is returned then
 the module is loaded with the name of the string.
 
@@ -156,8 +163,6 @@ function:
 :blob:`salt/modules/yumpkg.py`
 :blob:`salt/modules/apt.py`
 
-.. _`string`: http://docs.python.org/library/stdtypes.html#typesseq
-.. _`False`: http://docs.python.org/library/constants.html#False
 
 Documentation
 =============
@@ -198,7 +203,8 @@ Documenting Salt modules is easy! Just add a `Python docstring`_ to the function
 Now when the sys.doc call is executed the docstring will be cleanly returned
 to the calling terminal.
 
-.. _`Python docstring`: #term-docstring
+.. _`Python docstring`: http://docs.python.org/2/glossary.html#term-docstring
+
 
 Add Module metadata
 -------------------
@@ -254,7 +260,7 @@ Objects NOT Loaded into the Salt Minion
     cheese = {} # Not a callable Python object
 
 Useful Decorators for Modules
-==========================
+=============================
 Sometimes when writing modules for large scale deployments you run into some small
 things that end up severely complicating the code. To alleviate some of this pain
 Salt has some useful decorators for use within modules!
