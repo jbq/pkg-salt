@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 '''
+    :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
+    :copyright: © 2013 by the SaltStack Team, see AUTHORS for more details
+    :license: Apache 2.0, see LICENSE for more details.
+
     tests.integration.modules.pw_user
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-    :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
-    :copyright: © 2013 by the SaltStack Team, see AUTHORS for more details.
-    :license: Apache 2.0, see LICENSE for more details.
 '''
 
 
@@ -14,9 +14,13 @@ import os
 import string
 import random
 
+# Import Salt Testing libs
+from salttesting import skipIf
+from salttesting.helpers import destructiveTest, ensure_in_syspath
+ensure_in_syspath('../../')
+
 # Import salt libs
 import integration
-from saltunittest import destructiveTest, skipIf
 
 
 class PwUserModuleTest(integration.ModuleCase):

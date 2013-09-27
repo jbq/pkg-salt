@@ -5,10 +5,15 @@ import shutil
 import tempfile
 import stat
 
+# Import Salt Testing libs
+from salttesting import skipIf, TestCase
+from salttesting.helpers import ensure_in_syspath
+ensure_in_syspath('../../')
+
 # Import salt libs
+import integration
 import salt.utils
 import salt.utils.find
-from saltunittest import TestCase, TestLoader, TextTestRunner, skipIf
 
 
 class TestFind(TestCase):
@@ -260,7 +265,7 @@ class TestGrepOption(TestCase):
 
     def setUp(self):
         super(TestGrepOption, self).setUp()
-        self.tmpdir = tempfile.mkdtemp()
+        self.tmpdir = tempfile.mkdtemp(dir=integration.SYS_TMP_DIR)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -306,7 +311,7 @@ class TestPrintOption(TestCase):
 
     def setUp(self):
         super(TestPrintOption, self).setUp()
-        self.tmpdir = tempfile.mkdtemp()
+        self.tmpdir = tempfile.mkdtemp(dir=integration.SYS_TMP_DIR)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -411,7 +416,7 @@ class TestFinder(TestCase):
 
     def setUp(self):
         super(TestFinder, self).setUp()
-        self.tmpdir = tempfile.mkdtemp()
+        self.tmpdir = tempfile.mkdtemp(dir=integration.SYS_TMP_DIR)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -554,10 +559,9 @@ class TestFinder(TestCase):
         )
 
 
-if __name__ == "__main__":
-    loader = TestLoader()
-    tests = loader.loadTestsFromTestCase(TestFind)
-    tests.addTests(loader.loadTestsFromTestCase(TestGrepOption))
-    tests.addTests(loader.loadTestsFromTestCase(TestPrintOption))
-    tests.addTests(loader.loadTestsFromTestCase(TestFinder))
-    TextTestRunner(verbosity=1).run(tests)
+if __name__ == '__main__':
+    from integration import run_tests
+    run_tests(
+        [TestFind, TestGrepOption, TestPrintOption, TestFinder],
+        needs_daemon=False
+    )

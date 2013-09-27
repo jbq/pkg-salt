@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Classes that manage file clients
 '''
@@ -25,7 +26,7 @@ import salt.utils.templates
 import salt.utils.gzip_util
 from salt._compat import (
     URLError, HTTPError, BaseHTTPServer, urlparse, urlunparse, url_open,
-    url_passwd_mgr, url_auth_handler, url_build_opener, url_install_opener )
+    url_passwd_mgr, url_auth_handler, url_build_opener, url_install_opener)
 
 log = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ class Client(object):
         '''
         raise NotImplementedError
 
-    def file_list_emptydirs(self, env='base'):
+    def file_list_emptydirs(self, env='base', prefix=''):
         '''
         List the empty dirs
         '''
@@ -207,13 +208,13 @@ class Client(object):
         ldest = self._file_local_list(localfilesdest)
         return sorted(fdest.union(ldest))
 
-    def file_list(self, env='base'):
+    def file_list(self, env='base', prefix=''):
         '''
         This function must be overwritten
         '''
         return []
 
-    def dir_list(self, env='base'):
+    def dir_list(self, env='base', prefix=''):
         '''
         This function must be overwritten
         '''
@@ -351,7 +352,7 @@ class Client(object):
                 and url_data.scheme in ('http', 'https'):
             _, netloc = url_data.netloc.split('@', 1)
             fixed_url = urlunparse((url_data.scheme, netloc, url_data.path,
-                url_data.params, url_data.query, url_data.fragment ))
+                url_data.params, url_data.query, url_data.fragment))
             passwd_mgr = url_passwd_mgr()
             passwd_mgr.add_password(None, fixed_url, url_data.username, url_data.password)
             auth_handler = url_auth_handler(passwd_mgr)
@@ -414,6 +415,9 @@ class Client(object):
                 url_data.netloc,
                 url_data.path
             )
+            # If Salt generated the dest name, create any required dirs
+            makedirs = True
+
         destdir = os.path.dirname(dest)
         if not os.path.isdir(destdir):
             if makedirs:
@@ -462,15 +466,17 @@ class LocalClient(Client):
             return ''
         return fnd['path']
 
-    def file_list(self, env='base'):
+    def file_list(self, env='base', prefix=''):
         '''
         Return a list of files in the given environment
+        with optional relative prefix path to limit directory traversal
         '''
         ret = []
         if env not in self.opts['file_roots']:
             return ret
+        prefix = prefix.strip('/')
         for path in self.opts['file_roots'][env]:
-            for root, dirs, files in os.walk(path, followlinks=True):
+            for root, dirs, files in os.walk(os.path.join(path, prefix), followlinks=True):
                 for fname in files:
                     ret.append(
                         os.path.relpath(
@@ -480,28 +486,32 @@ class LocalClient(Client):
                     )
         return ret
 
-    def file_list_emptydirs(self, env='base'):
+    def file_list_emptydirs(self, env='base', prefix=''):
         '''
         List the empty dirs in the file_roots
+        with optional relative prefix path to limit directory traversal
         '''
         ret = []
+        prefix = prefix.strip('/')
         if env not in self.opts['file_roots']:
             return ret
         for path in self.opts['file_roots'][env]:
-            for root, dirs, files in os.walk(path, followlinks=True):
+            for root, dirs, files in os.walk(os.path.join(path, prefix), followlinks=True):
                 if len(dirs) == 0 and len(files) == 0:
                     ret.append(os.path.relpath(root, path))
         return ret
 
-    def dir_list(self, env='base'):
+    def dir_list(self, env='base', prefix=''):
         '''
         List the dirs in the file_roots
+        with optional relative prefix path to limit directory traversal
         '''
         ret = []
         if env not in self.opts['file_roots']:
             return ret
+        prefix = prefix.strip('/')
         for path in self.opts['file_roots'][env]:
-            for root, dirs, files in os.walk(path, followlinks=True):
+            for root, dirs, files in os.walk(os.path.join(path, prefix), followlinks=True):
                 ret.append(os.path.relpath(root, path))
         return ret
 
@@ -596,7 +606,21 @@ class RemoteClient(Client):
         dest is omitted, then the downloaded file will be placed in the minion
         cache
         '''
-        log.info('Fetching file \'{0}\''.format(path))
+        #--  Hash compare local copy with master and skip download if no diference found.
+        dest2check = dest
+        if not dest2check:
+            rel_path = self._check_proto(path)
+            with self._cache_loc(rel_path, env) as cache_dest:
+                dest2check = cache_dest
+
+        if dest2check and os.path.isfile(dest2check):
+            hash_local = self.hash_file(dest2check, env)
+            hash_server = self.hash_file(path, env)
+            if hash_local == hash_server:
+                log.info('Fetching file ** skipped **, latest already in cache \'{0}\''.format(path))
+                return dest2check
+
+        log.debug('Fetching file ** attempting ** \'{0}\''.format(path))
         d_tries = 0
         path = self._check_proto(path)
         load = {'path': path,
@@ -666,13 +690,15 @@ class RemoteClient(Client):
             fn_.write(data)
         if fn_:
             fn_.close()
+            log.info('Fetching file ** done ** \'{0}\''.format(path))
         return dest
 
-    def file_list(self, env='base'):
+    def file_list(self, env='base', prefix=''):
         '''
         List the files on the master
         '''
         load = {'env': env,
+                'prefix': prefix,
                 'cmd': '_file_list'}
         try:
             return self.auth.crypticle.loads(
@@ -684,11 +710,12 @@ class RemoteClient(Client):
         except SaltReqTimeoutError:
             return ''
 
-    def file_list_emptydirs(self, env='base'):
+    def file_list_emptydirs(self, env='base', prefix=''):
         '''
         List the empty dirs on the master
         '''
         load = {'env': env,
+                'prefix': prefix,
                 'cmd': '_file_list_emptydirs'}
         try:
             return self.auth.crypticle.loads(
@@ -700,11 +727,12 @@ class RemoteClient(Client):
         except SaltReqTimeoutError:
             return ''
 
-    def dir_list(self, env='base'):
+    def dir_list(self, env='base', prefix=''):
         '''
         List the dirs on the master
         '''
         load = {'env': env,
+                'prefix': prefix,
                 'cmd': '_dir_list'}
         try:
             return self.auth.crypticle.loads(
@@ -731,8 +759,7 @@ class RemoteClient(Client):
                 return {}
             else:
                 ret = {}
-                with salt.utils.fopen(path, 'rb') as ifile:
-                    ret['hsum'] = hashlib.md5(ifile.read()).hexdigest()
+                ret['hsum'] = salt.utils.get_hash(path, form='md5', chunk_size=4096)
                 ret['hash_type'] = 'md5'
                 return ret
         load = {'path': path,

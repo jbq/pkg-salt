@@ -12,6 +12,7 @@ import copy
 import os
 import hashlib
 import re
+import types
 import threading
 import time
 import traceback
@@ -20,7 +21,12 @@ import signal
 from random import randint
 
 # Import third party libs
-import zmq
+try:
+    import zmq
+    HAS_ZMQ = True
+except ImportError:
+    # Running in local, zmq not needed
+    HAS_ZMQ = False
 import yaml
 
 HAS_RANGE = False
@@ -41,10 +47,9 @@ import salt.loader
 import salt.utils
 import salt.payload
 import salt.utils.schedule
-# TODO: should probably use _getargs() from salt.utils?
-from salt.state import _getargs
 from salt._compat import string_types
 from salt.utils.debug import enable_sigusr1_handler
+from salt.utils.event import tagify
 
 log = logging.getLogger(__name__)
 
@@ -123,7 +128,7 @@ def parse_args_and_kwargs(func, args, data=None):
     This is to prevent things like 'echo "Hello: world"' to be parsed as
     dictionaries.
     '''
-    spec_args, _, has_kwargs, _ = salt.state._getargs(func)
+    spec_args, _, has_kwargs, _ = salt.utils.get_function_argspec(func)
     _args = []
     kwargs = {}
     for arg in args:
@@ -148,6 +153,8 @@ def yamlify_arg(arg):
     '''
     yaml.safe_load the arg unless it has a newline in it.
     '''
+    if not isinstance(arg, string_types):
+        return arg
     try:
         original_arg = str(arg)
         if isinstance(arg, string_types):
@@ -156,7 +163,7 @@ def yamlify_arg(arg):
         if isinstance(arg, dict):
             # dicts must be wrapped in curly braces
             if (isinstance(original_arg, string_types) and
-                not original_arg.startswith("{")):
+                    not original_arg.startswith('{')):
                 return original_arg
             else:
                 return arg
@@ -245,7 +252,8 @@ class MasterMinion(object):
             rend=True,
             matcher=True,
             whitelist=None):
-        self.opts = opts
+        self.opts = salt.config.minion_config(opts['conf_file'])
+        self.opts.update(opts)
         self.whitelist = whitelist
         self.opts['grains'] = salt.loader.grains(opts)
         self.opts['pillar'] = {}
@@ -449,6 +457,14 @@ class Minion(object):
         '''
         Pass in the options dict
         '''
+        # Warn if ZMQ < 3.2
+        if HAS_ZMQ and (int(zmq.zmq_version()[0]) < 3 or
+                        (int(zmq.zmq_version()[0]) == 3 and
+                         int(zmq.zmq_version()[2]) < 2)):
+            log.warning('You have a version of ZMQ less than ZMQ 3.2! There '
+                        'are known connection keep-alive issues with ZMQ < '
+                        '3.2 which may result in loss of contact with '
+                        'minions. Please upgrade your ZMQ!')
         # Late setup the of the opts grains, so we can log from the grains
         # module
         opts['grains'] = salt.loader.grains(opts)
@@ -492,12 +508,13 @@ class Minion(object):
         returners = salt.loader.returners(self.opts, functions)
         return functions, returners
 
-    def _fire_master(self, data=None, tag=None, events=None):
+    def _fire_master(self, data=None, tag=None, events=None, pretag=None):
         '''
         Fire an event on the master
         '''
         load = {'id': self.opts['id'],
-                'cmd': '_minion_event'}
+                'cmd': '_minion_event',
+                'pretag': pretag}
         if events:
             load['events'] = events
         elif data and tag:
@@ -630,15 +647,30 @@ class Minion(object):
             sdata.update(data)
             with salt.utils.fopen(fn_, 'w+') as fp_:
                 fp_.write(minion_instance.serial.dumps(sdata))
-        ret = {}
+        ret = {'success': False}
         function_name = data['fun']
         if function_name in minion_instance.functions:
-            ret['success'] = False
             try:
                 func = minion_instance.functions[data['fun']]
                 args, kwargs = parse_args_and_kwargs(func, data['arg'], data)
                 sys.modules[func.__module__].__context__['retcode'] = 0
-                ret['return'] = func(*args, **kwargs)
+                return_data = func(*args, **kwargs)
+                if isinstance(return_data, types.GeneratorType):
+                    ind = 0
+                    iret = {}
+                    for single in return_data:
+                        if isinstance(single, dict) and isinstance(iret, list):
+                            iret.update(single)
+                        else:
+                            if not iret:
+                                iret = []
+                            iret.append(single)
+                        tag = tagify([data['jid'], 'ret', opts['id'], ind])
+                        minion_instance._fire_master({'return': single}, tag)
+                        ind += 1
+                    ret['return'] = iret
+                else:
+                    ret['return'] = return_data
                 ret['retcode'] = sys.modules[func.__module__].__context__.get(
                     'retcode',
                     0
@@ -660,11 +692,13 @@ class Minion(object):
                 )
             except TypeError as exc:
                 trb = traceback.format_exc()
-                aspec = _getargs(minion_instance.functions[data['fun']])
+                aspec = salt.utils.get_function_argspec(
+                    minion_instance.functions[data['fun']]
+                )
                 msg = ('TypeError encountered executing {0}: {1}. See '
-                       'debug log for more info. Possibly a missing '
-                       'arguments issue: {2}').format(function_name, exc,
-                                                      aspec)
+                       'debug log for more info.  Possibly a missing '
+                       'arguments issue:  {2}').format(function_name, exc,
+                                                       aspec)
                 log.warning(msg)
                 log.debug(
                     'TypeError intercepted: {0}\n{1}'.format(exc, trb),
@@ -1023,6 +1057,13 @@ class Minion(object):
             ),
             'minion_start'
         )
+        self._fire_master(
+            'Minion {0} started at {1}'.format(
+            self.opts['id'],
+            time.asctime()
+            ),
+            tagify([self.opts['id'], 'start'], 'minion'),
+        )
 
         # Make sure to gracefully handle SIGUSR1
         enable_sigusr1_handler()
@@ -1120,6 +1161,14 @@ class Minion(object):
             ),
             'minion_start'
         )
+        # dup name spaced event
+        self._fire_master(
+            'Minion {0} started at {1}'.format(
+            self.opts['id'],
+            time.asctime()
+            ),
+            tagify([self.opts['id'], 'start'], 'minion'),
+        )
         loop_interval = int(self.opts['loop_interval'])
         while True:
             try:
@@ -1177,8 +1226,6 @@ class Syndic(Minion):
         self._syndic = True
         opts['loop_interval'] = 1
         Minion.__init__(self, opts)
-        opts.update(self.opts)
-        self.opts = opts
 
     def _handle_aes(self, load):
         '''
@@ -1241,7 +1288,7 @@ class Syndic(Minion):
         Lock onto the publisher. This is the main event loop for the syndic
         '''
         # Instantiate the local client
-        self.local = salt.client.LocalClient(self.opts['_master_conf_file'])
+        self.local = salt.client.LocalClient(self.opts['_minion_conf_file'])
         self.local.event.subscribe('')
         self.local.opts['interface'] = self._syndic_interface
 
@@ -1282,6 +1329,13 @@ class Syndic(Minion):
             ),
             'syndic_start'
         )
+        self._fire_master(
+            'Syndic {0} started at {1}'.format(
+            self.opts['id'],
+            time.asctime()
+            ),
+            tagify([self.opts['id'], 'start'], 'syndic'),
+        )
 
         # Make sure to gracefully handle SIGUSR1
         enable_sigusr1_handler()
@@ -1321,7 +1375,7 @@ class Syndic(Minion):
                         if not 'retcode' in event['data']:
                             raw_events.append(event)
                 if raw_events:
-                    self._fire_master(events=raw_events)
+                    self._fire_master(events=raw_events, pretag=tagify(self.opts['id'], base='syndic'))
                 for jid in jids:
                     self._return_pub(jids[jid], '_syndic_return')
             except zmq.ZMQError:
@@ -1517,12 +1571,10 @@ class Matcher(object):
             return False
         ref = {'G': 'grain',
                'P': 'grain_pcre',
-               'X': 'exsel',
                'I': 'pillar',
                'L': 'list',
                'S': 'ipcidr',
-               'E': 'pcre',
-               'D': 'data'}
+               'E': 'pcre'}
         if HAS_RANGE:
             ref['R'] = 'range'
         results = []

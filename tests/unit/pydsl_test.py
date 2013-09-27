@@ -5,9 +5,14 @@ import shutil
 import tempfile
 from cStringIO import StringIO
 
+# Import Salt Testing libs
+from salttesting import TestCase
+from salttesting.helpers import ensure_in_syspath
+
+ensure_in_syspath('../')
+
 # Import Salt libs
 import integration
-from saltunittest import TestCase
 import salt.loader
 import salt.config
 from salt.state import HighState
@@ -15,7 +20,7 @@ from salt.utils.pydsl import PyDslError
 
 REQUISITES = ['require', 'require_in', 'use', 'use_in', 'watch', 'watch_in']
 
-OPTS = salt.config.minion_config(None, check_dns=False)
+OPTS = salt.config.minion_config(None)
 OPTS['id'] = 'whatever'
 OPTS['file_client'] = 'local'
 OPTS['file_roots'] = dict(base=['/tmp'])
@@ -467,3 +472,8 @@ def state_highstate(matches, dirpath):
         # pprint.pprint(out)
     finally:
         HIGHSTATE.pop_active()
+
+
+if __name__ == '__main__':
+    from integration import run_tests
+    run_tests(PyDSLRendererTestCase, needs_daemon=False)

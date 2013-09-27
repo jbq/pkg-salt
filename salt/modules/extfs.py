@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Module for managing ext2/3/4 file systems
 '''
@@ -24,7 +25,9 @@ def mkfs(device, fs_type, **kwargs):
     '''
     Create a file system on the specified device
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' extfs.mkfs /dev/sda1 fs_type=ext4 opts='acl,noexec'
 
@@ -57,7 +60,8 @@ def mkfs(device, fs_type, **kwargs):
         usage_type: how the filesystem is going to be used
         uuid: set the UUID for the file system
 
-        see man 8 mke2fs for a more complete description of these options
+    See the ``mke2fs(8)`` manpage for a more complete description of these
+    options.
     '''
     kwarg_map = {'block_size': 'b',
                  'check': 'c',
@@ -118,7 +122,9 @@ def tune(device, **kwargs):
     '''
     Set attributes for the specified device (using tune2fs)
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' extfs.tune /dev/sda1 force=True label=wildstallyns opts='acl,noexec'
 
@@ -145,7 +151,8 @@ def tune(device, **kwargs):
         user: user or uid who can use the reserved blocks
         uuid: set the UUID for the file system
 
-        see man 8 tune2fs for a more complete description of these options
+    See the ``mke2fs(8)`` manpage for a more complete description of these
+    options.
     '''
     kwarg_map = {'max': 'c',
                  'count': 'C',
@@ -183,7 +190,9 @@ def attributes(device, args=None):
     '''
     Return attributes from dumpe2fs for a specified device
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' extfs.attributes /dev/sda1
     '''
@@ -195,7 +204,9 @@ def blocks(device, args=None):
     '''
     Return block and inode info from dumpe2fs for a specified device
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' extfs.blocks /dev/sda1
     '''
@@ -207,7 +218,9 @@ def dump(device, args=None):
     '''
     Return all contents of dumpe2fs for a specified device
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt '*' extfs.dump /dev/sda1
     '''

@@ -1,11 +1,10 @@
+# -*- coding: utf-8 -*-
 '''
 Management of MySQL users.
 ==========================
 
-:strong:`NOTE:` These states require the MySQLdb python module be installed on
-the minion, and additional settings added to the minion config file. See the
-documentation for the :mod:`mysql <salt.modules.mysql>` module for more
-information.
+:depends:   - MySQLdb Python module
+:configuration: See :py:mod:`salt.modules.mysql` for setup instructions.
 
 .. code-block:: yaml
 
@@ -15,7 +14,7 @@ information.
         - password: bobcat
 
 
-.. versionadded:: 0.16.1
+.. versionadded:: 0.16.2
     Authentication overrides have been added.
 
 The MySQL authentication information specified in the minion config file can be
@@ -96,7 +95,7 @@ def present(name,
         permit a passwordless login.
 
     .. note::
-        The ``allow_passwordless`` option will be available in version 0.16.1.
+        The ``allow_passwordless`` option will be available in version 0.16.2.
     '''
     ret = {'name': name,
            'changes': {},

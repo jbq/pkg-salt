@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Clone a remote git repository and use the filesystem as a pillar directory.
 
@@ -12,7 +13,6 @@ ext_pillar:
 from copy import deepcopy
 import logging
 import os
-import time
 
 # Import third party libs
 HAS_GIT = False
@@ -25,14 +25,13 @@ except ImportError:
 # Import salt libs
 from salt.pillar import Pillar
 
-
 # Set up logging
 log = logging.getLogger(__name__)
 
 
 def __virtual__():
     '''
-    Only load if git-python is available
+    Only load if gitpython is available
     '''
     ext_pillar_sources = [x for x in __opts__.get('ext_pillar', [])]
     if not any(['git' in x for x in ext_pillar_sources]):
@@ -44,6 +43,7 @@ def __virtual__():
     if not git.__version__ > '0.3.0':
         return False
     return 'git'
+
 
 def _get_ref(repo, short):
     '''
@@ -57,47 +57,6 @@ def _get_ref(repo, short):
                 return ref
     return False
 
-
-def _wait_lock(lk_fn, dest):
-    '''
-    If the write lock is there, check to see if the file is actually being
-    written. If there is no change in the file size after a short sleep,
-    remove the lock and move forward.
-    '''
-    if not os.path.isfile(lk_fn):
-        return False
-    if not os.path.isfile(dest):
-        # The dest is not here, sleep for a bit, if the dest is not here yet
-        # kill the lockfile and start the write
-        time.sleep(1)
-        if not os.path.isfile(dest):
-            try:
-                os.remove(lk_fn)
-            except (OSError, IOError):
-                pass
-            return False
-    # There is a lock file, the dest is there, stat the dest, sleep and check
-    # that the dest is being written, if it is not being written kill the lock
-    # file and continue. Also check if the lock file is gone.
-    s_count = 0
-    s_size = os.stat(dest).st_size
-    while True:
-        time.sleep(1)
-        if not os.path.isfile(lk_fn):
-            return False
-        size = os.stat(dest).st_size
-        if size == s_size:
-            s_count += 1
-            if s_count >= 3:
-                # The file is not being written to, kill the lock and proceed
-                try:
-                    os.remove(lk_fn)
-                except (OSError, IOError):
-                    pass
-                return False
-        else:
-            s_size = size
-    return False
 
 def init(branch, repo_location):
     '''
@@ -126,21 +85,22 @@ def init(branch, repo_location):
     repo.git.fetch()
     return repo
 
+
 def update(branch, repo_location):
     '''
-    Execute a git pull on all of the repos
+    Ensure you are on the right branch, and execute a git pull
+
+    return boolean wether it worked
     '''
     pid = os.getpid()
     repo = init(branch, repo_location)
-    origin = repo.remotes[0]
-    lk_fn = os.path.join(repo.working_dir, 'update.lk')
-    with open(lk_fn, 'w+') as fp_:
-        fp_.write(str(pid))
-    origin.fetch()
     try:
-        os.remove(lk_fn)
-    except (OSError, IOError):
-        pass
+        repo.git.checkout(branch)
+    except git.exc.GitCommandError as e:
+        logging.error('Unable to checkout branch {0}: {1}'.format(branch, e))
+        return False
+    repo.git.pull()
+    return True
 
 
 def envs(branch, repo_location):
@@ -164,7 +124,7 @@ def envs(branch, repo_location):
     return list(ret)
 
 
-def ext_pillar(pillar, repo_string):
+def ext_pillar(minion_id, pillar, repo_string):
     '''
     Execute a command and read the output as YAML
     '''
@@ -176,29 +136,22 @@ def ext_pillar(pillar, repo_string):
     if branch_env == 'master':
         branch_env = 'base'
 
-    # make sure you have the branch
-    if branch_env not in envs(branch, repo_location):
-        # don't have that branch
-        logging.warning('Unable to get branch {0} of git repo {1}, branch does not exit'.format(branch, repo_location))
+    # Update first
+    if not update(branch, repo_location):
         return {}
 
     # get the repo
     repo = init(branch, repo_location)
 
-    # Don't recurse forever-- the Pillar object will re-call the ext_pillar function
-    if __opts__['pillar_roots'][branch_env] == [repo.working_dir]:
+    # Don't recurse forever-- the Pillar object will re-call the ext_pillar
+    # function
+    if __opts__['pillar_roots'].get(branch_env, []) == [repo.working_dir]:
         return {}
-
-    update(branch, repo_location)
-    git_ = repo.git
-
-    git_.checkout(branch)
 
     opts = deepcopy(__opts__)
 
     opts['pillar_roots'][branch_env] = [repo.working_dir]
 
-    pil = Pillar(opts, __grains__, __grains__['id'], 'base')
+    pil = Pillar(opts, __grains__, minion_id, 'base')
 
     return pil.compile_pillar()
-
