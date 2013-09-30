@@ -23,7 +23,8 @@ License: Apache-2.0
  `/usr/share/common-licenses/Apache-2.0'.
 
 Files: debian/*
-Copyright: 2012 Michael Prokop <mika@debian.org>
+Copyright: 2013 Joe Healy <joehealy@gmail.com>
+           2012 Michael Prokop <mika@debian.org>
            2012 Christian Hofstaedtler <christian@hofstaedtler.name>
            2012 Ulrich Dangel <mru@spamt.net>
            2012 Corey Quinn <corey@sequestered.net>
