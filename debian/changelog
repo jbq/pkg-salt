@@ -1,3 +1,12 @@
+salt (0.17.0-1) UNRELEASED; urgency=low
+
+  * [9d6c0ae] Updated watch file to deal with upstream rc file naming
+  * [6861b2f] Imported Upstream version 0.17.0
+  * [19e5529] Addition of salt-ssh and dependency refactor to suit
+  * [0b7af23] Dereference symbolic links for salt-ssh - upstream issue #7480
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 01 Oct 2013 09:01:10 +1000
+
 salt (0.16.4-2) unstable; urgency=low
 
   [ Joe Healy ]
