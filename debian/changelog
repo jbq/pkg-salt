@@ -1,4 +1,4 @@
-salt (0.17.0-1) UNRELEASED; urgency=low
+salt (0.17.0-1) unstable; urgency=low
 
   * [9d6c0ae] Updated watch file to deal with upstream rc file naming
   * [6861b2f] Imported Upstream version 0.17.0
