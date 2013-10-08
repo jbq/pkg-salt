@@ -1,0 +1,48 @@
+Description: Minion changes id on upgrade to 0.17.0
+ Salt version 0.17.0 fixes upstream bug #6734 for ArchLinux by reading hostname
+ from /etc/hostname, but this introduced regression on Debian-based systems as
+ well, since mentioned file contains only the hostname part and not FQDN. This
+ temporary fix lowers /etc/hostname priority below getfqdn() call until proper
+ fix (id is generated once and cached, getfqdn has priority over /etc/hostname)
+ is released.
+Bug: https://github.com/saltstack/salt/issues/7558
+--- a/salt/config.py
++++ b/salt/config.py
+@@ -675,6 +675,12 @@
+         )
+     )
+ 
++    # Nothing in /etc/hostname or /etc/hostname not found
++    fqdn = socket.getfqdn()
++    if fqdn != 'localhost':
++        log.info('Found minion id from getfqdn(): {0}'.format(fqdn))
++        return fqdn, False
++
+     # Check /etc/hostname
+     try:
+         with salt.utils.fopen('/etc/hostname') as hfl:
+@@ -688,12 +694,6 @@
+     except Exception:
+         pass
+ 
+-    # Nothing in /etc/hostname or /etc/hostname not found
+-    fqdn = socket.getfqdn()
+-    if fqdn != 'localhost':
+-        log.info('Found minion id from getfqdn(): {0}'.format(fqdn))
+-        return fqdn, False
+-
+     # Can /etc/hosts help us?
+     try:
+         with salt.utils.fopen('/etc/hosts') as hfl:
+--- a/doc/topics/tutorials/walkthrough.rst
++++ b/doc/topics/tutorials/walkthrough.rst
+@@ -169,7 +169,8 @@
+ steps are attempted, in order to try to find a value that is not ``localhost``:
+ 
+ 1. ``/etc/hostname`` is checked (non-Windows only) **Note: Not used currently,
+-   will be as of version 0.17.0.**
++   will be as of version 0.17.0. Also, Debian version will prefer getfqdn call
++   over reading ``/etc/hostname`` until bug #7558 fixed**
+ 2. The Python function ``socket.getfqdn()`` is run
+ 3. ``/etc/hosts`` (``%WINDIR%\system32\drivers\etc\hosts`` on Windows hosts) is
+    checked for hostnames that map to anything within :strong:`127.0.0.0/8`.

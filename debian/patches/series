@@ -1,2 +1,3 @@
 salt-ssh-default-config
 dereference_links.diff
+fix-hostname-regression.diff
