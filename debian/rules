@@ -10,6 +10,7 @@ include /usr/share/python/python.mk
 override_dh_auto_build:
 	dh_auto_build
 	make -C doc html
+	make -C doc man
 
 JS_FILES = searchtools doctools sidebar jquery underscore
 
