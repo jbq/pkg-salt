@@ -1,0 +1,31 @@
+Description: Conf.py changes to use default sphinx theme
+  The saltstack theme was removed to simplify policy compliance. This
+  change will mean that the docs are built with the default sphinx
+  theme.
+Author: Joe Healy <joehealy@gmail.com>
+Forwarded: not-needed
+
+--- a/doc/conf.py
++++ b/doc/conf.py
+@@ -103,7 +103,7 @@
+ 
+ version = salt.version.__version__
+ #release = '.'.join(map(str, salt.version.__version_info__))
+-release = '0.16.4'
++release = '0.17.1'
+ 
+ language = 'en'
+ locale_dirs = [
+@@ -142,11 +142,7 @@
+ }
+ 
+ 
+-### HTML options
+-if on_rtd:
+-    html_theme = 'default'
+-else:
+-    html_theme = 'saltstack'
++html_theme = 'default'
+ 
+ html_theme_path = ['_themes']
+ html_title = None
