@@ -32,9 +32,9 @@ def _refine_enc(enc):
     '''
     Return the properly formatted ssh value for the authorized encryption key
     type. ecdsa defaults to 256 bits, must give full ecdsa enc schema string
-    if using higher enc. If the type is not found, return ssh-rsa, the ssh
-    default.
+    if using higher enc. If the type is not found, raise CommandExecutionError.
     '''
+
     rsa = ['r', 'rsa', 'ssh-rsa']
     dss = ['d', 'dsa', 'dss', 'ssh-dss']
     ecdsa = ['e', 'ecdsa', 'ecdsa-sha2-nistp521', 'ecdsa-sha2-nistp384',
@@ -51,7 +51,8 @@ def _refine_enc(enc):
             return 'ecdsa-sha2-nistp256'
         return enc
     else:
-        return 'ssh-rsa'
+        msg = 'Incorrect encryption key type "{}".'.format(enc)
+        raise CommandExecutionError(msg)
 
 
 def _format_auth_line(key, enc, comment, options):
@@ -75,6 +76,7 @@ def _replace_auth_key(
     '''
     Replace an existing key
     '''
+
     auth_line = _format_auth_line(key, enc, comment, options or [])
 
     lines = []
@@ -465,6 +467,12 @@ def set_auth_key(
 
         try:
             with salt.utils.fopen(fconfig, 'a+') as _fh:
+                if new_file is False:
+                    # Let's make sure we have a new line at the end of the file
+                    _fh.seek(1024, 2)
+                    if not _fh.read(1024).rstrip(' ').endswith('\n'):
+                        _fh.seek(0, 2)
+                        _fh.write('\n')
                 _fh.write('{0}'.format(auth_line))
         except (IOError, OSError) as exc:
             msg = 'Could not write to key file: {0}'

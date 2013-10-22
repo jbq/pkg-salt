@@ -290,12 +290,18 @@ class SaltEvent(object):
         # If sockets are not unregistered from a poller, nothing which touches
         # that poller gets garbage collected. The Poller itself, its
         # registered sockets and the Context
-        for socket in self.poller.sockets.keys():
-            if socket.closed is False:
-                # Should already be closed from above, but....
-                socket.setsockopt(zmq.LINGER, 1)
-                socket.close()
-            self.poller.unregister(socket)
+        if isinstance(self.poller.sockets, dict):
+            for socket in self.poller.sockets.keys():
+                if socket.closed is False:
+                    socket.setsockopt(zmq.LINGER, 1)
+                    socket.close()
+                self.poller.unregister(socket)
+        else:
+            for socket in self.poller.sockets:
+                if socket[0].closed is False:
+                    socket[0].setsockopt(zmq.LINGER, 1)
+                    socket[0].close()
+                self.poller.unregister(socket[0])
         if self.context.closed is False:
             self.context.term()
 
@@ -546,7 +552,7 @@ class ReactWrap(object):
                     'Failed to execute {0}: {1}\n'.format(low['state'], l_fun),
                     exc_info=True
                     )
-            return ret
+            return False
         return ret
 
     def cmd(self, *args, **kwargs):
@@ -586,7 +592,7 @@ class StateFire(object):
         else:
             self.auth = auth
 
-    def fire_master(self, data, tag):
+    def fire_master(self, data, tag, preload=None):
         '''
         Fire an event off on the master server
 
@@ -594,10 +600,16 @@ class StateFire(object):
 
             salt '*' event.fire_master 'stuff to be in the event' 'tag'
         '''
-        load = {'id': self.opts['id'],
-                'tag': tag,
-                'data': data,
-                'cmd': '_minion_event'}
+        load = {}
+        if preload:
+            load.update(preload)
+
+        load.update({'id': self.opts['id'],
+                    'tag': tag,
+                    'data': data,
+                    'cmd': '_minion_event',
+                    'tok': self.auth.gen_token('salt')})
+
         sreq = salt.payload.SREQ(self.opts['master_uri'])
         try:
             sreq.send('aes', self.auth.crypticle.dumps(load))

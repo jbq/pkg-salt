@@ -63,7 +63,9 @@ def _check_pillar(kwargs):
 
 
 def _wait(jid):
-    """ Wait for all previously started state jobs to finish running """
+    '''
+    Wait for all previously started state jobs to finish running
+    '''
     states = _prior_running_states(jid)
     while states:
         time.sleep(1)
@@ -233,11 +235,6 @@ def highstate(test=None, queue=False, **kwargs):
         if conflict:
             __context__['retcode'] = 1
             return conflict
-    if not _check_pillar(kwargs):
-        __context__['retcode'] = 5
-        err = ['Pillar failed to render with the following messages:']
-        err += __pillar__['_errors']
-        return err
     opts = copy.copy(__opts__)
 
     if salt.utils.test_mode(test=test, **kwargs):
@@ -256,7 +253,8 @@ def highstate(test=None, queue=False, **kwargs):
         ret = st_.call_highstate(
                 exclude=kwargs.get('exclude', []),
                 cache=kwargs.get('cache', None),
-                cache_name=kwargs.get('cache_name', 'highstate')
+                cache_name=kwargs.get('cache_name', 'highstate'),
+                force=kwargs.get('force', False)
                 )
     finally:
         st_.pop_active()
@@ -622,7 +620,7 @@ def clear_cache():
     return ret
 
 
-def pkg(pkg_path, test=False, **kwargs):
+def pkg(pkg_path, pkg_sum, hash_type, test=False, **kwargs):
     '''
     Execute a packaged state run, the packaged state run will exist in a
     tarball available locally. This packaged state
@@ -636,6 +634,8 @@ def pkg(pkg_path, test=False, **kwargs):
     '''
     # TODO - Add ability to download from salt master or other source
     if not os.path.isfile(pkg_path):
+        return {}
+    if not salt.utils.get_hash(pkg_path, hash_type) == pkg_sum:
         return {}
     root = tempfile.mkdtemp()
     s_pkg = tarfile.open(pkg_path, 'r:gz')

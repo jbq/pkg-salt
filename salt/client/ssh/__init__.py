@@ -12,6 +12,8 @@ import shutil
 import copy
 import time
 import multiprocessing
+import re
+import logging
 
 # Import salt libs
 import salt.client.ssh.shell
@@ -22,41 +24,75 @@ import salt.roster
 import salt.state
 import salt.loader
 import salt.minion
+import salt.exceptions
 
+# This is just a delimiter to distinguish the beginning of salt STDOUT.  There
+# is no special meaning
 RSTR = '_edbc7885e4f9aac9b83b35999b68d015148caf467b78fa39c05f669c0ff89878'
 
-HEREDOC = (' << "EOF"\n'
-           '{{0}}\n'
-           'if [ `type -p python2` ]\n'
-           'then\n'
-           '    PYTHON=python2\n'
-           'elif [ `type -p python26` ]\n'
-            'then\n'
-           '    PYTHON=python26\n'
-           'elif [ `type -p python27` ]\n'
-           'then\n'
-           '    PYTHON=python27\n'
-           'fi\n'
-           'if [ -f /tmp/.salt/salt-call ] \n'
-           'then\n'
-           '    if [[ $(cat /tmp/.salt/version) != {0} ]]\n'
-           '    then\n'
-           '        rm -rf /tmp/.salt\n'
-           '        install -m 1777 -d /tmp/.salt\n'
-           '        echo "{1}"\n'
-           '        echo "deploy"\n'
-           '        exit 1\n'
-           '    fi\n'
-           '    SALT=/tmp/.salt/salt-call\n'
-           'else\n'
-           '    echo "{1}"\n'
-           '    install -m 777 -d /tmp/.salt\n'
-           '    echo "deploy"\n'
-           '    exit 1\n'
-           'fi\n'
-           'echo "{1}"\n'
-           '$PYTHON $SALT --local --out json -l quiet {{1}}\n'
-           'EOF').format(salt.__version__, RSTR)
+
+# This shim facilitaites remote salt-call operations
+# - Explicitly invokes bourne shell for univeral compatibility
+#
+# 1. Identify a suitable python
+# 2. Test for remote salt-call and version if present
+# 3. Signal to (re)deploy if missing or out of date
+#    - If this is a a first deploy, then test python version
+# 4. Perform salt-call
+
+# Note there are two levels of formatting.
+# - First format pass inserts salt version and delimiter
+# - Second pass at run-time and inserts optional "sudo" and command
+SSH_SHIM = '''/bin/sh << 'EOF'
+      for py_candidate in \\
+            python27      \\
+            python2.7     \\
+            python26      \\
+            python2.6     \\
+            python2       \\
+            python        ;
+      do
+         if [ $(which $py_candidate 2>/dev/null) ]
+         then
+               PYTHON=$(which $py_candidate)
+               break
+         fi
+      done
+      SALT=/tmp/.salt/salt-call
+      if [ -f $SALT ]
+      then
+         if [ $(cat /tmp/.salt/version) != {0} ]
+         then
+            {{0}} rm -rf /tmp/.salt && install -m 0700 -d /tmp/.salt
+            if [ $? -ne 0 ]; then
+                exit 1
+            fi
+            echo "{1}"
+            echo "deploy"
+            exit 1
+         fi
+      else
+         PY_TOO_OLD=$($PYTHON -c 'import sys; print sys.hexversion < 0x02060000')
+         if [ $PY_TOO_OLD = 'True' ];
+         then
+            echo "Python too old" >&2
+            exit 1
+         fi
+         if [ -f /tmp/.salt/salt-thin.tgz ]
+         then
+             [ $({{2}}sum /tmp/.salt/salt-thin.tgz | cut -f1 -d' ') = {{3}} ] && {{0}} tar xzvf /tmp/.salt/salt-thin.tgz -C /tmp/.salt
+         else
+             install -m 0700 -d /tmp/.salt
+             echo "{1}"
+             echo "deploy"
+             exit 1
+         fi
+      fi
+      echo "{1}"
+      {{0}} $PYTHON $SALT --local --out json -l quiet {{1}}
+EOF'''.format(salt.__version__, RSTR)
+
+log = logging.getLogger(__name__)
 
 
 class SSH(object):
@@ -64,8 +100,10 @@ class SSH(object):
     Create an SSH execution system
     '''
     def __init__(self, opts):
+        self.verify_env()
         self.opts = opts
-        tgt_type = self.opts['selected_target_option'] if self.opts['selected_target_option'] else 'glob'
+        tgt_type = self.opts['selected_target_option'] \
+                if self.opts['selected_target_option'] else 'glob'
         self.roster = salt.roster.Roster(opts)
         self.targets = self.roster.targets(
                 self.opts['tgt'],
@@ -89,6 +127,14 @@ class SSH(object):
                 'sudo': self.opts.get('ssh_sudo', False),
                 }
 
+    def verify_env(self):
+        '''
+        Verify that salt-ssh is ready to run
+        '''
+        if not salt.utils.which('sshpass'):
+            log.warning('Warning:  sshpass is not present, so password-based '
+                        'authentication is not available.')
+
     def get_pubkey(self):
         '''
         Return the keystring for the SSH public key
@@ -110,34 +156,44 @@ class SSH(object):
         Deploy the SSH key if the minions don't auth
         '''
         if not isinstance(ret[host], basestring):
+            if self.opts.get('ssh_key_deploy'):
+                target = self.targets[host]
+                if 'passwd' in target:
+                    self._key_deploy_run(host, target, False)
             return ret
-        if ret[host].startswith('Permission denied') or self.opts.get('ssh_key_deploy'):
+        if ret[host].startswith('Permission denied'):
             target = self.targets[host]
             # permission denied, attempt to auto deploy ssh key
-            print(('Permission denied for host {0}, do you want to '
-                    'deploy the salt-ssh key?').format(host))
+            print(('Permission denied for host {0}, do you want to deploy '
+                   'the salt-ssh key? (password required):').format(host))
             deploy = raw_input('[Y/n]')
             if deploy.startswith(('n', 'N')):
                 return ret
             target['passwd'] = getpass.getpass(
-                    'Password for {0}:'.format(host)
-                    )
-            arg_str = 'ssh.set_auth_key {0} {1}'.format(
-                    target.get('user', 'root'),
-                    self.get_pubkey())
-            single = Single(
-                    self.opts,
-                    arg_str,
-                    host,
-                    **target)
-            if salt.utils.which('ssh-copy-id'):
-                # we have ssh-copy-id, use it!
-                single.shell.copy_id()
-            else:
-                ret = single.cmd_block()
-                if ret[0].startswith('deploy'):
-                    single.deploy()
-                    ret = single.cmd_block()
+                    'Password for {0}@{1}:'.format(host, target['user'])
+                )
+            return self._key_deploy_run(host, target, True)
+        return ret
+
+    def _key_deploy_run(self, host, target, re_run=True):
+        '''
+        The ssh-copy-id routine
+        '''
+        arg_str = 'ssh.set_auth_key {0} {1}'.format(
+                target.get('user', 'root'),
+                self.get_pubkey())
+
+        single = Single(
+                self.opts,
+                arg_str,
+                host,
+                **target)
+        if salt.utils.which('ssh-copy-id'):
+            # we have ssh-copy-id, use it!
+            single.shell.copy_id()
+        else:
+            ret = single.run()
+        if re_run:
             target.pop('passwd')
             single = Single(
                     self.opts,
@@ -146,68 +202,13 @@ class SSH(object):
                     **target)
             stdout, stderr = single.cmd_block()
             try:
-                data = json.loads(stdout)
-                if 'local' in data:
-                    return {host: data['local']}
-                else:
-                    return {host: data}
+                data = salt.utils.find_json(stdout)
+                return {host: data.get('local', data)}
             except Exception:
                 if stderr:
                     return {host: stderr}
                 return {host: 'Bad Return'}
         return ret
-
-    def process(self):
-        '''
-        Execute the desired routine on the specified systems
-        '''
-        running = {}
-        target_iter = self.targets.__iter__()
-        done = set()
-        while True:
-            if len(running) < self.opts.get('ssh_max_procs', 25):
-                try:
-                    host = next(target_iter)
-                except StopIteration:
-                    pass
-                for default in self.defaults:
-                    if not default in self.targets[host]:
-                        self.targets[host][default] = self.defaults[default]
-
-                if host not in running:
-                    single = Single(
-                            self.opts,
-                            self.opts['arg_str'],
-                            host,
-                            **self.targets[host])
-                    running[host] = {'iter': single.cmd(),
-                                     'single': single}
-            for host in running:
-                stdout, stderr = next(running[host]['iter'])
-                if stdout is None and stderr is None:
-                    continue
-                if stdout.startswith('deploy'):
-                    running[host]['single'].deploy()
-                    running[host]['iter'] = single.cmd()
-                else:
-                    # This job is done, yield
-                    try:
-                        if not stdout and stderr:
-                            yield {running[host]['single'].id: stderr}
-                        else:
-                            data = json.loads(stdout)
-                            if len(data) < 2 and 'local' in data:
-                                yield {running[host]['single'].id: data['local']}
-                            else:
-                                yield {running[host]['single'].id: data}
-                    except Exception:
-                        yield {running[host]['single'].id: 'Bad Return'}
-                    done.add(host)
-            for host in done:
-                if host in running:
-                    running.pop(host)
-            if len(done) >= len(self.targets):
-                break
 
     def handle_routine(self, que, opts, host, target):
         '''
@@ -232,7 +233,7 @@ class SSH(object):
                 else:
                     ret['ret'] = stderr
             else:
-                data = json.loads(stdout)
+                data = salt.utils.find_json(stdout)
                 if len(data) < 2 and 'local' in data:
                     ret['ret'] = data['local']
                 else:
@@ -268,7 +269,9 @@ class SSH(object):
                         host,
                         self.targets[host],
                         )
-                routine = multiprocessing.Process(target=self.handle_routine, args=args)
+                routine = multiprocessing.Process(
+                                target=self.handle_routine,
+                                args=args)
                 routine.start()
                 running[host] = {'thread': routine}
                 continue
@@ -334,28 +337,25 @@ class Single(object):
             priv=None,
             timeout=None,
             sudo=False,
+            tty=False,
             **kwargs):
         self.opts = opts
         self.arg_str = arg_str
         self.fun, self.arg = self.__arg_comps()
         self.id = id_
-        self.extra = kwargs
-        self.shell = salt.client.ssh.shell.Shell(
-                host,
-                user,
-                port,
-                passwd,
-                priv,
-                timeout,
-                sudo)
-        self.target = self.extra
-        self.target['host'] = host
-        self.target['user'] = user
-        self.target['port'] = port
-        self.target['passwd'] = passwd
-        self.target['priv'] = priv
-        self.target['timeout'] = timeout
-        self.target['sudo'] = sudo
+
+        args = {'host': host,
+                'user': user,
+                'port': port,
+                'passwd': passwd,
+                'priv': priv,
+                'timeout': timeout,
+                'sudo': sudo,
+                'tty': tty}
+        self.shell = salt.client.ssh.shell.Shell(opts, **args)
+
+        self.target = kwargs
+        self.target.update(args)
         self.serial = salt.payload.Serial(opts)
         self.wfuncs = salt.loader.ssh_wrapper(opts)
 
@@ -363,13 +363,9 @@ class Single(object):
         '''
         Return the function name and the arg list
         '''
-        fun = ''
-        arg = []
         comps = self.arg_str.split()
-        if len(comps) > 0:
-            fun = comps[0]
-        if len(comps) > 1:
-            arg = comps[1:]
+        fun = comps[0] if comps else ''
+        arg = comps[1:]
         return fun, arg
 
     def deploy(self):
@@ -380,75 +376,97 @@ class Single(object):
         self.shell.send(
                 thin,
                 '/tmp/.salt/salt-thin.tgz')
-        self.shell.exec_cmd(
-                'tar xvf /tmp/.salt/salt-thin.tgz -C /tmp/.salt'
-                )
         return True
 
-    def run(self):
+    def run(self, deploy_attempted=False):
         '''
         Execute the routine, the routine can be either:
-        1. Execute a remote Salt command
-        2. Execute a raw shell command
-        3. Execute a wrapper func
-        '''
-        if self.opts.get('raw_shell'):
-            return self.shell.exec_cmd(self.arg_str)
-        elif self.fun in self.wfuncs:
-            # Ensure that opts/grains are up to date
-            # Execute routine
-            cdir = os.path.join(self.opts['cachedir'], 'minions', self.id)
-            if not os.path.isdir(cdir):
-                os.makedirs(cdir)
-            datap = os.path.join(cdir, 'data.p')
-            refresh = False
-            if not os.path.isfile(datap):
-                refresh = True
-            else:
-                if ((time.time() - os.stat(datap).st_mtime) / 60 > self.opts.get('cache_life', 60)):
-                    refresh = True
-            if self.opts.get('refresh_cache'):
-                refresh = True
-            if refresh:
-                # Make the datap
-                # TODO: Auto expire the datap
-                pre_wrapper = salt.client.ssh.wrapper.FunctionWrapper(
-                    self.opts,
-                    self.id,
-                    **self.target)
-                opts_pkg = pre_wrapper['test.opts_pkg']()
-                pillar = salt.pillar.Pillar(
-                        opts_pkg,
-                        opts_pkg['grains'],
-                        opts_pkg['id'],
-                        opts_pkg.get('environment', 'base')
-                        )
-                pillar_data = pillar.compile_pillar()
+        1. Execute a raw shell command
+        2. Execute a wrapper func
+        3. Execute a remote Salt command
 
-                # TODO: cache minion opts in datap in master.py
-                with salt.utils.fopen(datap, 'w+') as fp_:
-                    fp_.write(
-                            self.serial.dumps(
-                                {'opts': opts_pkg,
-                                 'grains': opts_pkg['grains'],
-                                 'pillar': pillar_data}
-                                )
-                            )
-            with salt.utils.fopen(datap, 'r') as fp_:
-                data = self.serial.load(fp_)
-            opts = data.get('opts', {})
-            opts['grains'] = data.get('grains')
-            opts['pillar'] = data.get('pillar')
-            wrapper = salt.client.ssh.wrapper.FunctionWrapper(
-                opts,
+        If a (re)deploy is needed, then retry the operation after a deploy
+        attempt
+
+        Returns tuple of (stdout, stderr)
+        '''
+
+        stdout, stderr = None, None
+
+        if self.opts.get('raw_shell'):
+            stdout, stderr = self.shell.exec_cmd(self.arg_str)
+
+        elif self.fun in self.wfuncs:
+            stdout, stderr = self.run_wfunc()
+
+        else:
+            stdout, stderr = self.cmd_block()
+
+        if stdout.startswith('deploy') and not deploy_attempted:
+            self.deploy()
+            return self.run(deploy_attempted=True)
+
+        return stdout, stderr
+
+    def run_wfunc(self):
+        '''
+        Execute a wrapper function
+
+        Returns tuple of (json_data, '')
+        '''
+        # Ensure that opts/grains are up to date
+        # Execute routine
+        cdir = os.path.join(self.opts['cachedir'], 'minions', self.id)
+        if not os.path.isdir(cdir):
+            os.makedirs(cdir)
+        datap = os.path.join(cdir, 'data.p')
+        refresh = False
+        if not os.path.isfile(datap):
+            refresh = True
+        else:
+            passed_time = (time.time() - os.stat(datap).st_mtime) / 60
+            if (passed_time > self.opts.get('cache_life', 60)):
+                refresh = True
+        if self.opts.get('refresh_cache'):
+            refresh = True
+        if refresh:
+            # Make the datap
+            # TODO: Auto expire the datap
+            pre_wrapper = salt.client.ssh.wrapper.FunctionWrapper(
+                self.opts,
                 self.id,
                 **self.target)
-            self.wfuncs = salt.loader.ssh_wrapper(opts, wrapper)
-            wrapper.wfuncs = self.wfuncs
-            ret = json.dumps(self.wfuncs[self.fun](*self.arg))
-            return ret, ''
-        else:
-            return self.cmd_block()
+            opts_pkg = pre_wrapper['test.opts_pkg']()
+            pillar = salt.pillar.Pillar(
+                    opts_pkg,
+                    opts_pkg['grains'],
+                    opts_pkg['id'],
+                    opts_pkg.get('environment', 'base')
+                    )
+            pillar_data = pillar.compile_pillar()
+
+            # TODO: cache minion opts in datap in master.py
+            with salt.utils.fopen(datap, 'w+') as fp_:
+                fp_.write(
+                        self.serial.dumps(
+                            {'opts': opts_pkg,
+                                'grains': opts_pkg['grains'],
+                                'pillar': pillar_data}
+                            )
+                        )
+        with salt.utils.fopen(datap, 'r') as fp_:
+            data = self.serial.load(fp_)
+        opts = data.get('opts', {})
+        opts['grains'] = data.get('grains')
+        opts['pillar'] = data.get('pillar')
+        wrapper = salt.client.ssh.wrapper.FunctionWrapper(
+            opts,
+            self.id,
+            **self.target)
+        self.wfuncs = salt.loader.ssh_wrapper(opts, wrapper)
+        wrapper.wfuncs = self.wfuncs
+        ret = json.dumps(self.wfuncs[self.fun](*self.arg))
+        return ret, ''
 
     def cmd(self):
         '''
@@ -464,15 +482,19 @@ class Single(object):
             args, kwargs = salt.minion.parse_args_and_kwargs(
                     self.sls_seed, self.arg)
             self.sls_seed(*args, **kwargs)
-        sudo = 'sudo -i\n' if self.target['sudo'] else ''
-        cmd = HEREDOC.format(sudo, self.arg_str)
+        sudo = 'sudo' if self.target['sudo'] else ''
+        thin_sum = salt.utils.thin.thin_sum(
+                self.opts['cachedir'],
+                self.opts['hash_type'])
+        cmd = SSH_SHIM.format(
+                sudo,
+                self.arg_str,
+                self.opts['hash_type'],
+                thin_sum)
         for stdout, stderr in self.shell.exec_nb_cmd(cmd):
-            if stdout is None and stderr is None:
-                yield None, None
-            else:
-                yield stdout, stderr
+            yield stdout, stderr
 
-    def cmd_block(self):
+    def cmd_block(self, is_retry=False):
         '''
         Prepare the precheck command to send to the subsystem
         '''
@@ -480,9 +502,25 @@ class Single(object):
         # 2. check is salt-call is on the target
         # 3. deploy salt-thin
         # 4. execute command
-        sudo = 'sudo -i\n' if self.target['sudo'] else ''
-        cmd = HEREDOC.format(sudo, self.arg_str)
+        sudo = 'sudo' if self.target['sudo'] else ''
+        thin_sum = salt.utils.thin.thin_sum(
+                self.opts['cachedir'],
+                self.opts['hash_type'])
+        cmd = SSH_SHIM.format(
+                sudo,
+                self.arg_str,
+                self.opts['hash_type'],
+                thin_sum)
+        log.debug("Performing shimmed command as follows:\n{0}".format(cmd))
         stdout, stderr = self.shell.exec_cmd(cmd)
+
+        log.debug("STDOUT {1}\n{0}".format(stdout, self.target['host']))
+        log.debug("STDERR {1}\n{0}".format(stderr, self.target['host']))
+
+        error = self.categorize_shim_errors(stdout, stderr)
+        if error:
+            return "ERROR: {0}".format(error), stderr
+
         if RSTR in stdout:
             stdout = stdout.split(RSTR)[1].strip()
         if stdout.startswith('deploy'):
@@ -490,7 +528,33 @@ class Single(object):
             stdout, stderr = self.shell.exec_cmd(cmd)
             if RSTR in stdout:
                 stdout = stdout.split(RSTR)[1].strip()
+
         return stdout, stderr
+
+    def categorize_shim_errors(self, stdout, stderr):
+        perm_error_fmt = "Permissions problem, target user may need "\
+                         "to be root or use sudo:\n {0}"
+        if stderr.startswith('Permission denied'):
+            return None
+        errors = [
+            ("sudo: no tty present and no askpass program specified",
+                "sudo expected a password, NOPASSWD required"),
+            ("Python too old",
+                "salt requires python 2.6 or better on target hosts"),
+            ("sudo: sorry, you must have a tty to run sudo",
+                "sudo is configured with requiretty"),
+            ("Failed to open log file",
+                perm_error_fmt.format(stderr)),
+            ("Permission denied:.*/salt",
+                perm_error_fmt.format(stderr)),
+            ("Failed to create directory path.*/salt",
+                perm_error_fmt.format(stderr)),
+            ]
+
+        for error in errors:
+            if re.search(error[0], stderr):
+                return error[1]
+        return None
 
     def sls_seed(self, mods, env='base', test=None, exclude=None, **kwargs):
         '''

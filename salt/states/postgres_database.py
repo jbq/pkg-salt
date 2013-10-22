@@ -60,7 +60,7 @@ def present(name,
     runas
         System user all operations should be performed on behalf of
 
-        .. derecated:: 0.17.0
+        .. deprecated:: 0.17.0
 
     user
         System user all operations should be performed on behalf of
@@ -81,7 +81,7 @@ def present(name,
     if runas:
         # Warn users about the deprecation
         ret.setdefault('warnings', []).append(
-            'The \'runas\' argument is being deprecated in favor or \'user\', '
+            'The \'runas\' argument is being deprecated in favor of \'user\', '
             'please update your state files.'
         )
     if user is not None and runas is not None:
@@ -184,7 +184,7 @@ def absent(name, runas=None, user=None):
     if runas:
         # Warn users about the deprecation
         ret.setdefault('warnings', []).append(
-            'The \'runas\' argument is being deprecated in favor or \'user\', '
+            'The \'runas\' argument is being deprecated in favor of \'user\', '
             'please update your state files.'
         )
     if user is not None and runas is not None:
