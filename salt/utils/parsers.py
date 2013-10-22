@@ -14,6 +14,7 @@
 # Import python libs
 import os
 import sys
+import getpass
 import logging
 import optparse
 import traceback
@@ -26,6 +27,7 @@ import salt.utils as utils
 import salt.version as version
 import salt.syspaths as syspaths
 import salt.log.setup as log
+from salt.utils.validate.path import is_writeable
 
 
 def _sorted(mixins_or_funcs):
@@ -508,6 +510,39 @@ class LogLevelMixIn(object):
             )
         )
 
+        if not is_writeable(logfile, check_parent=True):
+            # Since we're not be able to write to the log file or it's parent
+            # directory(if the log file does not exit), are we the same user
+            # as the one defined in the configuration file?
+            current_user = getpass.getuser()
+            if self.config['user'] != current_user:
+                # Yep, not the same user!
+                # Is the current user in ACL?
+                if current_user in self.config.get('client_acl', {}).keys():
+                    # Yep, the user is in ACL!
+                    # Let's write the logfile to it's home directory instead.
+                    user_salt_dir = os.path.expanduser('~/.salt')
+                    if not os.path.isdir(user_salt_dir):
+                        os.makedirs(user_salt_dir, 0750)
+                    logfile_basename = os.path.basename(
+                        self._default_logging_logfile_
+                    )
+                    logging.getLogger(__name__).warning(
+                        'The user {0!r} is not allowed to write to {1!r}. '
+                        'The log file will be stored in '
+                        '\'~/.salt/{2!r}.log\''.format(
+                            current_user,
+                            logfile,
+                            logfile_basename
+                        )
+                    )
+                    logfile = os.path.join(
+                        user_salt_dir, '{0}.log'.format(logfile_basename)
+                    )
+
+            # If we haven't changed the logfile path and it's not writeable,
+            # salt will fail once we try to setup the logfile logging.
+
         log.setup_logfile_logger(
             logfile,
             loglevel,
@@ -907,7 +942,8 @@ class MinionOptionParser(MasterOptionParser):
     _default_logging_logfile_ = os.path.join(syspaths.LOGS_DIR, 'minion')
 
     def setup_config(self):
-        return config.minion_config(self.get_config_file_path())
+        return config.minion_config(self.get_config_file_path(),
+                                    minion_id=True)
 
 
 class SyndicOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
@@ -987,11 +1023,11 @@ class SaltCMDOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
                   'queries')
         )
         self.add_option(
-           '--show-timeout',
-           default=False,
-           action='store_true',
-           help=('Display minions that timeout')
-       )
+            '--show-timeout',
+            default=False,
+            action='store_true',
+            help=('Display minions that timeout')
+        )
         self.add_option(
             '-b', '--batch',
             '--batch-size',
@@ -1199,7 +1235,8 @@ class SaltKeyOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
         actions_group.add_option(
             '-a', '--accept',
             default='',
-            help='Accept the following key'
+            help='Accept the specified public key (use --include-all to '
+                 'match rejected keys in addition to pending keys)'
         )
 
         actions_group.add_option(
@@ -1212,7 +1249,8 @@ class SaltKeyOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
         actions_group.add_option(
             '-r', '--reject',
             default='',
-            help='Reject the specified public key'
+            help='Reject the specified public key (use --include-all to '
+                 'match accepted keys in addition to pending keys)'
         )
 
         actions_group.add_option(
@@ -1220,6 +1258,13 @@ class SaltKeyOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
             default=False,
             action='store_true',
             help='Reject all pending keys'
+        )
+
+        actions_group.add_option(
+            '--include-all',
+            default=False,
+            action='store_true',
+            help='Include non-pending keys when accepting/rejecting'
         )
 
         actions_group.add_option(
@@ -1451,7 +1496,8 @@ class SaltCallOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
             self.config['arg'] = self.args[1:]
 
     def setup_config(self):
-        return config.minion_config(self.get_config_file_path())
+        return config.minion_config(self.get_config_file_path(),
+                                    minion_id=True)
 
     def process_module_dirs(self):
         for module_dir in self.options.module_dirs:
@@ -1530,6 +1576,10 @@ class SaltSSHOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
                   'raw shell command')
         )
         self.add_option(
+            '--priv',
+            dest='ssh_priv',
+            help=('Ssh private key file'))
+        self.add_option(
             '--roster',
             dest='roster',
             default='',
@@ -1551,7 +1601,15 @@ class SaltSSHOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
             help='Set the number of concurrent minions to communicate with. '
                  'This value defines how many processes are opened up at a '
                  'time to manage connections, the more running processes the '
-                 'faster communication should be, default is 5')
+                 'faster communication should be, default is 25')
+        self.add_option(
+            '-i',
+            '--ignore-host-keys',
+            dest='ignore_host_keys',
+            default=False,
+            action='store_true',
+            help='By default ssh host keys are honored and connections will '
+                 'ask for approval')
         self.add_option(
             '--passwd',
             dest='ssh_passwd',
@@ -1559,14 +1617,19 @@ class SaltSSHOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
             help='Set the default password to attempt to use when '
                  'authenticating')
         self.add_option(
-            '--key_deploy',
+            '--key-deploy',
             dest='ssh_key_deploy',
             default=False,
+            action='store_true',
             help='Set this flag to atempt to deploy the authorized ssh key '
                  'with all minions. This combined with --passwd can make '
                  'initial deployment of keys very fast and easy')
 
     def _mixin_after_parsed(self):
+        if not self.args:
+            self.print_help()
+            self.exit(1)
+
         if self.options.list:
             if ',' in self.args[0]:
                 self.config['tgt'] = self.args[0].split(',')

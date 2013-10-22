@@ -457,10 +457,11 @@ class Minion(object):
         '''
         Pass in the options dict
         '''
+
         # Warn if ZMQ < 3.2
-        if HAS_ZMQ and (int(zmq.zmq_version()[0]) < 3 or
-                        (int(zmq.zmq_version()[0]) == 3 and
-                         int(zmq.zmq_version()[2]) < 2)):
+        if HAS_ZMQ and (not(hasattr(zmq, 'zmq_version_info')) or
+                        zmq.zmq_version_info() < (3, 2)):
+            # PyZMQ 2.1.9 does not have zmq_version_info
             log.warning('You have a version of ZMQ less than ZMQ 3.2! There '
                         'are known connection keep-alive issues with ZMQ < '
                         '3.2 which may result in loss of contact with '
@@ -514,7 +515,8 @@ class Minion(object):
         '''
         load = {'id': self.opts['id'],
                 'cmd': '_minion_event',
-                'pretag': pretag}
+                'pretag': pretag,
+                'tok': self.tok}
         if events:
             load['events'] = events
         elif data and tag:
@@ -717,8 +719,8 @@ class Minion(object):
         ret['fun'] = data['fun']
         minion_instance._return_pub(ret)
         if data['ret']:
+            ret['id'] = opts['id']
             for returner in set(data['ret'].split(',')):
-                ret['id'] = opts['id']
                 try:
                     minion_instance.returners['{0}.returner'.format(
                         returner
@@ -842,7 +844,7 @@ class Minion(object):
         Execute a state run based on information set in the minion config file
         '''
         if self.opts['startup_states']:
-            data = {'jid': 'req', 'ret': ''}
+            data = {'jid': 'req', 'ret': self.opts['ext_job_cache']}
             if self.opts['startup_states'] == 'sls':
                 data['fun'] = 'state.sls'
                 data['arg'] = [self.opts['sls_list']]
@@ -875,6 +877,7 @@ class Minion(object):
             )
         )
         auth = salt.crypt.Auth(self.opts)
+        self.tok = auth.gen_token('salt')
         acceptance_wait_time = self.opts['acceptance_wait_time']
         acceptance_wait_time_max = self.opts['acceptance_wait_time_max']
         if not acceptance_wait_time_max:
@@ -1194,15 +1197,28 @@ class Minion(object):
         Tear down the minion
         '''
         if hasattr(self, 'poller'):
-            for socket in self.poller.sockets.keys():
-                if socket.closed is False:
-                    socket.close()
-                self.poller.unregister(socket)
+            if isinstance(self.poller.sockets, dict):
+                for socket in self.poller.sockets.keys():
+                    if socket.closed is False:
+                        socket.close()
+                    self.poller.unregister(socket)
+            else:
+                for socket in self.poller.sockets:
+                    if socket[0].closed is False:
+                        socket[0].close()
+                    self.poller.unregister(socket[0])
+
         if hasattr(self, 'epoller'):
-            for socket in self.epoller.sockets.keys():
-                if socket.closed is False:
-                    socket.close()
-                self.epoller.unregister(socket)
+            if isinstance(self.epoller.sockets, dict):
+                for socket in self.epoller.sockets.keys():
+                    if socket.closed is False:
+                        socket.close()
+                    self.epoller.unregister(socket)
+            else:
+                for socket in self.epoller.sockets:
+                    if socket[0].closed is False:
+                        socket[0].close()
+                    self.epoller.unregister(socket[0])
         if hasattr(self, 'epub_sock') and self.epub_sock.closed is False:
             self.epub_sock.close()
         if hasattr(self, 'epull_sock') and self.epull_sock.closed is False:

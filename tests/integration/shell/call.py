@@ -66,7 +66,6 @@ class CallTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
         src = os.path.join(integration.FILES, 'file/base/top.sls')
         dst = os.path.join(integration.FILES, 'file/base/top.sls.bak')
         shutil.move(src, dst)
-        expected_tag = 'no_|-states_|-states_|-None'
         expected_comment = 'No Top file or external nodes data matches found'
         try:
             stdout, retcode = self.run_call(
@@ -74,9 +73,7 @@ class CallTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
                 with_retcode=True
             )
         finally:
-            pass
             shutil.move(dst, src)
-        self.assertIn(expected_tag, ''.join(stdout))
         self.assertIn(expected_comment, ''.join(stdout))
         self.assertNotEqual(0, retcode)
 
@@ -202,6 +199,36 @@ class CallTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
             # Let's remove our key from the master
             if os.path.isfile(this_minion_key):
                 os.unlink(this_minion_key)
+
+    def test_issue_7754(self):
+        old_cwd = os.getcwd()
+        config_dir = os.path.join(integration.TMP, 'issue-7754')
+        if not os.path.isdir(config_dir):
+            os.makedirs(config_dir)
+
+        os.chdir(config_dir)
+
+        minion_config = yaml.load(
+            open(self.get_config_file_path('minion'), 'r').read()
+        )
+        minion_config['log_file'] = 'file:///dev/log/LOG_LOCAL3'
+        open(os.path.join(config_dir, 'minion'), 'w').write(
+            yaml.dump(minion_config, default_flow_style=False)
+        )
+        ret = self.run_script(
+            'salt-call',
+            '--config-dir {0} cmd.run "echo foo"'.format(
+                config_dir
+            ),
+            timeout=15
+        )
+        try:
+            self.assertIn('local:', ret)
+            self.assertFalse(os.path.isdir(os.path.join(config_dir, 'file:')))
+        finally:
+            os.chdir(old_cwd)
+            if os.path.isdir(config_dir):
+                shutil.rmtree(config_dir)
 
 
 if __name__ == '__main__':

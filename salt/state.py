@@ -476,9 +476,8 @@ class State(object):
         if 'grains' not in opts:
             opts['grains'] = salt.loader.grains(opts)
         self.opts = opts
-        self.opts['pillar'] = self.__gather_pillar()
-        if pillar and isinstance(pillar, dict):
-            self.opts['pillar'].update(pillar)
+        self._pillar_override = pillar
+        self.opts['pillar'] = self._gather_pillar()
         self.state_con = {}
         self.load_modules()
         self.active = set()
@@ -486,7 +485,7 @@ class State(object):
         self.pre = {}
         self.__run_num = 0
 
-    def __gather_pillar(self):
+    def _gather_pillar(self):
         '''
         Whenever a state run starts, gather the pillar data fresh
         '''
@@ -495,7 +494,10 @@ class State(object):
                 self.opts['grains'],
                 self.opts['id']
                 )
-        return pillar.compile_pillar()
+        ret = pillar.compile_pillar()
+        if self._pillar_override and isinstance(self._pillar_override, dict):
+            ret.update(self._pillar_override)
+        return ret
 
     def _mod_init(self, low):
         '''
@@ -1391,6 +1393,16 @@ class State(object):
             return 'change'
         return 'met'
 
+    def event(self, chunk_ret):
+        '''
+        Fire an event on the master bus
+        '''
+        if not self.opts.get('local') and self.opts.get('state_events', True) and self.opts.get('master_uri'):
+            tag = salt.utils.event.tagify(
+                    [self.jid, str(chunk_ret['__run_num__'])]
+                    )
+            self.functions['event.fire_master'](chunk_ret, tag)
+
     def call_chunk(self, low, running, chunks):
         '''
         Check if a chunk has any requires, execute the requires and then
@@ -1652,8 +1664,10 @@ class State(object):
 
 class BaseHighState(object):
     '''
-    The BaseHighState is the foundation of running a highstate, extend it and
-    add a self.state object of type State
+    The BaseHighState is an abstract base class that is the foundation of running a highstate, extend it and
+    add a self.state object of type State.
+
+    When extending this class, please note that self.client and self.matcher should be instantiated and handled.
     '''
     def __init__(self, opts):
         self.opts = self.__gen_opts(opts)
@@ -1909,6 +1923,7 @@ class BaseHighState(object):
         syncd = self.state.functions['saltutil.sync_all'](list(matches))
         if syncd['grains']:
             self.opts['grains'] = salt.loader.grains(self.opts)
+            self.state.opts['pillar'] = self.state._gather_pillar()
         self.state.module_refresh()
 
     def render_state(self, sls, env, mods, matches):
@@ -1993,18 +2008,29 @@ class BaseHighState(object):
                     # An include must be resolved to a single environment, or
                     # the include must exist in the current environment
                     if len(resolved_envs) == 1 or env in resolved_envs:
-                        if inc_sls not in mods:
-                            nstate, err = self.render_state(
-                                inc_sls,
-                                resolved_envs[0] if len(resolved_envs) == 1 else env,
-                                mods,
-                                matches
-                            )
-                            if nstate:
-                                self.merge_included_states(state, nstate, errors)
-                                state.update(nstate)
-                            if err:
-                                errors.extend(err)
+                        # Match inc_sls against the available states in the
+                        # resolved env, matching wildcards in the process. If
+                        # there were no matches, then leave inc_sls as the
+                        # target so that the next recursion of render_state
+                        # will recognize the error.
+                        sls_targets = fnmatch.filter(
+                            self.avail[env],
+                            inc_sls
+                        ) or [inc_sls]
+
+                        for sls_target in sls_targets:
+                            if sls_target not in mods:
+                                nstate, err = self.render_state(
+                                    sls_target,
+                                    resolved_envs[0] if len(resolved_envs) == 1 else env,
+                                    mods,
+                                    matches
+                                )
+                                if nstate:
+                                    self.merge_included_states(state, nstate, errors)
+                                    state.update(nstate)
+                                if err:
+                                    errors.extend(err)
                     else:
                         msg = ''
                         if not resolved_envs:
@@ -2178,6 +2204,8 @@ class BaseHighState(object):
                             .format(sls_match, env)
                     )
                 for sls in statefiles:
+                    if sls in mods:
+                        continue
                     state, errors = self.render_state(sls, env, mods, matches)
                     if state:
                         self.merge_included_states(highstate, state, errors)
@@ -2224,7 +2252,19 @@ class BaseHighState(object):
                 'Error when rendering state with contents: {0}'.format(state)
             )
 
-    def call_highstate(self, exclude=None, cache=None, cache_name='highstate'):
+    def _check_pillar(self, force=False):
+        '''
+        Check the pillar for errors, refuse to run the state if there are
+        errors in the pillar and return the pillar errors
+        '''
+        if force:
+            return True
+        if '_errors' in self.state.opts['pillar']:
+            return False
+        return True
+
+    def call_highstate(self, exclude=None, cache=None, cache_name='highstate',
+                       force=False):
         '''
         Run the sequence to execute the salt highstate for this minion
         '''
@@ -2262,15 +2302,19 @@ class BaseHighState(object):
             ret[tag_name]['comment'] = msg
             return ret
         self.load_dynamic(matches)
-        high, errors = self.render_highstate(matches)
-        if exclude:
-            if isinstance(exclude, str):
-                exclude = exclude.split(',')
-            if '__exclude__' in high:
-                high['__exclude__'].extend(exclude)
-            else:
-                high['__exclude__'] = exclude
-        err += errors
+        if not self._check_pillar(force):
+            err += ['Pillar failed to render with the following messages:']
+            err += self.state.opts['pillar']['_errors']
+        else:
+            high, errors = self.render_highstate(matches)
+            if exclude:
+                if isinstance(exclude, str):
+                    exclude = exclude.split(',')
+                if '__exclude__' in high:
+                    high['__exclude__'].extend(exclude)
+                else:
+                    high['__exclude__'] = exclude
+            err += errors
         if err:
             return err
         if not high:

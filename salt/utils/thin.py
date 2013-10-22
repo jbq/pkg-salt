@@ -19,6 +19,13 @@ except ImportError:
 
 # Import salt libs
 import salt
+import salt.utils
+
+SALTCALL = '''
+from salt.scripts import salt_call
+if __name__ == '__main__':
+    salt_call()
+'''
 
 
 def gen_thin(cachedir):
@@ -30,6 +37,9 @@ def gen_thin(cachedir):
         os.makedirs(thindir)
     thintar = os.path.join(thindir, 'thin.tgz')
     thinver = os.path.join(thindir, 'version')
+    salt_call = os.path.join(thindir, 'salt-call')
+    with open(salt_call, 'w+') as fp_:
+        fp_.write(SALTCALL)
     if os.path.isfile(thintar):
         if not os.path.isfile(thinver):
             os.remove(thintar)
@@ -42,7 +52,7 @@ def gen_thin(cachedir):
             ]
     if HAS_MARKUPSAFE:
         tops.append(os.path.dirname(markupsafe.__file__))
-    tfp = tarfile.open(thintar, 'w:gz')
+    tfp = tarfile.open(thintar, 'w:gz', dereference=True)
     start_dir = os.getcwd()
     for top in tops:
         base = os.path.basename(top)
@@ -51,7 +61,7 @@ def gen_thin(cachedir):
             for name in files:
                 if not name.endswith(('.pyc', '.pyo')):
                     tfp.add(os.path.join(root, name))
-    os.chdir(os.path.dirname(salt.utils.which('salt-call')))
+    os.chdir(thindir)
     tfp.add('salt-call')
     with open(thinver, 'w+') as fp_:
         fp_.write(salt.__version__)
@@ -60,3 +70,11 @@ def gen_thin(cachedir):
     os.chdir(start_dir)
     tfp.close()
     return thintar
+
+
+def thin_sum(cachedir, form='sha1'):
+    '''
+    Return the checksum of the current thin tarball
+    '''
+    thintar = gen_thin(cachedir)
+    return salt.utils.get_hash(thintar, form)
