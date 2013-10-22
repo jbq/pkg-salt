@@ -1,3 +1,21 @@
+salt (0.17.1+dfsg-1) unstable; urgency=medium
+
+  * [ebd0329] Updated gbp.conf to remove saltstack theme
+  * [ba2cb77] Updated debian/watch to deal with dfsg versions
+  * [091a74a] Imported Upstream version 0.17.1+dfsg
+   * Various security fixes, Closes: 726480
+    * Insufficent Argument Validation CVE-2013-4435
+    * MITM ssh attack in salt-ssh CVE-2013-4436
+    * Insecure Usage of /tmp in salt-ssh CVE-2013-4438
+    * YAML Calling Unsafe Loading Routine CVE-2013-4438
+    * Failure to Validate Minions Posting Data CVE-2013-4439
+  * [47ce833] Removed patches for issues fixed by upstream
+  * [fddc7b5] Added patches for doc theme change and minor fixes
+  * [b146f77] Build man pages
+  * [cd33d3a] Copyright and licence audit, Closes: 725999
+
+ -- Joe Healy <joehealy@gmail.com>  Wed, 23 Oct 2013 00:19:26 +1100
+
 salt (0.17.0-2) unstable; urgency=low
 
   * [d952c6f] Fix upstream regression: prefer getfqdn call over /etc/hostname
