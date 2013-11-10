@@ -147,6 +147,7 @@ Architecture: all
 Depends: ${misc:Depends},
          ${python:Depends},
          salt-common (= ${source:Version}),
+         msgpack-python,
          sshpass
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
