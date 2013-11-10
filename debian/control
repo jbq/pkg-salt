@@ -95,7 +95,8 @@ Depends: ${misc:Depends},
          msgpack-python,
          python-zmq (>= 13.1.0),
          dctrl-tools
-Recommends: dmidecode
+Recommends: dmidecode,
+            debconf-utils
 Suggests: python-augeas
 Description: client package for salt, the distributed remote execution system
  salt is a powerful remote execution manager that can be used to
