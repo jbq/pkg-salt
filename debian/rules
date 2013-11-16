@@ -12,19 +12,6 @@ override_dh_auto_build:
 	make -C doc html
 	make -C doc man
 
-JS_FILES = searchtools doctools sidebar jquery underscore
-
-override_dh_installdocs:
-	dh_installdocs
-	# Remove embedded copies of javascript libs
-	for f in $(JS_FILES) ; do \
-		cd debian/salt-doc/usr/share/doc/salt/html/_static/ \
-		  && rm $${f}.js \
-		  && ln -s ../../../../javascript/sphinxdoc/1.0/$${f}.js . \
-		  && cd $(CURDIR) ; \
-	done ;
-
-
 override_dh_auto_clean:
 	make -C doc clean
 	dh_auto_clean
