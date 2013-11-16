@@ -242,14 +242,43 @@ class Client(object):
         Return a list of all available sls modules on the master for a given
         environment
         '''
+
+        limit_traversal = self.opts.get('fileserver_limit_traversal', False)
         states = []
-        for path in self.file_list(env):
-            if path.endswith('.sls'):
-                # is an sls module!
-                if path.endswith('{0}init.sls'.format('/')):
-                    states.append(path.replace('/', '.')[:-9])
-                else:
-                    states.append(path.replace('/', '.')[:-4])
+
+        if limit_traversal:
+            if env not in self.opts['file_roots']:
+                log.warning("During an attempt to list states for env {0}, the environment could not be found in the \
+                            configured file roots".format(env))
+                return states
+            for path in self.opts['file_roots'][env]:
+                for root, dirs, files in os.walk(path, topdown=True):
+                    log.debug("Searching for states in dirs {0} and files {1}".format(dirs, files))
+                    if not [file.endswith('.sls') for file in files]:
+                        #  Use shallow copy so we don't disturb the memory used by os.walk. Otherwise this breaks!
+                        del dirs[:]
+                    else:
+                        for found_file in files:
+                            stripped_root = os.path.relpath(root, path).replace('/', '.')
+                            if found_file.endswith(('.sls')):
+                                if found_file.endswith('init.sls'):
+                                    if stripped_root.endswith('.'):
+                                        stripped_root = stripped_root.rstrip('.')
+                                    states.append(stripped_root)
+                                else:
+                                    if not stripped_root.endswith('.'):
+                                        stripped_root += '.'
+                                    if stripped_root.startswith('.'):
+                                        stripped_root = stripped_root.lstrip('.')
+                                    states.append(stripped_root + found_file[:-4])
+        else:
+            for path in self.file_list(env):
+                if path.endswith('.sls'):
+                    # is an sls module!
+                    if path.endswith('{0}init.sls'.format('/')):
+                        states.append(path.replace('/', '.')[:-9])
+                    else:
+                        states.append(path.replace('/', '.')[:-4])
         return states
 
     def get_state(self, sls, env):
@@ -304,22 +333,25 @@ class Client(object):
                     )
                 )
         # Replicate empty dirs from master
-        for fn_ in self.file_list_emptydirs(env):
-            if fn_.startswith(path):
-                # Prevent an empty dir "salt://foobar/" from matching a path of
-                # "salt://foo"
-                try:
-                    if fn_[len(path)] != '/':
+        try:
+            for fn_ in self.file_list_emptydirs(env):
+                if fn_.startswith(path):
+                    # Prevent an empty dir "salt://foobar/" from matching a path of
+                    # "salt://foo"
+                    try:
+                        if fn_[len(path)] != '/':
+                            continue
+                    except IndexError:
                         continue
-                except IndexError:
-                    continue
-                # Remove the leading directories from path to derive
-                # the relative path on the minion.
-                minion_relpath = string.lstrip(fn_[len(prefix):], '/')
-                minion_mkdir = '{0}/{1}'.format(dest, minion_relpath)
-                if not os.path.isdir(minion_mkdir):
-                    os.makedirs(minion_mkdir)
-                ret.append(minion_mkdir)
+                    # Remove the leading directories from path to derive
+                    # the relative path on the minion.
+                    minion_relpath = string.lstrip(fn_[len(prefix):], '/')
+                    minion_mkdir = '{0}/{1}'.format(dest, minion_relpath)
+                    if not os.path.isdir(minion_mkdir):
+                        os.makedirs(minion_mkdir)
+                    ret.append(minion_mkdir)
+        except TypeError:
+            pass
         ret.sort()
         return ret
 
@@ -351,10 +383,12 @@ class Client(object):
         if url_data.username is not None \
                 and url_data.scheme in ('http', 'https'):
             _, netloc = url_data.netloc.split('@', 1)
-            fixed_url = urlunparse((url_data.scheme, netloc, url_data.path,
-                url_data.params, url_data.query, url_data.fragment))
+            fixed_url = urlunparse(
+                (url_data.scheme, netloc, url_data.path,
+                 url_data.params, url_data.query, url_data.fragment))
             passwd_mgr = url_passwd_mgr()
-            passwd_mgr.add_password(None, fixed_url, url_data.username, url_data.password)
+            passwd_mgr.add_password(
+                None, fixed_url, url_data.username, url_data.password)
             auth_handler = url_auth_handler(passwd_mgr)
             opener = url_build_opener(auth_handler)
             url_install_opener(opener)
@@ -476,7 +510,9 @@ class LocalClient(Client):
             return ret
         prefix = prefix.strip('/')
         for path in self.opts['file_roots'][env]:
-            for root, dirs, files in os.walk(os.path.join(path, prefix), followlinks=True):
+            for root, dirs, files in os.walk(
+                os.path.join(path, prefix), followlinks=True
+            ):
                 for fname in files:
                     ret.append(
                         os.path.relpath(
@@ -496,7 +532,9 @@ class LocalClient(Client):
         if env not in self.opts['file_roots']:
             return ret
         for path in self.opts['file_roots'][env]:
-            for root, dirs, files in os.walk(os.path.join(path, prefix), followlinks=True):
+            for root, dirs, files in os.walk(
+                os.path.join(path, prefix), followlinks=True
+            ):
                 if len(dirs) == 0 and len(files) == 0:
                     ret.append(os.path.relpath(root, path))
         return ret
@@ -511,7 +549,9 @@ class LocalClient(Client):
             return ret
         prefix = prefix.strip('/')
         for path in self.opts['file_roots'][env]:
-            for root, dirs, files in os.walk(os.path.join(path, prefix), followlinks=True):
+            for root, dirs, files in os.walk(
+                os.path.join(path, prefix), followlinks=True
+            ):
                 ret.append(os.path.relpath(root, path))
         return ret
 
@@ -599,6 +639,26 @@ class RemoteClient(Client):
         self.auth = salt.crypt.SAuth(opts)
         self.sreq = salt.payload.SREQ(self.opts['master_uri'])
 
+    def _crypted_transfer(self, load, tries=3, timeout=60, payload='aes'):
+        '''
+        In case of authentication errors, try to renegotiate authentication
+        and retry the method.
+        Indeed, we can fail too early in case of a master restart during a
+        minion state execution call
+        '''
+        def _do_transfer():
+            return self.auth.crypticle.loads(
+                self.sreq.send(payload,
+                               self.auth.crypticle.dumps(load),
+                               tries,
+                               timeout)
+            )
+        try:
+            return _do_transfer()
+        except salt.crypt.AuthenticationError:
+            self.auth = salt.crypt.SAuth(self.opts)
+            return _do_transfer()
+
     def get_file(self, path, dest='', makedirs=False, env='base', gzip=None):
         '''
         Get a single file from the salt-master
@@ -606,7 +666,8 @@ class RemoteClient(Client):
         dest is omitted, then the downloaded file will be placed in the minion
         cache
         '''
-        #--  Hash compare local copy with master and skip download if no diference found.
+        #--  Hash compare local copy with master and skip download
+        #    if no diference found.
         dest2check = dest
         if not dest2check:
             rel_path = self._check_proto(path)
@@ -617,7 +678,9 @@ class RemoteClient(Client):
             hash_local = self.hash_file(dest2check, env)
             hash_server = self.hash_file(path, env)
             if hash_local == hash_server:
-                log.info('Fetching file ** skipped **, latest already in cache \'{0}\''.format(path))
+                log.info(
+                    'Fetching file ** skipped **, '
+                    'latest already in cache \'{0}\''.format(path))
                 return dest2check
 
         log.debug('Fetching file ** attempting ** \'{0}\''.format(path))
@@ -645,12 +708,7 @@ class RemoteClient(Client):
             else:
                 load['loc'] = fn_.tell()
             try:
-                data = self.auth.crypticle.loads(
-                    self.sreq.send('aes',
-                                   self.auth.crypticle.dumps(load),
-                                   3,
-                                   60)
-                )
+                data = self._crypted_transfer(load)
             except SaltReqTimeoutError:
                 return ''
 
@@ -663,7 +721,7 @@ class RemoteClient(Client):
                             ofile.write(data['data'])
                 if 'hsum' in data and d_tries < 3:
                     # Master has prompted a file verification, if the
-                    # verification fails, redownload the file. Try 3 times
+                    # verification fails, re-download the file. Try 3 times
                     d_tries += 1
                     with salt.utils.fopen(dest, 'rb') as fp_:
                         hsum = getattr(
@@ -701,12 +759,7 @@ class RemoteClient(Client):
                 'prefix': prefix,
                 'cmd': '_file_list'}
         try:
-            return self.auth.crypticle.loads(
-                self.sreq.send('aes',
-                               self.auth.crypticle.dumps(load),
-                               3,
-                               60)
-            )
+            return self._crypted_transfer(load)
         except SaltReqTimeoutError:
             return ''
 
@@ -718,12 +771,7 @@ class RemoteClient(Client):
                 'prefix': prefix,
                 'cmd': '_file_list_emptydirs'}
         try:
-            return self.auth.crypticle.loads(
-                self.sreq.send('aes',
-                               self.auth.crypticle.dumps(load),
-                               3,
-                               60)
-            )
+            self._crypted_transfer(load)
         except SaltReqTimeoutError:
             return ''
 
@@ -735,12 +783,19 @@ class RemoteClient(Client):
                 'prefix': prefix,
                 'cmd': '_dir_list'}
         try:
-            return self.auth.crypticle.loads(
-                self.sreq.send('aes',
-                               self.auth.crypticle.dumps(load),
-                               3,
-                               60)
-            )
+            return self._crypted_transfer(load)
+        except SaltReqTimeoutError:
+            return ''
+
+    def symlink_list(self, env='base', prefix=''):
+        '''
+        List symlinked files and dirs on the master
+        '''
+        load = {'env': env,
+                'prefix': prefix,
+                'cmd': '_symlink_list'}
+        try:
+            return self._crypted_transfer(load)
         except SaltReqTimeoutError:
             return ''
 
@@ -759,19 +814,15 @@ class RemoteClient(Client):
                 return {}
             else:
                 ret = {}
-                ret['hsum'] = salt.utils.get_hash(path, form='md5', chunk_size=4096)
+                ret['hsum'] = salt.utils.get_hash(
+                    path, form='md5', chunk_size=4096)
                 ret['hash_type'] = 'md5'
                 return ret
         load = {'path': path,
                 'env': env,
                 'cmd': '_file_hash'}
         try:
-            return self.auth.crypticle.loads(
-                self.sreq.send('aes',
-                               self.auth.crypticle.dumps(load),
-                               3,
-                               60)
-            )
+            return self._crypted_transfer(load)
         except SaltReqTimeoutError:
             return ''
 
@@ -782,12 +833,7 @@ class RemoteClient(Client):
         load = {'env': env,
                 'cmd': '_file_list'}
         try:
-            return self.auth.crypticle.loads(
-                self.sreq.send('aes',
-                               self.auth.crypticle.dumps(load),
-                               3,
-                               60)
-            )
+            return self._crypted_transfer(load)
         except SaltReqTimeoutError:
             return ''
 
@@ -797,12 +843,7 @@ class RemoteClient(Client):
         '''
         load = {'cmd': '_master_opts'}
         try:
-            return self.auth.crypticle.loads(
-                self.sreq.send('aes',
-                               self.auth.crypticle.dumps(load),
-                               3,
-                               60)
-            )
+            return self._crypted_transfer(load)
         except SaltReqTimeoutError:
             return ''
 
@@ -816,11 +857,6 @@ class RemoteClient(Client):
                 'opts': self.opts,
                 'tok': self.auth.gen_token('salt')}
         try:
-            return self.auth.crypticle.loads(
-                self.sreq.send('aes',
-                               self.auth.crypticle.dumps(load),
-                               3,
-                               60)
-            )
+            return self._crypted_transfer(load)
         except SaltReqTimeoutError:
             return ''

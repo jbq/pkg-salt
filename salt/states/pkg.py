@@ -40,6 +40,8 @@ import re
 
 # Import salt libs
 import salt.utils
+from salt.exceptions import CommandExecutionError
+from salt.modules.pkg_resource import _repack_pkgs
 
 if salt.utils.is_windows():
     from salt.utils import namespaced_function as _namespaced_function
@@ -56,7 +58,7 @@ if salt.utils.is_windows():
     # The following imports are used by the namespaced win_pkg funcs
     # and need to be included in their globals.
     import msgpack
-    from distutils.version import LooseVersion  # pylint: disable=E0611
+    from distutils.version import LooseVersion  # pylint: disable=E0611,F0401
 
 log = logging.getLogger(__name__)
 
@@ -108,7 +110,7 @@ def _find_install_targets(name=None,
     cur_pkgs = __salt__['pkg.list_pkgs'](versions_as_list=True)
     if any((pkgs, sources)):
         if pkgs:
-            desired = __salt__['pkg_resource.pack_pkgs'](pkgs)
+            desired = _repack_pkgs(pkgs)
         elif sources:
             desired = __salt__['pkg_resource.pack_sources'](sources)
 
@@ -417,6 +419,11 @@ def installed(
     if not isinstance(version, basestring) and version is not None:
         version = str(version)
 
+    if salt.utils.is_true(refresh) or os.path.isfile(rtag):
+        __salt__['pkg.refresh_db']()
+        if os.path.isfile(rtag):
+            os.remove(rtag)
+
     result = _find_install_targets(name, version, pkgs, sources,
                                    fromrepo=fromrepo, **kwargs)
     try:
@@ -448,26 +455,14 @@ def installed(
                 'comment': comment}
 
     comment = []
-    if salt.utils.is_true(refresh) or os.path.isfile(rtag):
-        pkg_ret = __salt__['pkg.install'](name,
-                                          refresh=True,
-                                          version=version,
-                                          fromrepo=fromrepo,
-                                          skip_verify=skip_verify,
-                                          pkgs=pkgs,
-                                          sources=sources,
-                                          **kwargs)
-        if os.path.isfile(rtag):
-            os.remove(rtag)
-    else:
-        pkg_ret = __salt__['pkg.install'](name,
-                                          refresh=False,
-                                          version=version,
-                                          fromrepo=fromrepo,
-                                          skip_verify=skip_verify,
-                                          pkgs=pkgs,
-                                          sources=sources,
-                                          **kwargs)
+    pkg_ret = __salt__['pkg.install'](name,
+                                      refresh=False,
+                                      version=version,
+                                      fromrepo=fromrepo,
+                                      skip_verify=skip_verify,
+                                      pkgs=pkgs,
+                                      sources=sources,
+                                      **kwargs)
     if isinstance(pkg_ret, dict):
         changes = pkg_ret
     elif isinstance(pkg_ret, basestring):
@@ -575,7 +570,7 @@ def latest(
                 'result': False,
                 'comment': 'The "sources" parameter is not supported.'}
     elif pkgs:
-        desired_pkgs = __salt__['pkg_resource.pack_pkgs'](pkgs).keys()
+        desired_pkgs = _repack_pkgs(pkgs).keys()
         if not desired_pkgs:
             # Badly-formatted SLS
             return {'name': name,
@@ -645,9 +640,12 @@ def latest(
                       'installed/upgraded: ' \
                       '{0}.'.format(to_be_upgraded)
             if up_to_date:
-                comment += ' The following packages are already ' \
-                           'up-to-date: ' \
-                           '{0}.'.format(', '.join(sorted(up_to_date)))
+                if len(up_to_date) <= 10:
+                    comment += ' The following packages are already ' \
+                        'up-to-date: {0}.'.format(', '.join(sorted(up_to_date)))
+                else:
+                    comment += ' {0} packages are already up-to-date.'.format(
+                        len(up_to_date))
 
             return {'name': name,
                     'changes': {},
@@ -683,8 +681,12 @@ def latest(
                       '{0}.'.format(', '.join(sorted(successful)))
                 comments.append(msg)
             if up_to_date:
-                msg = 'The following packages were already up-to-date: ' \
-                      '{0}.'.format(', '.join(sorted(up_to_date)))
+                if len(up_to_date) <= 10:
+                    msg = 'The following packages were already up-to-date: ' \
+                        '{0}.'.format(', '.join(sorted(up_to_date)))
+                else:
+                    msg = '{0} packages were already up-to-date. '.format(
+                        len(up_to_date))
                 comments.append(msg)
 
             return {'name': name,
@@ -692,27 +694,37 @@ def latest(
                     'result': False if failed else True,
                     'comment': ' '.join(comments)}
         else:
-            if len(targets) > 1:
+            if len(targets) > 10:
+                comment = 'All targeted {0} packages failed to update.'\
+                    .format(len(targets))
+            elif len(targets) > 1:
                 comment = 'All targeted packages failed to update: ' \
                           '({0}).'.format(', '.join(sorted(targets.keys())))
             else:
                 comment = 'Package {0} failed to ' \
                           'update.'.format(targets.keys()[0])
             if up_to_date:
-                comment += ' The following packages were already ' \
-                           'up-to-date: ' \
-                           '{0}'.format(', '.join(sorted(up_to_date)))
+                if len(up_to_date) <= 10:
+                    comment += ' The following packages were already ' \
+                        'up-to-date: ' \
+                        '{0}'.format(', '.join(sorted(up_to_date)))
+                else:
+                    comment += '{0} packages were already ' \
+                        'up-to-date.'.format(len(up_to_date))
             return {'name': name,
                     'changes': changes,
                     'result': False,
                     'comment': comment}
     else:
-        if len(desired_pkgs) > 1:
+        if len(desired_pkgs) > 10:
+            comment = 'All {0} packages are up-to-date.'.format(
+                len(desired_pkgs))
+        elif len(desired_pkgs) > 1:
             comment = 'All packages are up-to-date ' \
-                      '({0}).'.format(', '.join(sorted(desired_pkgs)))
+                '({0}).'.format(', '.join(sorted(desired_pkgs)))
         else:
             comment = 'Package {0} is already ' \
-                      'up-to-date.'.format(desired_pkgs[0])
+                'up-to-date.'.format(desired_pkgs[0])
 
         return {'name': name,
                 'changes': {},
@@ -804,7 +816,13 @@ def removed(name, pkgs=None, **kwargs):
 
     .. versionadded:: 0.16.0
     '''
-    return _uninstall(action='remove', name=name, pkgs=pkgs, **kwargs)
+    try:
+        return _uninstall(action='remove', name=name, pkgs=pkgs, **kwargs)
+    except CommandExecutionError as exc:
+        return {'name': name,
+                'changes': {},
+                'result': False,
+                'comment': str(exc)}
 
 
 def purged(name, pkgs=None, **kwargs):
@@ -824,7 +842,13 @@ def purged(name, pkgs=None, **kwargs):
 
     .. versionadded:: 0.16.0
     '''
-    return _uninstall(action='purge', name=name, pkgs=pkgs, **kwargs)
+    try:
+        return _uninstall(action='purge', name=name, pkgs=pkgs, **kwargs)
+    except CommandExecutionError as exc:
+        return {'name': name,
+                'changes': {},
+                'result': False,
+                'comment': str(exc)}
 
 
 def mod_init(low):

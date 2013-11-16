@@ -181,6 +181,25 @@ would look something like this:
       file.recurse:
         - source: salt://code/flask
         - include_empty: True
+
+A more complex ``recurse`` example:
+
+.. code-block:: yaml
+
+    {% set site_user = 'testuser' %}
+    {% set site_name = 'test_site' %}
+    {% set project_name = 'test_proj' %}
+    {% set sites_dir = 'test_dir' %}
+
+    django-project:
+      file.recurse:
+        - name: {{ sites_dir }}/{{ site_name }}/{{ project_name }}
+        - user: {{ site_user }}
+        - dir_mode: 2775
+        - file_mode: '0644'
+        - template: jinja
+        - source: salt://project/templates_dir
+        - include_empty: True
 '''
 
 # Import python libs
@@ -907,6 +926,7 @@ def managed(name,
             mode=None,
             template=None,
             makedirs=False,
+            dir_mode=None,
             context=None,
             replace=True,
             defaults=None,
@@ -972,6 +992,11 @@ def managed(name,
         the state will fail. If makedirs is set to True, then the parent
         directories will be created to facilitate the creation of the named
         file.
+
+    dir_mode
+        If directories are to be created, passing this option specifies the
+        permissions for those directories. If this is not set, directories
+        will be assigned permissions from the 'mode' argument.
 
     replace
         If this file should be replaced.  If false, this command will
@@ -1128,7 +1153,8 @@ def managed(name,
                                             backup,
                                             template,
                                             show_diff,
-                                            contents)
+                                            contents,
+                                            dir_mode)
 
 
 def directory(name,
@@ -1393,6 +1419,10 @@ def recurse(name,
         If this setting is applied then the named templating engine will be
         used to render the downloaded file, currently jinja, mako, and wempy
         are supported
+
+    .. note::
+
+        The template option is required when recursively applying templates.
 
     context
         Overrides default context variables passed to the template.

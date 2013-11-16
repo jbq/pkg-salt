@@ -171,7 +171,7 @@ class SaltStackVersion(object):
 #
 # Please bump version information for __saltstack_version__ on new releases
 # ----------------------------------------------------------------------------
-__saltstack_version__ = SaltStackVersion(0, 17, 1)
+__saltstack_version__ = SaltStackVersion(0, 17, 2)
 __version_info__ = __saltstack_version__.info
 __version__ = __saltstack_version__.string
 # <---- Hardcoded Salt Version Information -----------------------------------
@@ -205,6 +205,16 @@ def __get_version(version, version_info):
         cwd = os.path.abspath(
             os.path.dirname(inspect.getsourcefile(__get_version))
         )
+
+    if __file__ == 'setup.py':
+        # This is from the exec() call in Salt's setup.py
+        if not os.path.exists(os.path.join(cwd, '.git')):
+            # This is not a Salt git checkout!!! Don't even try to parse...
+            return version, version_info
+
+    elif not os.path.exists(os.path.join(os.path.dirname(cwd), '.git')):
+        # This is not a Salt git checkout!!! Don't even try to parse...
+        return version, version_info
 
     try:
         kwargs = dict(

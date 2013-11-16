@@ -41,13 +41,14 @@ def __virtual__():
     enable = set((
         'RedHat',
         'CentOS',
-        'Scientific',
+        'ScientificLinux',
         'CloudLinux',
         'Amazon',
         'Fedora',
         'ALT',
         'OEL',
-        'SUSE  Enterprise Server'
+        'SUSE  Enterprise Server',
+        'McAfee  OS Server'
     ))
     if __grains__['os'] in enable:
         if __grains__['os'] == 'Fedora':

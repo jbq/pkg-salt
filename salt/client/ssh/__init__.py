@@ -14,6 +14,7 @@ import time
 import multiprocessing
 import re
 import logging
+import yaml
 
 # Import salt libs
 import salt.client.ssh.shell
@@ -59,6 +60,29 @@ SSH_SHIM = '''/bin/sh << 'EOF'
          fi
       done
       SALT=/tmp/.salt/salt-call
+      if [ {{2}} = 'md5' ]
+      then
+         for md5_candidate in \\
+            md5sum            \\
+            md5               ;
+         do
+            if [ $(which $md5_candidate 2>/dev/null) ]
+            then
+                SUMCHECK=$(which $md5_candidate)
+                break
+            fi
+         done
+      else
+         SUMCHECK={{2}}
+      fi
+
+      if [ $SUMCHECK = '/sbin/md5' ]
+      then
+         CUT_MARK=4
+      else
+         CUT_MARK=1
+      fi
+
       if [ -f $SALT ]
       then
          if [ $(cat /tmp/.salt/version) != {0} ]
@@ -80,7 +104,7 @@ SSH_SHIM = '''/bin/sh << 'EOF'
          fi
          if [ -f /tmp/.salt/salt-thin.tgz ]
          then
-             [ $({{2}}sum /tmp/.salt/salt-thin.tgz | cut -f1 -d' ') = {{3}} ] && {{0}} tar xzvf /tmp/.salt/salt-thin.tgz -C /tmp/.salt
+             [ $($SUMCHECK /tmp/.salt/salt-thin.tgz | cut -f$CUT_MARK -d' ') = {{3}} ] && {{0}} tar opxzvf /tmp/.salt/salt-thin.tgz -C /tmp/.salt
          else
              install -m 0700 -d /tmp/.salt
              echo "{1}"
@@ -170,7 +194,7 @@ class SSH(object):
             if deploy.startswith(('n', 'N')):
                 return ret
             target['passwd'] = getpass.getpass(
-                    'Password for {0}@{1}:'.format(host, target['user'])
+                    'Password for {0}@{1}:'.format(target['user'], host)
                 )
             return self._key_deploy_run(host, target, True)
         return ret
@@ -353,7 +377,7 @@ class Single(object):
                 'sudo': sudo,
                 'tty': tty}
         self.shell = salt.client.ssh.shell.Shell(opts, **args)
-
+        self.minion_config = yaml.dump({'root_dir': '/tmp/.salt/running_data'})
         self.target = kwargs
         self.target.update(args)
         self.serial = salt.payload.Serial(opts)
@@ -436,7 +460,8 @@ class Single(object):
                 self.opts,
                 self.id,
                 **self.target)
-            opts_pkg = pre_wrapper['test.opts_pkg']()
+            default_opts = pre_wrapper['test.opts_pkg']()
+            opts_pkg = dict(default_opts.items() + self.opts.items())
             pillar = salt.pillar.Pillar(
                     opts_pkg,
                     opts_pkg['grains'],
@@ -502,6 +527,10 @@ class Single(object):
         # 2. check is salt-call is on the target
         # 3. deploy salt-thin
         # 4. execute command
+        if self.arg_str.startswith('cmd.run'):
+            cmd_args = ' '.join(self.arg_str.split()[1:])
+            if not cmd_args.startswith("'") and not cmd_args.endswith("'"):
+                self.arg_str = "cmd.run '{0}'".format(cmd_args)
         sudo = 'sudo' if self.target['sudo'] else ''
         thin_sum = salt.utils.thin.thin_sum(
                 self.opts['cachedir'],
