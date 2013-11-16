@@ -19,6 +19,7 @@ import sys
 import salt.payload
 import salt.state
 import salt.client
+import salt.utils
 from salt.exceptions import SaltReqTimeoutError
 from salt._compat import string_types
 
@@ -239,6 +240,7 @@ def sync_grains(env=None, refresh=True):
     ret = _sync('grains', env)
     if refresh:
         refresh_modules()
+        refresh_pillar()
     return ret
 
 
@@ -378,7 +380,6 @@ def running():
 
         salt '*' saltutil.running
     '''
-    procs = __salt__['status.procs']()
     ret = []
     serial = salt.payload.Serial(__opts__)
     pid = os.getpid()
@@ -392,7 +393,7 @@ def running():
         if not isinstance(data, dict):
             # Invalid serial object
             continue
-        if not procs.get(str(data['pid'])):
+        if not salt.utils.process.os_is_running(data['pid']):
             # The process is no longer running, clear out the file and
             # continue
             os.remove(path)

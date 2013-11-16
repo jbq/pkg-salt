@@ -15,6 +15,9 @@ ensure_in_syspath('../../')
 import integration
 import salt.utils
 
+# Import Python libs
+import stat
+
 
 class FileTest(integration.ModuleCase, integration.SaltReturnAssertsMixIn):
     '''
@@ -109,6 +112,25 @@ class FileTest(integration.ModuleCase, integration.SaltReturnAssertsMixIn):
         self.assertEqual(master_data, minion_data)
         self.assertSaltTrueReturn(ret)
 
+    def test_managed_dir_mode(self):
+        '''
+        Tests to ensure that file.managed creates directories with the permissions
+        requested with the dir_mode argument
+        '''
+        desired_mode=511 # 0777 in octal
+        name = os.path.join(integration.TMP, 'a', 'managed_dir_mode_test_file')
+        ret = self.run_state(
+            'file.managed',
+            name=name,
+            source='salt://grail/scene33',
+            mode=600,
+            makedirs=True,
+            dir_mode=oct(desired_mode)  # 0777
+        )
+        resulting_mode = stat.S_IMODE(os.stat(os.path.join(integration.TMP, 'a')).st_mode)
+        self.assertEqual(oct(desired_mode), oct(resulting_mode))
+        self.assertSaltTrueReturn(ret)
+
     def test_test_managed(self):
         '''
         file.managed test interface
@@ -134,7 +156,7 @@ class FileTest(integration.ModuleCase, integration.SaltReturnAssertsMixIn):
         )
 
         changes = ret.values()[0]['changes']
-        self.assertEquals('<show_diff=False>', changes['diff'])
+        self.assertEqual('<show_diff=False>', changes['diff'])
 
     def test_directory(self):
         '''

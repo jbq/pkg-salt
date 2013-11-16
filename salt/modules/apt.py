@@ -120,6 +120,13 @@ def _get_virtual():
     return __context__['pkg._get_virtual']
 
 
+def _warn_software_properties(repo):
+    log.warning('The \'python-software-properties\' package is not installed. '
+                'For more accurate support of PPA repositories, you should '
+                'install this package.')
+    log.warning('Best guess at ppa format: {0}'.format(repo))
+
+
 def latest_version(*names, **kwargs):
     '''
     Return the latest version of the named package available for upgrade or
@@ -159,7 +166,7 @@ def latest_version(*names, **kwargs):
     for name in names:
         ret[name] = ''
     pkgs = list_pkgs(versions_as_list=True)
-    repo = ['-o', 'APT::Default-Release="{0}"'.format(fromrepo)] \
+    repo = ['-o', 'APT::Default-Release={0}'.format(fromrepo)] \
         if fromrepo else ''
 
     # Refresh before looking for the latest version available
@@ -176,6 +183,7 @@ def latest_version(*names, **kwargs):
         if isinstance(repo, list):
             cmd = cmd + repo
         out = __salt__['cmd.run_all'](cmd, python_shell=False)
+        candidate = ''
         for line in out['stdout'].splitlines():
             if 'Candidate' in line:
                 candidate = line.split()
@@ -368,23 +376,16 @@ def install(name=None,
     if not fromrepo and repo:
         fromrepo = repo
 
-    if kwargs.get('env'):
-        try:
-            os.environ.update(kwargs.get('env'))
-        except Exception as e:
-            log.exception(e)
-
     old = list_pkgs()
 
     downgrade = False
     if pkg_params is None or len(pkg_params) == 0:
         return {}
     elif pkg_type == 'file':
-        cmd = 'dpkg -i {confold} {verify} {pkg}'.format(
-            confold='--force-confold',
-            verify='--force-bad-verify' if skip_verify else '',
-            pkg=' '.join(pkg_params),
-        )
+        cmd = ['dpkg', '-i', '--force-confold']
+        if skip_verify:
+            cmd.append('--force-bad-verify')
+        cmd.extend(pkg_params)
     elif pkg_type == 'repository':
         if pkgs is None and kwargs.get('version') and len(pkg_params) == 1:
             # Only use the 'version' param if 'name' was not specified as a
@@ -402,9 +403,9 @@ def install(name=None,
                                                         ver2=cver,
                                                         cmp_func=version_cmp):
                     downgrade = True
-                targets.append('"{0}={1}"'.format(param, version_num))
+                targets.append('{0}={1}'.format(param, version_num.lstrip('=')))
         if fromrepo:
-            log.info('Targeting repo "{0}"'.format(fromrepo))
+            log.info('Targeting repo {0!r}'.format(fromrepo))
         cmd = ['apt-get', '-q', '-y']
         if downgrade:
             cmd.append('--force-yes')
@@ -417,7 +418,7 @@ def install(name=None,
         cmd.append('install')
         cmd.extend(targets)
 
-    __salt__['cmd.run_all'](cmd, python_shell=False)
+    __salt__['cmd.run_all'](cmd, env=kwargs.get('env'), python_shell=False)
     __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
     return __salt__['pkg_resource.find_changes'](old, new)
@@ -428,11 +429,6 @@ def _uninstall(action='remove', name=None, pkgs=None, **kwargs):
     remove and purge do identical things but with different apt-get commands,
     this function performs the common logic.
     '''
-    if kwargs.get('env'):
-        try:
-            os.environ.update(kwargs.get('env'))
-        except Exception as e:
-            log.exception(e)
 
     pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
     old = list_pkgs()
@@ -444,7 +440,7 @@ def _uninstall(action='remove', name=None, pkgs=None, **kwargs):
         return {}
     cmd = ['apt-get', '-q', '-y', action]
     cmd.extend(targets)
-    __salt__['cmd.run_all'](cmd, python_shell=False)
+    __salt__['cmd.run_all'](cmd, env=kwargs.get('env'), python_shell=False)
     __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
     new_removed = list_pkgs(removed=True)
@@ -724,8 +720,8 @@ def version_cmp(pkg1, pkg2):
     '''
     try:
         for oper, ret in (('lt', -1), ('eq', 0), ('gt', 1)):
-            cmd = 'dpkg --compare-versions "{0}" {1} ' \
-                  '"{2}"'.format(pkg1, oper, pkg2)
+            cmd = 'dpkg --compare-versions {0!r} {1} ' \
+                  '{2!r}'.format(pkg1, oper, pkg2)
             if __salt__['cmd.retcode'](cmd) == 0:
                 return ret
     except Exception as e:
@@ -740,7 +736,7 @@ def _split_repo_str(repo):
 
 def _consolidate_repo_sources(sources):
     if not isinstance(sources, sourceslist.SourcesList):
-        raise TypeError('"{0}" not a "{1}"'.format(type(sources),
+        raise TypeError('{0!r} not a {1!r}'.format(type(sources),
                                                    sourceslist.SourcesList))
 
     consolidated = {}
@@ -799,8 +795,8 @@ def list_repos():
         repo['disabled'] = source.disabled
         repo['dist'] = source.dist
         repo['type'] = source.type
-        repo['uri'] = source.uri
-        repo['line'] = source.line.strip()
+        repo['uri'] = source.uri.rstrip('/')
+        repo['line'] = _strip_uri(source.line.strip())
         repo['architectures'] = getattr(source, 'architectures', [])
         repos.setdefault(source.uri, []).append(repo)
     return repos
@@ -819,8 +815,9 @@ def get_repo(repo, **kwargs):
         salt '*' pkg.get_repo "myrepo definition"
     '''
     if not apt_support:
-        msg = 'Error: aptsources.sourceslist python module not found'
-        raise Exception(msg)
+        raise CommandExecutionError(
+            'Error: aptsources.sourceslist python module not found'
+        )
 
     ppa_auth = kwargs.get('ppa_auth', None)
     # we have to be clever about this since the repo definition formats
@@ -855,8 +852,10 @@ def get_repo(repo, **kwargs):
                                                        ppa_auth,
                                                        uri_match.group(2))
         except SyntaxError:
-            error_str = 'Error: repo "{0}" is not a well formatted definition'
-            raise Exception(error_str.format(repo))
+            raise CommandExecutionError(
+                'Error: repo {0!r} is not a well formatted definition'
+                .format(repo)
+            )
 
         for source in repos.values():
             for sub in source:
@@ -871,7 +870,7 @@ def get_repo(repo, **kwargs):
                         if comp in sub.get('comps', []):
                             return sub
 
-    raise Exception('repo "{0}" was not found'.format(repo))
+    raise CommandExecutionError('repo {0!r} was not found'.format(repo))
 
 
 def del_repo(repo, **kwargs):
@@ -901,10 +900,7 @@ def del_repo(repo, **kwargs):
         is_ppa = True
         dist = __grains__['lsb_distrib_codename']
         if not ppa_format_support:
-            warning_str = 'Unable to use functions from ' \
-                          '"python-software-properties" package, making ' \
-                          'best guess at ppa format: {0}'
-            log.warning(warning_str.format(repo))
+            _warn_software_properties(repo)
             owner_name, ppa_name = repo[4:].split('/')
             if 'ppa_auth' in kwargs:
                 auth_info = '{0}@'.format(kwargs['ppa_auth'])
@@ -922,7 +918,7 @@ def del_repo(repo, **kwargs):
         try:
             repo_type, repo_uri, repo_dist, repo_comps = _split_repo_str(repo)
         except SyntaxError:
-            error_str = 'Error: repo "{0}" not a well formatted definition'
+            error_str = 'Error: repo {0!r} not a well formatted definition'
             return error_str.format(repo)
 
         for source in repos:
@@ -961,10 +957,10 @@ def del_repo(repo, **kwargs):
                 if source.file in deleted_from:
                     deleted_from[source.file] += 1
             for repo_file, c in deleted_from.iteritems():
-                msg = 'Repo "{0}" has been removed from {1}.\n'
+                msg = 'Repo {0!r} has been removed from {1}.\n'
                 if c == 0 and 'sources.list.d/' in repo_file:
                     if os.path.isfile(repo_file):
-                        msg = ('File {1} containing repo "{0}" has been '
+                        msg = ('File {1} containing repo {0!r} has been '
                                'removed.\n')
                         try:
                             os.remove(repo_file)
@@ -1031,10 +1027,7 @@ def mod_repo(repo, **kwargs):
                     return {repo: out}
             else:
                 if not ppa_format_support:
-                    warning_str = 'Unable to use functions from ' \
-                                  '"python-software-properties" package, ' \
-                                  'making best guess at ppa format: {0}'
-                    log.warning(warning_str.format(repo))
+                    _warn_software_properties(repo)
                 else:
                     log.info('falling back to urllib method for private PPA ')
                 #fall back to urllib style
@@ -1044,8 +1037,8 @@ def mod_repo(repo, **kwargs):
                     err_str = 'Unable to get PPA info from argument. ' \
                               'Expected format "<PPA_OWNER>/<PPA_NAME>" ' \
                               '(e.g. saltstack/salt) not found.  Received ' \
-                              '"{0}" instead.'
-                    raise Exception(err_str.format(repo[4:]))
+                              '{0!r} instead.'
+                    raise CommandExecutionError(err_str.format(repo[4:]))
                 dist = __grains__['lsb_distrib_codename']
                 # ppa has a lot of implicit arguments. Make them explicit.
                 # These will defer to any user-defined variants
@@ -1065,17 +1058,21 @@ def mod_repo(repo, **kwargs):
                         if 'keyid' not in kwargs:
                             error_str = 'Private PPAs require a ' \
                                         'keyid to be specified: {0}/{1}'
-                            raise Exception(error_str.format(owner_name,
-                                                             ppa_name))
+                            raise CommandExecutionError(
+                                error_str.format(owner_name, ppa_name)
+                            )
                 except urllib2.HTTPError as exc:
                     error_str = 'Launchpad does not know about {0}/{1}: {2}'
-                    raise Exception(error_str.format(owner_name, ppa_name,
-                                                     exc))
+                    raise CommandExecutionError(
+                        error_str.format(owner_name, ppa_name, exc)
+                    )
                 except IndexError as e:
                     error_str = 'Launchpad knows about {0}/{1} but did not ' \
                                 'return a fingerprint. Please set keyid ' \
                                 'manually: {2}'
-                    raise Exception(error_str.format(owner_name, ppa_name, e))
+                    raise CommandExecutionError(
+                        error_str.format(owner_name, ppa_name, e)
+                    )
 
                 if 'keyserver' not in kwargs:
                     kwargs['keyserver'] = 'keyserver.ubuntu.com'
@@ -1083,7 +1080,7 @@ def mod_repo(repo, **kwargs):
                     if not launchpad_ppa_info['private']:
                         error_str = 'PPA is not private but auth ' \
                                     'credentials passed: {0}'
-                        raise Exception(error_str.format(repo))
+                        raise CommandExecutionError(error_str.format(repo))
                 # assign the new repo format to the "repo" variable
                 # so we can fall through to the "normal" mechanism
                 # here.
@@ -1094,8 +1091,10 @@ def mod_repo(repo, **kwargs):
                 else:
                     repo = LP_SRC_FORMAT.format(owner_name, ppa_name, dist)
         else:
-            error_str = 'cannot parse "ppa:" style repo definitions: {0}'
-            raise Exception(error_str.format(repo))
+            raise CommandExecutionError(
+                'cannot parse "ppa:" style repo definitions: {0}'
+                .format(repo)
+            )
 
     sources = sourceslist.SourcesList()
     if kwargs.get('consolidate', False):
@@ -1118,7 +1117,7 @@ def mod_repo(repo, **kwargs):
         repo_type, repo_uri, repo_dist, repo_comps = _split_repo_str(
             repo)
     except SyntaxError:
-        error_str = 'Error: repo "{0}" not a well formatted definition'
+        error_str = 'Error: repo {0!r} not a well formatted definition'
         raise SyntaxError(error_str.format(repo))
 
     full_comp_list = set(repo_comps)
@@ -1136,26 +1135,23 @@ def mod_repo(repo, **kwargs):
             if not imported:
                 cmd = ('apt-key adv --keyserver {0} --logger-fd 1 '
                        '--recv-keys {1}')
-                out = __salt__['cmd.run_stdout'](cmd.format(ks, keyid),
-                                                 **kwargs)
-                if not (out.find('imported') or out.find('not changed')):
-                    error_str = 'Error: key retrieval failed: {0}'
-                    raise Exception(
-                        error_str.format(
-                            cmd.format(
-                                ks,
-                                keyid
-                            )
-                        )
+                ret = __salt__['cmd.run_all'](cmd.format(ks, keyid),
+                                              **kwargs)
+                if ret['retcode'] != 0:
+                    raise CommandExecutionError(
+                        'Error: key retrieval failed: {0}'
+                        .format(ret['stdout'])
                     )
+
     elif 'key_url' in kwargs:
         key_url = kwargs['key_url']
         fn_ = __salt__['cp.cache_file'](key_url)
         cmd = 'apt-key add {0}'.format(fn_)
         out = __salt__['cmd.run_stdout'](cmd, **kwargs)
         if not out.upper().startswith('OK'):
-            error_str = 'Error: key retrieval failed: {0}'
-            raise Exception(error_str.format(cmd.format(key_url)))
+            raise CommandExecutionError(
+                'Error: key retrieval failed: {0}'.format(cmd.format(key_url))
+            )
 
     if 'comps' in kwargs:
         kwargs['comps'] = kwargs['comps'].split(',')
@@ -1268,6 +1264,18 @@ def file_dict(*packages):
     return __salt__['lowpkg.file_dict'](*packages)
 
 
+def _strip_uri(repo):
+    '''
+    Remove the trailing slash from the URI in a repo definition
+    '''
+    splits = repo.split()
+    for idx in xrange(len(splits)):
+        if any(splits[idx].startswith(x)
+               for x in ('http://', 'https://', 'ftp://')):
+            splits[idx] = splits[idx].rstrip('/')
+    return ' '.join(splits)
+
+
 def expand_repo_def(repokwargs):
     '''
     Take a repository definition and expand it to the full pkg repository dict
@@ -1279,10 +1287,11 @@ def expand_repo_def(repokwargs):
     sanitized = {}
 
     if not apt_support:
-        msg = 'Error: aptsources.sourceslist python module not found'
-        raise Exception(msg)
+        raise CommandExecutionError(
+            'Error: aptsources.sourceslist python module not found'
+        )
 
-    repo = repokwargs['repo']
+    repo = _strip_uri(repokwargs['repo'])
 
     if repo.startswith('ppa:') and __grains__['os'] == 'Ubuntu':
         dist = __grains__['lsb_distrib_codename']
@@ -1313,7 +1322,7 @@ def expand_repo_def(repokwargs):
     sanitized['disabled'] = source_entry.disabled
     sanitized['dist'] = source_entry.dist
     sanitized['type'] = source_entry.type
-    sanitized['uri'] = source_entry.uri
+    sanitized['uri'] = source_entry.uri.rstrip('/')
     sanitized['line'] = source_entry.line.strip()
     sanitized['architectures'] = getattr(source_entry, 'architectures', [])
 
@@ -1366,7 +1375,7 @@ def get_selections(pattern=None, state=None):
     ret = {}
     cmd = 'dpkg --get-selections'
     if pattern:
-        cmd += ' "{0}"'.format(pattern)
+        cmd += ' {0!r}'.format(pattern)
     else:
         cmd += ' "*"'
     stdout = __salt__['cmd.run_all'](cmd).get('stdout', '')

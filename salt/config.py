@@ -140,6 +140,7 @@ VALID_OPTS = {
     'file_ignore_regex': bool,
     'file_ignore_glob': bool,
     'fileserver_backend': list,
+    'fileserver_limit_traversal': bool,
     'max_open_files': int,
     'auto_accept': bool,
     'master_tops': bool,
@@ -158,6 +159,9 @@ VALID_OPTS = {
     'win_repo': str,
     'win_repo_mastercachefile': str,
     'win_gitrepos': list,
+    'enable_lspci': bool,
+    'syndic_wait': int,
+    'minion_id_caching': bool,
 }
 
 # default configurations
@@ -186,6 +190,7 @@ DEFAULT_MINION_OPTS = {
     'file_roots': {
         'base': [syspaths.BASE_FILE_ROOTS_DIR],
     },
+    'fileserver_limit_traversal': False,
     'pillar_roots': {
         'base': [syspaths.BASE_PILLAR_ROOTS_DIR],
     },
@@ -218,6 +223,7 @@ DEFAULT_MINION_OPTS = {
     'log_fmt_logfile': _DFLT_LOG_FMT_LOGFILE,
     'log_granular_levels': {},
     'test': False,
+    'ext_job_cache': '',
     'cython_enable': False,
     'state_verbose': True,
     'state_output': 'full',
@@ -243,6 +249,7 @@ DEFAULT_MINION_OPTS = {
     'tcp_keepalive_idle': 300,
     'tcp_keepalive_cnt': -1,
     'tcp_keepalive_intvl': -1,
+    'minion_id_caching': True,
 }
 
 DEFAULT_MASTER_OPTS = {
@@ -290,6 +297,7 @@ DEFAULT_MASTER_OPTS = {
     'file_ignore_regex': None,
     'file_ignore_glob': None,
     'fileserver_backend': ['roots'],
+    'fileserver_limit_traversal': False,
     'max_open_files': 100000,
     'hash_type': 'md5',
     'conf_file': os.path.join(syspaths.CONFIG_DIR, 'master'),
@@ -330,6 +338,7 @@ DEFAULT_MASTER_OPTS = {
     'loop_interval': 60,
     'nodegroups': {},
     'cython_enable': False,
+    'enable_gpu_grains': False,
     # XXX: Remove 'key_logfile' support in 0.18.0
     'key_logfile': os.path.join(syspaths.LOGS_DIR, 'key'),
     'verify_env': True,
@@ -339,6 +348,7 @@ DEFAULT_MASTER_OPTS = {
     'win_repo_mastercachefile': os.path.join(syspaths.BASE_FILE_ROOTS_DIR,
                                              'win', 'repo', 'winrepo.p'),
     'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'],
+    'syndic_wait': 1,
 }
 
 
@@ -645,7 +655,7 @@ def syndic_config(master_config_path,
     return opts
 
 
-def get_id(root_dir=None):
+def get_id(root_dir=None, minion_id=False, cache=True):
     '''
     Guess the id of the minion.
 
@@ -665,18 +675,24 @@ def get_id(root_dir=None):
     if root_dir is None:
         root_dir = syspaths.ROOT_DIR
 
+    config_dir = syspaths.CONFIG_DIR
+    if config_dir.startswith(syspaths.ROOT_DIR):
+        config_dir = config_dir.split(syspaths.ROOT_DIR, 1)[-1]
+
     # Check for cached minion ID
     id_cache = os.path.join(root_dir,
-                            syspaths.CONFIG_DIR.lstrip(syspaths.ROOT_DIR),
+                            config_dir.lstrip('\\'),
                             'minion_id')
-    try:
-        with salt.utils.fopen(id_cache) as idf:
-            name = idf.read().strip()
-        if name:
-            log.info('Using cached minion ID: {0}'.format(name))
-            return name, False
-    except (IOError, OSError):
-        pass
+
+    if cache:
+        try:
+            with salt.utils.fopen(id_cache) as idf:
+                name = idf.read().strip()
+            if name:
+                log.info('Using cached minion ID: {0}'.format(name))
+                return name, False
+        except (IOError, OSError):
+            pass
 
     log.debug('Guessing ID. The id can be explicitly in set {0}'
               .format(os.path.join(syspaths.CONFIG_DIR, 'minion')))
@@ -685,11 +701,12 @@ def get_id(root_dir=None):
     fqdn = socket.getfqdn()
     if fqdn != 'localhost':
         log.info('Found minion id from getfqdn(): {0}'.format(fqdn))
-        try:
-            with salt.utils.fopen(id_cache, 'w') as idf:
-                idf.write(fqdn)
-        except (IOError, OSError) as exc:
-            log.error('Could not cache minion ID: {0}'.format(exc))
+        if minion_id and cache:
+            try:
+                with salt.utils.fopen(id_cache, 'w') as idf:
+                    idf.write(fqdn)
+            except (IOError, OSError) as exc:
+                log.error('Could not cache minion ID: {0}'.format(exc))
         return fqdn, False
 
     # Check /etc/hostname
@@ -701,11 +718,12 @@ def get_id(root_dir=None):
                         'This file should not contain any whitespace.')
         else:
             if name != 'localhost':
-                try:
-                    with salt.utils.fopen(id_cache, 'w') as idf:
-                        idf.write(name)
-                except (IOError, OSError) as exc:
-                    log.error('Could not cache minion ID: {0}'.format(exc))
+                if minion_id and cache:
+                    try:
+                        with salt.utils.fopen(id_cache, 'w') as idf:
+                            idf.write(name)
+                    except (IOError, OSError) as exc:
+                        log.error('Could not cache minion ID: {0}'.format(exc))
                 return name, False
     except (IOError, OSError):
         pass
@@ -721,12 +739,13 @@ def get_id(root_dir=None):
                         if name != 'localhost':
                             log.info('Found minion id in hosts file: {0}'
                                      .format(name))
-                            try:
-                                with salt.utils.fopen(id_cache, 'w') as idf:
-                                    idf.write(name)
-                            except (IOError, OSError) as exc:
-                                log.error('Could not cache minion ID: {0}'
-                                          .format(exc))
+                            if minion_id and cache:
+                                try:
+                                    with salt.utils.fopen(id_cache, 'w') as idf:
+                                        idf.write(name)
+                                except (IOError, OSError) as exc:
+                                    log.error('Could not cache minion ID: {0}'
+                                              .format(exc))
                             return name, False
     except (IOError, OSError):
         pass
@@ -747,12 +766,13 @@ def get_id(root_dir=None):
                             if name != 'localhost':
                                 log.info('Found minion id in hosts file: {0}'
                                          .format(name))
-                                try:
-                                    with salt.utils.fopen(id_cache, 'w') as idf:
-                                        idf.write(name)
-                                except (IOError, OSError) as exc:
-                                    log.error('Could not cache minion ID: {0}'
-                                              .format(exc))
+                                if minion_id and cache:
+                                    try:
+                                        with salt.utils.fopen(id_cache, 'w') as idf:
+                                            idf.write(name)
+                                    except (IOError, OSError) as exc:
+                                        log.error('Could not cache minion ID: {0}'
+                                                  .format(exc))
                                 return name, False
                 except IndexError:
                     pass  # could not split line (malformed entry?)
@@ -811,8 +831,11 @@ def apply_minion_config(overrides=None,
 
     # No ID provided. Will getfqdn save us?
     using_ip_for_id = False
-    if opts['id'] is None and minion_id:
-        opts['id'], using_ip_for_id = get_id(opts['root_dir'])
+    if opts['id'] is None:
+        opts['id'], using_ip_for_id = get_id(
+                opts['root_dir'],
+                minion_id=minion_id,
+                cache=opts.get('minion_id_caching', True))
 
     # it does not make sense to append a domain to an IP based id
     if not using_ip_for_id and 'append_domain' in opts:
@@ -846,7 +869,9 @@ def apply_minion_config(overrides=None,
             '__mine_interval':
             {
                 'function': 'mine.update',
-                'minutes': opts['mine_interval']
+                'minutes': opts['mine_interval'],
+                'jid_include': True,
+                'maxrunning': 2
             }
         })
     return opts

@@ -20,6 +20,7 @@ import yaml
 import salt
 import salt.fileclient
 from salt.utils.odict import OrderedDict
+from salt._compat import string_types
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +120,12 @@ class PrintableDict(OrderedDict):
     def __str__(self):
         output = []
         for key, value in self.items():
-            output.append('{0!r}: {1!r}'.format(str(key), str(value)))
+            if isinstance(value, string_types):
+                # keeps quotes around strings
+                output.append('{0!r}: {1!r}'.format(key, value))
+            else:
+                # let default output
+                output.append('{0!r}: {1!s}'.format(key, value))
         return '{' + ', '.join(output) + '}'
 
     def __repr__(self):  # pylint: disable=W0221
@@ -280,7 +286,7 @@ class SerializerExtension(Extension, object):
         if isinstance(value, TemplateModule):
             value = str(value)
         try:
-            return yaml.load(value)
+            return yaml.safe_load(value)
         except AttributeError:
             raise TemplateRuntimeError(
                     'Unable to load yaml from {0}'.format(value))

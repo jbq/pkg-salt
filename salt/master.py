@@ -50,7 +50,7 @@ import salt.utils.event
 import salt.utils.verify
 import salt.utils.minions
 import salt.utils.gzip_util
-from salt.utils.debug import enable_sigusr1_handler
+from salt.utils.debug import enable_sigusr1_handler, inspect_stack
 from salt.exceptions import SaltMasterError, MasterExit
 from salt.utils.event import tagify
 
@@ -542,11 +542,10 @@ class ReqServer(object):
             log.info('Halite: Starting up ...')
             self.halite = Halite(self.opts['halite'])
             self.halite.start()
+        elif 'halite' in self.opts:
+            log.info('Halite: Not configured, skipping.')
         else:
-            log.info('Halite: Not starting. '
-                     'Package available is {0}. '
-                     'Opts for "halite" exists is {1}.'
-                     .format(HAS_HALITE, 'halite' in self.opts))
+            log.debug('Halite: Unavailable.')
 
     def run(self):
         '''
@@ -798,6 +797,7 @@ class AESFuncs(object):
                 ).format(clear_load['id'])
             )
             return False
+        clear_load.pop('tok')
         perms = []
         for match in self.opts['peer']:
             if re.match(match, clear_load['id']):
@@ -830,6 +830,15 @@ class AESFuncs(object):
             return {}
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return {}
+        if 'tok' not in load:
+            log.error(
+                'Received incomplete call from {0} for {1!r}, missing {2!r}'
+                .format(
+                    load['id'],
+                    inspect_stack()['co_name'],
+                    'tok'
+                ))
+            return False
         if not self.__verify_minion(load['id'], load['tok']):
             # The minion is not who it says it is!
             # We don't want to listen to it!
@@ -839,6 +848,7 @@ class AESFuncs(object):
                 )
             )
             return {}
+        load.pop('tok')
         ret = {}
         # The old ext_nodes method is set to be deprecated in 0.10.4
         # and should be removed within 3-5 releases in favor of the
@@ -917,6 +927,15 @@ class AESFuncs(object):
         '''
         if any(key not in load for key in ('id', 'tgt', 'fun')):
             return {}
+        if 'tok' not in load:
+            log.error(
+                'Received incomplete call from {0} for {1!r}, missing {2!r}'
+                .format(
+                    load['id'],
+                    inspect_stack()['co_name'],
+                    'tok'
+                ))
+            return False
         if not self.__verify_minion(load['id'], load['tok']):
             # The minion is not who it says it is!
             # We don't want to listen to it!
@@ -926,6 +945,7 @@ class AESFuncs(object):
                 )
             )
             return {}
+        load.pop('tok')
         ret = {}
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return ret
@@ -957,6 +977,15 @@ class AESFuncs(object):
             return False
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return False
+        if 'tok' not in load:
+            log.error(
+                'Received incomplete call from {0} for {1!r}, missing {2!r}'
+                .format(
+                    load['id'],
+                    inspect_stack()['co_name'],
+                    'tok'
+                ))
+            return False
         if not self.__verify_minion(load['id'], load['tok']):
             # The minion is not who it says it is!
             # We don't want to listen to it!
@@ -966,6 +995,7 @@ class AESFuncs(object):
                 )
             )
             return {}
+        load.pop('tok')
         if self.opts.get('minion_data_cache', False) or self.opts.get('enforce_mine_cache', False):
             cdir = os.path.join(self.opts['cachedir'], 'minions', load['id'])
             if not os.path.isdir(cdir):
@@ -990,6 +1020,15 @@ class AESFuncs(object):
             return False
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return False
+        if 'tok' not in load:
+            log.error(
+                'Received incomplete call from {0} for {1!r}, missing {2!r}'
+                .format(
+                    load['id'],
+                    inspect_stack()['co_name'],
+                    'tok'
+                ))
+            return False
         if not self.__verify_minion(load['id'], load['tok']):
             # The minion is not who it says it is!
             # We don't want to listen to it!
@@ -999,6 +1038,7 @@ class AESFuncs(object):
                 )
             )
             return {}
+        load.pop('tok')
         if self.opts.get('minion_data_cache', False) or self.opts.get('enforce_mine_cache', False):
             cdir = os.path.join(self.opts['cachedir'], 'minions', load['id'])
             if not os.path.isdir(cdir):
@@ -1024,6 +1064,15 @@ class AESFuncs(object):
             return False
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return False
+        if 'tok' not in load:
+            log.error(
+                'Received incomplete call from {0} for {1!r}, missing {2!r}'
+                .format(
+                    load['id'],
+                    inspect_stack()['co_name'],
+                    'tok'
+                ))
+            return False
         if not self.__verify_minion(load['id'], load['tok']):
             # The minion is not who it says it is!
             # We don't want to listen to it!
@@ -1033,6 +1082,7 @@ class AESFuncs(object):
                 )
             )
             return {}
+        load.pop('tok')
         if self.opts.get('minion_data_cache', False) or self.opts.get('enforce_mine_cache', False):
             cdir = os.path.join(self.opts['cachedir'], 'minions', load['id'])
             if not os.path.isdir(cdir):
@@ -1059,6 +1109,15 @@ class AESFuncs(object):
             return False
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return False
+        if 'tok' not in load:
+            log.error(
+                'Received incomplete call from {0} for {1!r}, missing {2!r}'
+                .format(
+                    load['id'],
+                    inspect_stack()['co_name'],
+                    'tok'
+                ))
+            return False
         if not self.__verify_minion(load['id'], load['tok']):
             # The minion is not who it says it is!
             # We don't want to listen to it!
@@ -1068,6 +1127,7 @@ class AESFuncs(object):
                 )
             )
             return {}
+        load.pop('tok')
         cpath = os.path.join(
                 self.opts['cachedir'],
                 'minions',
@@ -1127,6 +1187,15 @@ class AESFuncs(object):
             return False
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return False
+        if 'tok' not in load:
+            log.error(
+                'Received incomplete call from {0} for {1!r}, missing {2!r}'
+                .format(
+                    load['id'],
+                    inspect_stack()['co_name'],
+                    'tok'
+                ))
+            return False
         if not self.__verify_minion(load['id'], load['tok']):
             # The minion is not who it says it is!
             # We don't want to listen to it!
@@ -1136,6 +1205,7 @@ class AESFuncs(object):
                 )
             )
             return {}
+        load.pop('tok')
         if 'events' not in load and ('tag' not in load or 'data' not in load):
             return False
         if 'events' in load:
@@ -1282,6 +1352,7 @@ class AESFuncs(object):
                 )
             )
             return {}
+        clear_load.pop('tok')
         perms = set()
         for match in self.opts['peer_run']:
             if re.match(match, clear_load['id']):
@@ -1320,6 +1391,7 @@ class AESFuncs(object):
                 )
             )
             return {}
+        load.pop('tok')
         # Check that this minion can access this data
         auth_cache = os.path.join(
                 self.opts['cachedir'],
@@ -1529,7 +1601,9 @@ class AESFuncs(object):
 
             pret = {}
             pret['key'] = pub.public_encrypt(key, 4)
-            pret['pillar'] = pcrypt.dumps(ret)
+            pret['pillar'] = pcrypt.dumps(
+                ret if ret is not False else {}
+            )
             return pret
         # AES Encrypt the return
         return self.crypticle.dumps(ret)
@@ -1846,8 +1920,10 @@ class ClearFuncs(object):
                     'load': {'ret': False}}
 
         log.info('Authentication accepted from {id}'.format(**load))
-        # only write to disk if you are adding the file
-        if not os.path.isfile(pubfn):
+        # only write to disk if you are adding the file, and in open mode,
+        # which implies we accept any key from a minion (key needs to be
+        # written every time because what's on disk is used for encrypting)
+        if not os.path.isfile(pubfn) or self.opts['open_mode']:
             with salt.utils.fopen(pubfn, 'w+') as fp_:
                 fp_.write(load['pub'])
         pub = None

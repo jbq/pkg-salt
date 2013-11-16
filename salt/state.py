@@ -368,12 +368,19 @@ class Compiler(object):
             if 'order' in chunk:
                 if not isinstance(chunk['order'], int):
                     continue
-                if chunk['order'] > cap - 1 and chunk['order'] > 0:
-                    cap = chunk['order'] + 100
+
+                chunk_order = chunk['order']
+                if 'name_order' in chunk:
+                    chunk_order = chunk_order + chunk['name_order']
+
+                if chunk_order > cap - 1 and chunk_order > 0:
+                    cap = chunk_order + 100
         for chunk in chunks:
             if 'order' not in chunk:
                 chunk['order'] = cap
             else:
+                if isinstance(chunk['order'], int) and 'name_order' in chunk:
+                    chunk['order'] = chunk['order'] + chunk.pop('name_order')
                 if not isinstance(chunk['order'], int):
                     if chunk['order'] == 'last':
                         chunk['order'] = cap + 1000000
@@ -417,9 +424,12 @@ class Compiler(object):
                             else:
                                 chunk.update(arg)
                 if names:
+                    name_order = 1
                     for low_name in names:
                         live = copy.deepcopy(chunk)
                         live['name'] = low_name
+                        live['name_order'] = name_order
+                        name_order = name_order + 1
                         for fun in funcs:
                             live['fun'] = fun
                             chunks.append(live)
@@ -612,7 +622,7 @@ class State(object):
             errors.append('Missing "fun" data')
         if 'name' not in data:
             errors.append('Missing "name" data')
-        if not isinstance(data['name'], string_types):
+        if data['name'] and not isinstance(data['name'], string_types):
             err = ('The name {0} in sls {1} is not formed as a '
                    'string but is a {2}').format(
                            data['name'], data['__sls__'], type(data['name']))
@@ -828,12 +838,19 @@ class State(object):
             if 'order' in chunk:
                 if not isinstance(chunk['order'], int):
                     continue
-                if chunk['order'] > cap - 1 and chunk['order'] > 0:
-                    cap = chunk['order'] + 100
+
+                chunk_order = chunk['order']
+                if 'name_order' in chunk:
+                    chunk_order = chunk_order + chunk['name_order']
+
+                if chunk_order > cap - 1 and chunk_order > 0:
+                    cap = chunk_order + 100
         for chunk in chunks:
             if 'order' not in chunk:
                 chunk['order'] = cap
             else:
+                if isinstance(chunk['order'], int) and 'name_order' in chunk:
+                    chunk['order'] = chunk['order'] + chunk.pop('name_order')
                 if not isinstance(chunk['order'], int):
                     if chunk['order'] == 'last':
                         chunk['order'] = cap + 1000000
@@ -930,9 +947,12 @@ class State(object):
                             else:
                                 chunk[key] = val
                 if names:
+                    name_order = 1
                     for low_name in names:
                         live = copy.deepcopy(chunk)
                         live['name'] = low_name
+                        live['name_order'] = name_order
+                        name_order = name_order + 1
                         for fun in funcs:
                             live['fun'] = fun
                             chunks.append(live)
@@ -1336,7 +1356,7 @@ class State(object):
         if pre:
             reqs['prerequired'] = []
         for r_state in reqs:
-            if r_state in low:
+            if r_state in low and low[r_state] is not None:
                 for req in low[r_state]:
                     req = trim_req(req)
                     found = False
@@ -1994,7 +2014,7 @@ class BaseHighState(object):
 
                     if env_key != xenv_key:
                         # Resolve inc_sls in the specified environment
-                        if env_key in matches and fnmatch.filter(self.avail[env_key], inc_sls):
+                        if env_key in matches or fnmatch.filter(self.avail[env_key], inc_sls):
                             resolved_envs = [env_key]
                         else:
                             resolved_envs = []
@@ -2078,6 +2098,9 @@ class BaseHighState(object):
                                 if arg.keys()[0] == 'order':
                                     found = True
                     if not found:
+                        if not isinstance(state[name][s_dec], list):
+                            # quite certainly a syntax error, managed elsewhere
+                            continue
                         state[name][s_dec].append(
                                 {'order': self.iorder}
                                 )
@@ -2199,7 +2222,7 @@ class BaseHighState(object):
                 statefiles = fnmatch.filter(self.avail[env], sls_match)
                 if not statefiles:
                     # No matching sls file was found!  Output an error
-                    log.error(
+                    all_errors.append(
                             'No matching sls found for \'{0}\' in env \'{1}\''
                             .format(sls_match, env)
                     )
