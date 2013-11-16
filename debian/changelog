@@ -1,3 +1,18 @@
+salt (0.17.2-1) unstable; urgency=low
+
+  * [51557a0] Added debconf-utils as a recommended package for salt-minion
+  * [3e6db19] Added dependency on msgpack-python to salt-ssh. Closes: 729181
+  * [37b3fbc] Removed gbp dfsg filtering
+  * [8562ec2] Updated upstart files to reflect latest ubuntu versions
+  * [00398b1] Imported Upstream version 0.17.2
+  * [43c3a3d] Added files previously removed in repacking to copyright file
+  * [37d2781] Added links so that packaged versions of js and css files are used
+  * [3dcf641] Added doc dependencies on js libraries
+  * [58980a0] Updated documentation version to 0.17.2
+  * [94b12c9] Added 0.17.2 release notes from upstream
+
+ -- Joe Healy <joehealy@gmail.com>  Sun, 17 Nov 2013 00:01:06 +1100
+
 salt (0.17.1+dfsg-1) unstable; urgency=medium
 
   * [ebd0329] Updated gbp.conf to remove saltstack theme
