@@ -1,3 +1,10 @@
+salt (0.17.2-2) unstable; urgency=low
+
+  * [d5d4256] Removed test symbolic link
+  * [aba0f43] Addition of patch for upstream bug 8560
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 19 Nov 2013 17:35:29 +1100
+
 salt (0.17.2-1) unstable; urgency=low
 
   * [51557a0] Added debconf-utils as a recommended package for salt-minion
