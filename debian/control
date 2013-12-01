@@ -13,7 +13,7 @@ Build-Depends: debhelper (>= 9.20120410~),
                python-crypto,
                python-jinja2,
                python-m2crypto,
-               msgpack-python,
+               python-msgpack,
                python-setuptools,
                python-sphinx (>= 1.0),
                python-yaml,
@@ -65,7 +65,7 @@ Depends: ${misc:Depends},
          salt-common (= ${source:Version}),
          python-m2crypto,
          python-crypto,
-         msgpack-python,
+         python-msgpack,
          python-zmq (>= 13.1.0)
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
@@ -93,7 +93,7 @@ Depends: ${misc:Depends},
          salt-common (= ${source:Version}),
          python-m2crypto,
          python-crypto,
-         msgpack-python,
+         python-msgpack,
          python-zmq (>= 13.1.0),
          dctrl-tools
 Recommends: dmidecode,
@@ -148,7 +148,7 @@ Architecture: all
 Depends: ${misc:Depends},
          ${python:Depends},
          salt-common (= ${source:Version}),
-         msgpack-python,
+         python-msgpack,
          sshpass
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
