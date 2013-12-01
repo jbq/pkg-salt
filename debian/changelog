@@ -1,3 +1,12 @@
+salt (0.17.2-3) unstable; urgency=low
+
+  * [a4f9a88] Suggest documentation when installing. Closes: 730842
+  * [7eb7969] Depend on python-msgpack rather than msgpack-python.
+              Closes: 730875
+  * [38deac5] Bump standards version - No changes needed.
+
+ -- Joe Healy <joehealy@gmail.com>  Sun, 01 Dec 2013 13:26:05 +1100
+
 salt (0.17.2-2) unstable; urgency=low
 
   * [d5d4256] Removed test symbolic link
