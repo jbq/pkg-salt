@@ -31,7 +31,6 @@ import warnings
 import yaml
 from calendar import month_abbr as months
 
-
 try:
     import timelib
     HAS_TIMELIB = True
@@ -179,6 +178,41 @@ def get_colors(use=True):
             colors[color] = ''
 
     return colors
+
+
+def get_context(template, line, num_lines=5, marker=None):
+    '''
+    Returns debugging context around a line in a given string
+
+    Returns:: string
+    '''
+    template_lines = template.splitlines()
+    num_template_lines = len(template_lines)
+
+    # in test, a single line template would return a crazy line number like,
+    # 357.  do this sanity check and if the given line is obviously wrong, just
+    # return the entire template
+    if line > num_template_lines:
+        return template
+
+    context_start = max(0, line - num_lines - 1)  # subt 1 for 0-based indexing
+    context_end = min(num_template_lines, line + num_lines)
+    error_line_in_context = line - context_start - 1  # subtr 1 for 0-based idx
+
+    buf = []
+    if context_start > 0:
+        buf.append('[...]')
+        error_line_in_context += 1
+
+    buf.extend(template_lines[context_start:context_end])
+
+    if context_end < num_template_lines:
+        buf.append('[...]')
+
+    if marker:
+        buf[error_line_in_context] += marker
+
+    return '---\n{0}\n---'.format('\n'.join(buf))
 
 
 def daemonize(redirect_out=True):
@@ -568,9 +602,6 @@ def copyfile(source, dest, backup_mode='', cachedir=''):
     dname = os.path.dirname(os.path.abspath(dest))
     tgt = mkstemp(prefix=bname, dir=dname)
     shutil.copyfile(source, tgt)
-    mask = os.umask(0)
-    os.umask(mask)
-    os.chmod(tgt, 0666 - mask)
     bkroot = ''
     if cachedir:
         bkroot = os.path.join(cachedir, 'file_backup')

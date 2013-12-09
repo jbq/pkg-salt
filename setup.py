@@ -8,10 +8,12 @@ from __future__ import with_statement
 
 import os
 import sys
+import glob
 from datetime import datetime
 from distutils.cmd import Command
 from distutils.command.build import build
 from distutils.command.clean import clean
+from distutils.command.sdist import sdist
 
 # Change to salt source's directory prior to running any command
 try:
@@ -23,6 +25,8 @@ except NameError:
 
 if SETUP_DIRNAME != '':
     os.chdir(SETUP_DIRNAME)
+
+SETUP_DIRNAME = os.path.abspath(SETUP_DIRNAME)
 
 # Store a reference to the executing platform
 IS_WINDOWS_PLATFORM = sys.platform.startswith('win')
@@ -37,6 +41,7 @@ if 'USE_SETUPTOOLS' in os.environ or 'setuptools' in sys.modules:
     try:
         from setuptools import setup
         from setuptools.command.install import install
+        from setuptools.command.sdist import sdist
         WITH_SETUPTOOLS = True
     except ImportError:
         WITH_SETUPTOOLS = False
@@ -78,6 +83,24 @@ exec(compile(open(SALT_VERSION).read(), SALT_VERSION, 'exec'))
 exec(compile(open(SALT_SYSPATHS).read(), SALT_SYSPATHS, 'exec'))
 
 
+class SaltSdist(sdist):
+    def write_manifest(self):
+        if IS_WINDOWS_PLATFORM:
+            # Remove un-necessary scripts grabbed by MANIFEST.in
+            for filename in self.filelist.files[:]:
+                if filename in ('scripts/salt',
+                                'scripts/salt-cloud',
+                                'scripts/salt-key',
+                                'scripts/salt-master',
+                                'scripts/salt-run',
+                                'scripts/salt-ssh',
+                                'scripts/salt-syndic'):
+                    self.filelist.files.pop(
+                        self.filelist.files.index(filename)
+                    )
+        return sdist.write_manifest(self)
+
+
 class TestCommand(Command):
     description = 'Run tests'
     user_options = [
@@ -117,11 +140,9 @@ class Clean(clean):
         for subdir in ('salt', 'tests', 'doc'):
             root = os.path.join(os.path.dirname(__file__), subdir)
             for dirname, dirnames, filenames in os.walk(root):
-                for filename in filenames:
-                    for ext in remove_extensions:
-                        if filename.endswith(ext):
-                            os.remove(os.path.join(dirname, filename))
-                            break
+                for to_remove_filename in glob.glob(
+                        '{0}/*.py[oc]'.format(dirname)):
+                    os.remove(to_remove_filename)
 
 
 INSTALL_VERSION_TEMPLATE = '''\
@@ -270,7 +291,8 @@ SETUP_KWARGS = {'name': NAME,
                     'test': TestCommand,
                     'clean': Clean,
                     'build': Build,
-                    'install': Install
+                    'install': Install,
+                    'sdist': SaltSdist,
                 },
                 'classifiers': ['Programming Language :: Python',
                                 'Programming Language :: Cython',

@@ -171,7 +171,7 @@ class SaltStackVersion(object):
 #
 # Please bump version information for __saltstack_version__ on new releases
 # ----------------------------------------------------------------------------
-__saltstack_version__ = SaltStackVersion(0, 17, 2)
+__saltstack_version__ = SaltStackVersion(0, 17, 3)
 __version_info__ = __saltstack_version__.info
 __version__ = __saltstack_version__.string
 # <---- Hardcoded Salt Version Information -----------------------------------
@@ -196,25 +196,17 @@ def __get_version(version, version_info):
     import warnings
     import subprocess
 
-    try:
-        cwd = os.path.abspath(os.path.dirname(__file__))
-    except NameError:
-        # We're most likely being frozen and __file__ triggered this NameError
-        # Let's work around that
-        import inspect
-        cwd = os.path.abspath(
-            os.path.dirname(inspect.getsourcefile(__get_version))
-        )
-
-    if __file__ == 'setup.py':
+    if 'SETUP_DIRNAME' in globals():
         # This is from the exec() call in Salt's setup.py
+        cwd = SETUP_DIRNAME  # pylint: disable=E0602
         if not os.path.exists(os.path.join(cwd, '.git')):
             # This is not a Salt git checkout!!! Don't even try to parse...
             return version, version_info
-
-    elif not os.path.exists(os.path.join(os.path.dirname(cwd), '.git')):
-        # This is not a Salt git checkout!!! Don't even try to parse...
-        return version, version_info
+    else:
+        cwd = os.path.abspath(os.path.dirname(__file__))
+        if not os.path.exists(os.path.join(os.path.dirname(cwd), '.git')):
+            # This is not a Salt git checkout!!! Don't even try to parse...
+            return version, version_info
 
     try:
         kwargs = dict(

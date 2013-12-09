@@ -22,6 +22,7 @@ import itertools  # same as above, do not remove, it's used in __clean_tmp
 # Import third party libs
 try:
     import win32security
+    from pywintypes import error as pywinerror
     import ntsecuritycon as con
     HAS_WINDOWS_MODULES = True
 except ImportError:
@@ -29,13 +30,14 @@ except ImportError:
 
 # Import salt libs
 import salt.utils
-from salt.modules.file import (check_hash, check_managed, check_perms,  # pylint: disable=W0611
+from salt.modules.file import (check_hash,  # pylint: disable=W0611
         directory_exists, get_managed, mkdir, makedirs, makedirs_perms,
-        patch, remove, source_list, sed_contains, touch, append, contains,
-        contains_regex, contains_regex_multiline, contains_glob, patch,
-        uncomment, sed, find, psed, get_sum, check_hash, get_hash, comment,
-        manage_file, file_exists, get_diff, get_managed, __clean_tmp,
-        check_managed, check_file_meta, _binary_replace, contains_regex)
+        check_managed, check_perms, patch, remove, source_list, sed_contains,
+        touch, append, contains, contains_regex, contains_regex_multiline,
+        contains_glob, patch, uncomment, sed, find, psed, get_sum, check_hash,
+        get_hash, comment, manage_file, file_exists, get_diff, get_managed,
+        __clean_tmp, check_managed, check_file_meta, _binary_replace,
+        contains_regex)
 
 from salt.utils import namespaced_function as _namespaced_function
 
@@ -49,7 +51,7 @@ def __virtual__():
     if salt.utils.is_windows():
         if HAS_WINDOWS_MODULES:
             global check_perms, get_managed, makedirs_perms, manage_file
-            global source_list, mkdir, __clean_tmp, makedirs
+            global source_list, mkdir, __clean_tmp, makedirs, file_exists
 
             check_perms = _namespaced_function(check_perms, globals())
             get_managed = _namespaced_function(get_managed, globals())
@@ -58,6 +60,7 @@ def __virtual__():
             manage_file = _namespaced_function(manage_file, globals())
             source_list = _namespaced_function(source_list, globals())
             mkdir = _namespaced_function(mkdir, globals())
+            file_exists = _namespaced_function(file_exists, globals())
             __clean_tmp = _namespaced_function(__clean_tmp, globals())
 
             return 'file'
@@ -237,35 +240,28 @@ def chown(path, user, group):
 
         salt '*' file.chown c:\\temp\\test.txt myusername administrators
     '''
-    # I think this function isn't working correctly yet
-    gsd = win32security.GetFileSecurity(
-        path, win32security.DACL_SECURITY_INFORMATION
-    )
-    uid = user_to_uid(user)
-    gid = group_to_gid(group)
     err = ''
-    if uid == '':
+    # get SID object for user
+    try:
+        userSID, domainName, objectType = win32security.LookupAccountName(None, user)
+    except pywinerror:
         err += 'User does not exist\n'
-    if gid == '':
+
+    # get SID object for group
+    try:
+        groupSID, domainName, objectType = win32security.LookupAccountName(None, group)
+    except pywinerror:
         err += 'Group does not exist\n'
+
     if not os.path.exists(path):
-        err += 'File not found'
+        err += 'File not found\n'
     if err:
         return err
 
-    dacl = win32security.ACL()
-    dacl.AddAccessAllowedAce(
-        win32security.ACL_REVISION, con.FILE_ALL_ACCESS,
-        win32security.GetBinarySid(uid)
-    )
-    dacl.AddAccessAllowedAce(
-        win32security.ACL_REVISION, con.FILE_ALL_ACCESS,
-        win32security.GetBinarySid(gid)
-    )
-    gsd.SetSecurityDescriptorDacl(1, dacl, 0)
-    return win32security.SetFileSecurity(
-        path, win32security.DACL_SECURITY_INFORMATION, gsd
-    )
+    # set owner and group
+    securityInfo = win32security.OWNER_SECURITY_INFORMATION + win32security.GROUP_SECURITY_INFORMATION
+    win32security.SetNamedSecurityInfo(path, win32security.SE_FILE_OBJECT, securityInfo, userSID, groupSID, None, None)
+    return None
 
 
 def chgrp(path, group):
@@ -278,17 +274,22 @@ def chgrp(path, group):
 
         salt '*' file.chgrp c:\\temp\\test.txt administrators
     '''
-    # I think this function isn't working correctly yet
-    gid = group_to_gid(group)
     err = ''
-    if gid == '':
+    # get SID object for group
+    try:
+        groupSID, domainName, objectType = win32security.LookupAccountName(None, group)
+    except pywinerror:
         err += 'Group does not exist\n'
+
     if not os.path.exists(path):
-        err += 'File not found'
+        err += 'File not found\n'
     if err:
         return err
-    user = get_user(path)
-    return chown(path, user, group)
+
+    # set group
+    securityInfo = win32security.GROUP_SECURITY_INFORMATION
+    win32security.SetNamedSecurityInfo(path, win32security.SE_FILE_OBJECT, securityInfo, None, groupSID, None, None)
+    return None
 
 
 def stats(path, hash_type='md5', follow_symlink=False):
