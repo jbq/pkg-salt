@@ -1,0 +1,14 @@
+Description: Mock yaml.scanner for building docs
+Author: Joe Healy <joehealy@gmail.com>
+Forwarded: no
+
+--- a/doc/conf.py
++++ b/doc/conf.py
+@@ -48,6 +48,7 @@
+     'yaml',
+     'yaml.constructor',
+     'yaml.nodes',
++    'yaml.scanner',
+     'zmq',
+     # modules, renderers, states, returners, et al
+     'django',

@@ -596,6 +596,10 @@ def sed(path,
     # Largely inspired by Fabric's contrib.files.sed()
     # XXX:dc: Do we really want to always force escaping?
     #
+
+    if not os.path.exists(path):
+        return False
+
     # Mandate that before and after are strings
     before = str(before)
     after = str(after)
@@ -965,6 +969,13 @@ def replace(path,
     has_changes = False
     orig_file = []  # used if show_changes
     new_file = []  # used if show_changes
+    if not salt.utils.is_windows():
+        pre_user = get_user(path)
+        pre_group = get_group(path)
+        pre_mode = __salt__['config.manage_mode'](get_mode(path))
+
+    # Avoid TypeErrors by forcing repl to be a string
+    repl = str(repl)
     for line in fileinput.input(path,
             inplace=not dry_run, backup=False if dry_run else backup,
             bufsize=bufsize, mode='rb'):
@@ -988,6 +999,9 @@ def replace(path,
 
             if not dry_run:
                 print(result, end='', file=sys.stdout)
+
+    if not dry_run and not salt.utils.is_windows():
+        check_perms(path, None, pre_user, pre_group, pre_mode)
 
     if show_changes:
         return ''.join(difflib.unified_diff(orig_file, new_file))
@@ -1300,14 +1314,21 @@ def copy(src, dst):
     if not os.path.isabs(src):
         raise SaltInvocationError('File path must be absolute.')
 
+    if not salt.utils.is_windows():
+        pre_user = get_user(src)
+        pre_group = get_group(src)
+        pre_mode = __salt__['config.manage_mode'](get_mode(src))
+
     try:
         shutil.copyfile(src, dst)
-        return True
     except OSError:
         raise CommandExecutionError(
             'Could not copy {0!r} to {1!r}'.format(src, dst)
         )
-    return False
+
+    if not salt.utils.is_windows():
+        check_perms(dst, None, pre_user, pre_group, pre_mode)
+    return True
 
 
 def stats(path, hash_type='md5', follow_symlink=False):
@@ -1600,7 +1621,7 @@ def get_managed(
                 if not source_sum:
                     return '', {}, 'Source file {0} not found'.format(source)
             elif source_hash:
-                protos = ['salt', 'http', 'ftp']
+                protos = ['salt', 'http', 'https', 'ftp']
                 if salt._compat.urlparse(source_hash).scheme in protos:
                     # The source_hash is a file on a server
                     hash_fn = __salt__['cp.cache_file'](source_hash)
@@ -1642,11 +1663,7 @@ def get_managed(
     return sfn, source_sum, ''
 
 
-def check_perms(name,
-                ret,
-                user,
-                group,
-                mode):
+def check_perms(name, ret, user, group, mode):
     '''
     Check the permissions on files and chown if needed
 
@@ -2090,7 +2107,7 @@ def manage_file(name,
             # Create the file, user rw-only if mode will be set to prevent
             # a small security race problem before the permissions are set
             if mode:
-                current_umask = os.umask(63)
+                current_umask = os.umask(077)
 
             # Create a new file when test is False and source is None
             if contents is None:
@@ -2133,7 +2150,14 @@ def manage_file(name,
                                 __opts__['cachedir'])
             __clean_tmp(sfn)
 
-        # Check and set the permissions if necessary
+        # This is a new file, if no mode specified, use the umask to figure
+        # out what mode to use for the new file.
+        if mode is None:
+            # Get current umask
+            mask = os.umask(0)
+            os.umask(mask)
+            # Calculate the mode value that results from the umask
+            mode = oct((0777 ^ mask) & 0666)
         ret, perms = check_perms(name, ret, user, group, mode)
 
         if not ret['comment']:

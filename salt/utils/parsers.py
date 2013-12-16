@@ -235,6 +235,11 @@ class MergeConfigMixIn(object):
                 # value, this allows to tweak settings on the configuration
                 # files bypassing the shell option flags
                 self.config[option.dest] = value
+            elif option.dest in self.config:
+                # Let's update the option value with the one from the
+                # configuration file. This allows the parsers to make use of
+                # the updated value by using self.options.<option>
+                setattr(self.options, option.dest, self.config[option.dest])
 
         # Merge parser group options if any
         for group in self.option_groups:
@@ -249,12 +254,18 @@ class MergeConfigMixIn(object):
                     if value is not None:
                         # There's an actual value, add it to the config
                         self.config[option.dest] = value
-                else:
-                    if value is not None and value != default:
-                        # Only set the value in the config file IF it's not the
-                        # default value, this allows to tweak settings on the
-                        # configuration files bypassing the shell option flags
-                        self.config[option.dest] = value
+                elif value is not None and value != default:
+                    # Only set the value in the config file IF it's not the
+                    # default value, this allows to tweak settings on the
+                    # configuration files bypassing the shell option flags
+                    self.config[option.dest] = value
+                elif option.dest in self.config:
+                    # Let's update the option value with the one from the
+                    # configuration file. This allows the parsers to make use
+                    # of the updated value by using self.options.<option>
+                    setattr(self.options,
+                            option.dest,
+                            self.config[option.dest])
 
 
 class ConfigDirMixIn(object):
@@ -1116,10 +1127,13 @@ class SaltCMDOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
                 self.args[2] = self.args[2]
 
         if self.options.list:
-            if ',' in self.args[0]:
-                self.config['tgt'] = self.args[0].split(',')
-            else:
-                self.config['tgt'] = self.args[0].split()
+            try:
+                if ',' in self.args[0]:
+                    self.config['tgt'] = self.args[0].split(',')
+                else:
+                    self.config['tgt'] = self.args[0].split()
+            except IndexError:
+                self.exit(42, '\nCannot execute command without defining a target.\n\n')
         else:
             try:
                 self.config['tgt'] = self.args[0]
@@ -1127,35 +1141,39 @@ class SaltCMDOptionParser(OptionParser, ConfigDirMixIn, MergeConfigMixIn,
                 self.exit(42, '\nCannot execute command without defining a target.\n\n')
         # Detect compound command and set up the data for it
         if self.args:
-            if ',' in self.args[1]:
-                self.config['fun'] = self.args[1].split(',')
-                self.config['arg'] = [[]]
-                cmd_index = 0
-                if (self.args[2:].count(self.options.args_separator) ==
-                        len(self.config['fun']) - 1):
-                    # new style parsing: standalone argument separator
-                    for arg in self.args[2:]:
-                        if arg == self.options.args_separator:
-                            cmd_index += 1
-                            self.config['arg'].append([])
-                        else:
-                            self.config['arg'][cmd_index].append(arg)
-                else:
-                    # old style parsing: argument separator can be inside args
-                    for arg in self.args[2:]:
-                        if self.options.args_separator in arg:
-                            sub_args = arg.split(self.options.args_separator)
-                            for sub_arg_index, sub_arg in enumerate(sub_args):
-                                if sub_arg:
-                                    self.config['arg'][cmd_index].append(sub_arg)
-                                if sub_arg_index != len(sub_args) - 1:
-                                    cmd_index += 1
-                                    self.config['arg'].append([])
-                        else:
-                            self.config['arg'][cmd_index].append(arg)
-                    if len(self.config['fun']) != len(self.config['arg']):
-                        self.exit(42, 'Cannot execute compound command without '
-                                      'defining all arguments.')
+            try:
+                if ',' in self.args[1]:
+                    self.config['fun'] = self.args[1].split(',')
+                    self.config['arg'] = [[]]
+                    cmd_index = 0
+                    if (self.args[2:].count(self.options.args_separator) ==
+                            len(self.config['fun']) - 1):
+                        # new style parsing: standalone argument separator
+                        for arg in self.args[2:]:
+                            if arg == self.options.args_separator:
+                                cmd_index += 1
+                                self.config['arg'].append([])
+                            else:
+                                self.config['arg'][cmd_index].append(arg)
+                    else:
+                        # old style parsing: argument separator can be inside args
+                        for arg in self.args[2:]:
+                            if self.options.args_separator in arg:
+                                sub_args = arg.split(self.options.args_separator)
+                                for sub_arg_index, sub_arg in enumerate(sub_args):
+                                    if sub_arg:
+                                        self.config['arg'][cmd_index].append(sub_arg)
+                                    if sub_arg_index != len(sub_args) - 1:
+                                        cmd_index += 1
+                                        self.config['arg'].append([])
+                            else:
+                                self.config['arg'][cmd_index].append(arg)
+                        if len(self.config['fun']) != len(self.config['arg']):
+                            self.exit(42, 'Cannot execute compound command without '
+                                          'defining all arguments.')
+            except IndexError:
+                self.exit(42, '\nIncomplete options passed.\n\n')
+
             else:
                 self.config['fun'] = self.args[1]
                 self.config['arg'] = self.args[2:]

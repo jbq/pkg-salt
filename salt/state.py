@@ -32,7 +32,34 @@ import salt.utils.event
 import salt.syspaths as syspaths
 from salt._compat import string_types
 from salt.template import compile_template, compile_template_str
-from salt.exceptions import SaltReqTimeoutError, SaltException
+from salt.exceptions import SaltRenderError, SaltReqTimeoutError, SaltException
+
+STATE_INTERNAL_KEYWORDS = frozenset([
+    # These are keywords passed to state module functions which are to be used
+    # by salt in this state module and not on the actual state module function
+    'fun',
+    'order',
+    'state',
+    'watch',
+    'watch_in',
+    'prereq',
+    'prereq_in',
+    'require',
+    'require_in',
+    'fail_hard',
+    'reload_modules',
+    'saltenv',
+    '__id__',
+    '__sls__',
+    '__env__',
+    '__pub_user',
+    '__pub_arg',
+    '__pub_jid',
+    '__pub_fun',
+    '__pub_tgt',
+    '__pub_ret',
+    '__pub_tgt_type',
+])
 
 log = logging.getLogger(__name__)
 
@@ -1963,6 +1990,12 @@ class BaseHighState(object):
                 fn_, self.state.rend, self.state.opts['renderer'], env, sls,
                 rendered_sls=mods
             )
+        except SaltRenderError as exc:
+            msg = 'Rendering SLS "{0}:{1}" failed: {2}'.format(
+                env, sls, exc
+            )
+            log.critical(msg)
+            errors.append(msg)
         except Exception as exc:
             msg = 'Rendering SLS {0} failed, render error: {1}'.format(
                 sls, exc
@@ -2342,12 +2375,14 @@ class BaseHighState(object):
             return err
         if not high:
             return ret
+        cumask = os.umask(191)
         with salt.utils.fopen(cfn, 'w+') as fp_:
             try:
                 self.serial.dump(high, fp_)
             except TypeError:
                 # Can't serialize pydsl
                 pass
+        os.umask(cumask)
         return self.state.call_high(high)
 
     def compile_highstate(self):

@@ -1,3 +1,14 @@
+salt (0.17.4-1) unstable; urgency=low
+
+  * Imported Upstream version 0.17.4
+  * removed patches no longer needed
+   * doc-conf_py-changes.diff
+   * pkgrepo-salt-bug-8560
+   * release-notes.diff
+  * Added patch (yaml.scanner) for doc build error
+
+ -- Joe Healy <joehealy@gmail.com>  Mon, 16 Dec 2013 20:35:13 +1100
+
 salt (0.17.2-3) unstable; urgency=low
 
   * [a4f9a88] Suggest documentation when installing. Closes: 730842
