@@ -973,6 +973,9 @@ def replace(path,
         pre_user = get_user(path)
         pre_group = get_group(path)
         pre_mode = __salt__['config.manage_mode'](get_mode(path))
+
+    # Avoid TypeErrors by forcing repl to be a string
+    repl = str(repl)
     for line in fileinput.input(path,
             inplace=not dry_run, backup=False if dry_run else backup,
             bufsize=bufsize, mode='rb'):
@@ -1317,9 +1320,7 @@ def copy(src, dst):
         pre_mode = __salt__['config.manage_mode'](get_mode(src))
 
     try:
-        current_umask = os.umask(63)
         shutil.copyfile(src, dst)
-        os.umask(current_umask)
     except OSError:
         raise CommandExecutionError(
             'Could not copy {0!r} to {1!r}'.format(src, dst)
@@ -1662,11 +1663,7 @@ def get_managed(
     return sfn, source_sum, ''
 
 
-def check_perms(name,
-                ret,
-                user,
-                group,
-                mode):
+def check_perms(name, ret, user, group, mode):
     '''
     Check the permissions on files and chown if needed
 
@@ -2060,11 +2057,6 @@ def manage_file(name,
                         ret, 'Failed to commit change, permission error')
             __clean_tmp(tmp)
 
-        if mode is None:
-            mask = os.umask(0)
-            os.umask(mask)
-            # Apply umask and remove exec bit
-            mode = (0o0777 ^ mask) & 0o0666
         ret, perms = check_perms(name, ret, user, group, mode)
 
         if ret['changes']:
@@ -2115,7 +2107,7 @@ def manage_file(name,
             # Create the file, user rw-only if mode will be set to prevent
             # a small security race problem before the permissions are set
             if mode:
-                current_umask = os.umask(63)
+                current_umask = os.umask(077)
 
             # Create a new file when test is False and source is None
             if contents is None:
@@ -2158,12 +2150,14 @@ def manage_file(name,
                                 __opts__['cachedir'])
             __clean_tmp(sfn)
 
-        # Check and set the permissions if necessary
+        # This is a new file, if no mode specified, use the umask to figure
+        # out what mode to use for the new file.
         if mode is None:
+            # Get current umask
             mask = os.umask(0)
             os.umask(mask)
-            # Apply umask and remove exec bit
-            mode = (0o0777 ^ mask) & 0o0666
+            # Calculate the mode value that results from the umask
+            mode = oct((0777 ^ mask) & 0666)
         ret, perms = check_perms(name, ret, user, group, mode)
 
         if not ret['comment']:
