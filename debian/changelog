@@ -1,3 +1,9 @@
+salt (0.17.4-2) unstable; urgency=low
+
+  * [178932c] Removed documentation tracking code (google analytics)
+
+ -- Joe Healy <joehealy@gmail.com>  Wed, 22 Jan 2014 11:09:50 +1100
+
 salt (0.17.4-1) unstable; urgency=low
 
   * Imported Upstream version 0.17.4
