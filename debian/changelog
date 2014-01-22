@@ -1,4 +1,4 @@
-salt (0.17.4-2) unstable; urgency=low
+salt (0.17.4-2) unstable; urgency=medium
 
   * [178932c] Removed documentation tracking code (google analytics)
 
