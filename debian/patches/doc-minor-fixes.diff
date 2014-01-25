@@ -2,8 +2,8 @@ Description: Minor fixes to docs to remove warnings during build
 Author: Joe Healy <joehealy@gmail.com>
 Forwarded: no
 
---- a/doc/topics/conventions/formulas.rst	Tue Oct 22 21:33:26 2013 +1100
-+++ b/doc/topics/conventions/formulas.rst	Tue Oct 22 22:28:45 2013 +1100
+--- a/doc/topics/conventions/formulas.rst
++++ b/doc/topics/conventions/formulas.rst
 @@ -82,7 +82,7 @@
  ``require`` declaration which directs Salt to not install the ``python26``
  package until after the EPEL repository has also been installed:
@@ -94,8 +94,8 @@ Forwarded: no
  
      {% if '/storage' in salt['mount.active']() %}
      /usr/local/etc/myfile.conf:
---- a/doc/topics/conventions/packaging.rst	Tue Oct 22 21:33:26 2013 +1100
-+++ b/doc/topics/conventions/packaging.rst	Tue Oct 22 22:28:45 2013 +1100
+--- a/doc/topics/conventions/packaging.rst
++++ b/doc/topics/conventions/packaging.rst
 @@ -15,7 +15,7 @@
  distribution.
  
@@ -105,9 +105,9 @@ Forwarded: no
  
  Shipping Salt as a single package, where the minion, master and all tools are
  together is perfectly acceptable and practiced by distributions such as
---- a/salt/client/__init__.py	Tue Oct 22 21:33:26 2013 +1100
-+++ b/salt/client/__init__.py	Tue Oct 22 22:28:45 2013 +1100
-@@ -338,7 +338,7 @@
+--- a/salt/client/__init__.py
++++ b/salt/client/__init__.py
+@@ -339,7 +339,7 @@
  
          Usage:
  
@@ -116,7 +116,7 @@ Forwarded: no
  
              import salt.client
              client = salt.client.LocalClient()
-@@ -346,7 +346,7 @@
+@@ -347,7 +347,7 @@
  
          With authentication:
  
@@ -125,7 +125,7 @@ Forwarded: no
  
              # Master config
              ...
-@@ -357,13 +357,13 @@
+@@ -358,13 +358,13 @@
              ...
  
  
@@ -141,8 +141,8 @@ Forwarded: no
  
              ret = client.cmd('*', ['grains.items', 'cmd.run'], [[], ['whoami']])
  
---- a/salt/modules/upstart.py	Tue Oct 22 21:33:26 2013 +1100
-+++ b/salt/modules/upstart.py	Tue Oct 22 22:28:45 2013 +1100
+--- a/salt/modules/upstart.py
++++ b/salt/modules/upstart.py
 @@ -33,9 +33,10 @@
      stop on runlevel [016]
  
