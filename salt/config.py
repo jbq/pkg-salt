@@ -27,6 +27,8 @@ import salt.utils.network
 import salt.pillar
 import salt.syspaths
 
+import sys
+
 log = logging.getLogger(__name__)
 
 _DFLT_LOG_DATEFMT = '%H:%M:%S'
@@ -162,6 +164,7 @@ VALID_OPTS = {
     'enable_lspci': bool,
     'syndic_wait': int,
     'minion_id_caching': bool,
+    'sign_pub_messages': bool,
 }
 
 # default configurations
@@ -349,6 +352,7 @@ DEFAULT_MASTER_OPTS = {
                                              'win', 'repo', 'winrepo.p'),
     'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'],
     'syndic_wait': 1,
+    'sign_pub_messages': False,
 }
 
 
@@ -697,7 +701,8 @@ def get_id(root_dir=None, minion_id=False, cache=True):
             with salt.utils.fopen(id_cache) as idf:
                 name = idf.read().strip()
             if name:
-                log.info('Using cached minion ID: {0}'.format(name))
+                log.info('Using cached minion ID from {0}: {1}'
+                         .format(id_cache, name))
                 return name, False
         except (IOError, OSError):
             pass

@@ -57,7 +57,10 @@ if salt.utils.is_windows():
             _namespaced_function(_reverse_cmp_pkg_versions, globals())
     # The following imports are used by the namespaced win_pkg funcs
     # and need to be included in their globals.
-    import msgpack
+    try:
+        import msgpack
+    except ImportError:
+        import msgpack_pure as msgpack
     from distutils.version import LooseVersion  # pylint: disable=E0611,F0401
 
 log = logging.getLogger(__name__)
@@ -456,7 +459,7 @@ def installed(
 
     comment = []
     pkg_ret = __salt__['pkg.install'](name,
-                                      refresh=False,
+                                      refresh=refresh,
                                       version=version,
                                       fromrepo=fromrepo,
                                       skip_verify=skip_verify,
@@ -865,6 +868,10 @@ def mod_init(low):
     It also runs the "ex_mod_init" from the package manager module that is
     currently loaded. The "ex_mod_init" is expected to work as a normal
     "mod_init" function.
+
+    .. seealso::
+       :py:func:`salt.modules.ebuild.ex_mod_init`
+
     '''
     ret = True
     if 'pkg.ex_mod_init' in __salt__:

@@ -27,6 +27,7 @@ import salt.utils as utils
 import salt.version as version
 import salt.syspaths as syspaths
 import salt.log.setup as log
+import salt.utils
 from salt.utils.validate.path import is_writeable
 
 

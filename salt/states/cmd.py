@@ -324,6 +324,10 @@ def wait(name,
             'comment': ''}
 
 
+# Alias "cmd.watch" to "cmd.wait", as this is a common misconfiguration
+watch = wait
+
+
 def wait_script(name,
                 source=None,
                 template=None,
@@ -808,7 +812,7 @@ def mod_watch(name, **kwargs):
     '''
     Execute a cmd function based on a watch call
     '''
-    if kwargs['sfun'] == 'wait' or kwargs['sfun'] == 'run':
+    if kwargs['sfun'] in ('wait', 'run', 'watch'):
         if kwargs.get('stateful'):
             kwargs.pop('stateful')
             return _reinterpreted_state(run(name, **kwargs))

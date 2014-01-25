@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 '''
 The setup script for salt
 '''
@@ -384,8 +385,14 @@ if IS_WINDOWS_PLATFORM:
         'win32api',
         'win32file',
         'win32con',
+        'win32com',
+        'win32net',
+        'win32netcon',
+        'win32gui',
         'win32security',
         'ntsecuritycon',
+        'pywintypes',
+        'pythoncom',
         '_winreg',
         'wmi',
         'site',

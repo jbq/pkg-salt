@@ -214,7 +214,7 @@ class Master(SMaster):
                                 shutil.rmtree(f_path)
 
             if self.opts.get('publish_session'):
-                if now - rotate >= self.opts['publish_session'] * 60:
+                if now - rotate >= self.opts['publish_session']:
                     salt.crypt.dropfile(self.opts['cachedir'])
                     rotate = now
             if self.opts.get('search'):
@@ -230,6 +230,10 @@ class Master(SMaster):
                 log.error(
                     'Exception {0} occurred in file server update'.format(exc)
                 )
+
+            # check how close to FD limits you are
+            salt.utils.verify.check_max_open_files(self.opts)
+
             try:
                 schedule.eval()
                 # Check if scheduler requires lower loop interval than
@@ -1776,15 +1780,13 @@ class ClearFuncs(object):
         This method fires an event over the master event manager. The event is
         tagged "auth" and returns a dict with information about the auth
         event
-        '''
-        # 0. Check for max open files
-        # 1. Verify that the key we are receiving matches the stored key
-        # 2. Store the key if it is not there
-        # 3. make an RSA key with the pub key
-        # 4. encrypt the AES key as an encrypted salt.payload
-        # 5. package the return and return it
 
-        salt.utils.verify.check_max_open_files(self.opts)
+        # Verify that the key we are receiving matches the stored key
+        # Store the key if it is not there
+        # Make an RSA key with the pub key
+        # Encrypt the AES key as an encrypted salt.payload
+        # Package the return and return it
+        '''
 
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             log.info(
@@ -2117,11 +2119,12 @@ class ClearFuncs(object):
                     'user': token['name']}
             try:
                 self.event.fire_event(data, tagify([jid, 'new'], 'wheel'))
-                ret = self.wheel_.call_func(fun, **clear_load.get('kwarg', {}))
-                data['ret'] = ret
+                ret = self.wheel_.call_func(fun, **clear_load)
+                data['return'] = ret
                 data['success'] = True
                 self.event.fire_event(data, tagify([jid, 'ret'], 'wheel'))
-                return tag
+                return {'tag': tag,
+                        'data': data}
             except Exception as exc:
                 log.error(exc)
                 log.error('Exception occurred while '
@@ -2131,7 +2134,8 @@ class ClearFuncs(object):
                                             exc,
                                             )
                 self.event.fire_event(data, tagify([jid, 'ret'], 'wheel'))
-                return tag
+                return {'tag': tag,
+                        'data': data}
 
         if 'eauth' not in clear_load:
             msg = ('Authentication failure of type "eauth" occurred for '
@@ -2178,11 +2182,12 @@ class ClearFuncs(object):
                     'user': clear_load.get('username', 'UNKNOWN')}
             try:
                 self.event.fire_event(data, tagify([jid, 'new'], 'wheel'))
-                ret = self.wheel_.call_func(fun, **clear_load.get('kwarg', {}))
-                data['ret'] = ret
+                ret = self.wheel_.call_func(fun, **clear_load)
+                data['return'] = ret
                 data['success'] = True
                 self.event.fire_event(data, tagify([jid, 'ret'], 'wheel'))
-                return tag
+                return {'tag': tag,
+                        'data': data}
             except Exception as exc:
                 log.error('Exception occurred while '
                         'introspecting {0}: {1}'.format(fun, exc))
@@ -2191,7 +2196,8 @@ class ClearFuncs(object):
                                                             exc,
                                                             )
                 self.event.fire_event(data, tagify([jid, 'ret'], 'wheel'))
-                return tag
+                return {'tag': tag,
+                        'data': data}
 
         except Exception as exc:
             log.error(
@@ -2530,6 +2536,10 @@ class ClearFuncs(object):
         log.debug('Published command details {0}'.format(load))
 
         payload['load'] = self.crypticle.dumps(load)
+        if self.opts['sign_pub_messages']:
+            master_pem_path = os.path.join(self.opts['pki_dir'], 'master.pem')
+            log.debug("Signing data packet")
+            payload['sig'] = salt.crypt.sign_message(master_pem_path, payload['load'])
         # Send 0MQ to the publisher
         context = zmq.Context(1)
         pub_sock = context.socket(zmq.PUSH)
