@@ -316,11 +316,12 @@ class Compiler(object):
                             # Add the requires to the reqs dict and check them
                             # all for recursive requisites.
                             argfirst = next(iter(arg))
-                            if argfirst == 'require' or argfirst == 'watch':
+                            if argfirst in ('require', 'watch', 'prereq'):
                                 if not isinstance(arg[argfirst], list):
-                                    errors.append(('The require or watch'
-                                    ' statement in state "{0}" in sls "{1}" '
+                                    errors.append(('The {0}'
+                                    ' statement in state "{1}" in sls "{2}" '
                                     'needs to be formed as a list').format(
+                                        argfirst,
                                         name,
                                         body['__sls__']
                                         ))
@@ -779,11 +780,12 @@ class State(object):
                                     'a list').format(
                                         name,
                                         body['__sls__']))
-                            if argfirst == 'require' or argfirst == 'watch':
+                            if argfirst in ('require', 'watch', 'prereq'):
                                 if not isinstance(arg[argfirst], list):
-                                    errors.append(('The require or watch'
-                                    ' statement in state "{0}" in sls "{1}" '
+                                    errors.append(('The {0}'
+                                    ' statement in state "{1}" in sls "{2}" '
                                     'needs to be formed as a list').format(
+                                        argfirst,
                                         name,
                                         body['__sls__']
                                         ))
@@ -1002,14 +1004,22 @@ class State(object):
         for ext_chunk in ext:
             for name, body in ext_chunk.items():
                 if name not in high:
-                    errors.append(
-                        'Cannot extend ID {0} in "{1}:{2}". It is not part '
-                        'of the high state.'.format(
-                            name,
-                            body.get('__env__', 'base'),
-                            body.get('__sls__', 'base'))
-                        )
-                    continue
+                    state_type = next(
+                        x for x in body if not x.startswith('__')
+                    )
+                    # Check for a matching 'name' override in high data
+                    id_ = find_name(name, state_type, high)
+                    if id_:
+                        name = id_
+                    else:
+                        errors.append(
+                            'Cannot extend ID {0} in "{1}:{2}". It is not '
+                            'part of the high state.'.format(
+                                name,
+                                body.get('__env__', 'base'),
+                                body.get('__sls__', 'base'))
+                            )
+                        continue
                 for state, run in body.items():
                     if state.startswith('__'):
                         continue
@@ -2120,6 +2130,9 @@ class BaseHighState(object):
                     if not isinstance(state[name], dict):
                         # Include's or excludes as lists?
                         continue
+                    if not isinstance(state[name][s_dec], list):
+                        # Bad syntax, let the verify seq pick it up later on
+                        continue
 
                     found = False
                     if s_dec.startswith('_'):
@@ -2376,12 +2389,20 @@ class BaseHighState(object):
         if not high:
             return ret
         cumask = os.umask(191)
-        with salt.utils.fopen(cfn, 'w+') as fp_:
-            try:
-                self.serial.dump(high, fp_)
-            except TypeError:
-                # Can't serialize pydsl
-                pass
+        try:
+            if salt.utils.is_windows():
+                # Make sure cache file isn't read-only
+                self.state.functions['cmd.run']('attrib -R "{0}"'.format(cfn), output_loglevel='quiet')
+            with salt.utils.fopen(cfn, 'w+') as fp_:
+                try:
+                    self.serial.dump(high, fp_)
+                except TypeError:
+                    # Can't serialize pydsl
+                    pass
+        except (IOError, OSError):
+            msg = 'Unable to write to "state.highstate" cache file {0}'
+            log.error(msg.format(cfn))
+
         os.umask(cumask)
         return self.state.call_high(high)
 

@@ -49,6 +49,7 @@ Namspaced tag
 
 # Import python libs
 import os
+import time
 import fnmatch
 import glob
 import hashlib
@@ -305,6 +306,14 @@ class SaltEvent(object):
         if self.context.closed is False:
             self.context.term()
 
+        # Hardcore destruction
+        if hasattr(self.context, 'destroy'):
+            self.context.destroy(linger=1)
+
+        # https://github.com/zeromq/pyzmq/issues/173#issuecomment-4037083
+        # Assertion failed: get_load () == 0 (poller_base.cpp:32)
+        time.sleep(0.025)
+
     def fire_ret_load(self, load):
         '''
         Fire events based on information in the return load
@@ -449,10 +458,13 @@ class Reactor(multiprocessing.Process, salt.state.Compiler):
         '''
         react = {}
         for fn_ in glob.glob(glob_ref):
-            react.update(self.render_template(
+            try:
+                react.update(self.render_template(
                     fn_,
                     tag=tag,
                     data=data))
+            except Exception:
+                log.error('Failed to render "{0}"'.format(fn_))
         return react
 
     def list_reactors(self, tag):
@@ -573,9 +585,8 @@ class ReactWrap(object):
         '''
         Wrap Wheel to enable executing :ref:`wheel modules <all-salt.wheel>`
         '''
-        kwargs['fun'] = fun
         wheel = salt.wheel.Wheel(self.opts)
-        return wheel.call_func(**kwargs)
+        return wheel.call_func(fun, **kwargs)
 
 
 class StateFire(object):

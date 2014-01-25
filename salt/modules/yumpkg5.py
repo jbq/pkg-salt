@@ -11,6 +11,7 @@ import re
 
 # Import salt libs
 import salt.utils
+from salt.exceptions import SaltInvocationError
 from salt.utils import namespaced_function as _namespaced_function
 from salt.modules.yumpkg import (mod_repo, _parse_repo_file, list_repos,
                                  get_repo, expand_repo_def, del_repo)
@@ -373,15 +374,27 @@ def refresh_db():
     Since yum refreshes the database automatically, this runs a yum clean,
     so that the next yum operation will have a clean database
 
+    Returns:
+
+    - ``True``: Database updated successfully
+    - ``False``: Problem updating database
+    - ``None``: Database already up-to-date
+
     CLI Example:
 
     .. code-block:: bash
 
         salt '*' pkg.refresh_db
     '''
-    cmd = 'yum -q clean dbcache'
-    __salt__['cmd.retcode'](cmd)
-    return True
+    retcodes = {
+        100: True,
+        0: None,
+        1: False,
+    }
+
+    cmd = 'yum -q check-update'
+    ret = __salt__['cmd.retcode'](cmd)
+    return retcodes.get(ret, False)
 
 
 def install(name=None,
