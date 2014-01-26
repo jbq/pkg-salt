@@ -1,3 +1,10 @@
+salt (0.17.5-1) unstable; urgency=medium
+
+  * [68d201f] Imported Upstream version 0.17.5
+  * [f48d855] Minor update of doc patches to reflect upstream changes
+
+ -- Joe Healy <joehealy@gmail.com>  Sun, 26 Jan 2014 23:20:05 +1100
+
 salt (0.17.4-2) unstable; urgency=medium
 
   * [178932c] Removed documentation tracking code (google analytics)
