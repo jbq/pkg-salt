@@ -1,3 +1,14 @@
+salt (0.17.5+ds-1) unstable; urgency=medium
+
+  * [af8c595] Added repack script to fix source issue. Closes: 736783
+  * [20ce79b] Imported Upstream version 0.17.5+ds
+  * [a536794] Send environment info with state (upstream commit #113adcd)
+  * [838f341] Added release notes from upstream
+  * [f741d6d] Updated copyright to reflect repacking
+  * [d747742] Added lintian override for minified js files with source
+
+ -- Joe Healy <joehealy@gmail.com>  Fri, 07 Feb 2014 10:07:55 +1100
+
 salt (0.17.5-1) unstable; urgency=medium
 
   * [68d201f] Imported Upstream version 0.17.5
