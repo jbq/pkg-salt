@@ -2,7 +2,9 @@ Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: salt
 Upstream-Contact: salt-users@googlegroups.com
 Source: https://github.com/saltstack/salt
-
+  The relationship between source and minified js libraries is not clear in
+  the upstream sources. The debian/repack script repacks the archive to make
+  this clear.
 Files: *
 Copyright: 2013 SaltStack Team
 License: Apache-2.0
@@ -15,6 +17,10 @@ Copyright: 2013 Joe Healy <joehealy@gmail.com>
            2012 Corey Quinn <corey@sequestered.net>
            2011 Aaron Toponce <aaron.toponce@gmail.com>
 License: Apache-2.0
+
+Files: debian/repack
+Copyright: 2013-2014 Ben Finney <ben+debian@benfinney.id.au>
+License: MIT License
 
 Files: salt/auth/pam.py
 Copyright: 2007 Chris AtLee <chris@atlee.ca>
