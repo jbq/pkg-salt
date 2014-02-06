@@ -1,0 +1,102 @@
+#! /bin/bash
+#
+# debian/repack
+# Part of the Debian package ‘libjs-zxcvbn’.
+#
+# Copyright © 2013–2014 Ben Finney <ben+debian@benfinney.id.au>
+# This is free software; see the end of this file for license terms.
+#
+# Re-build the pristine upstream source to serve as the Debian upstream source.
+
+set -o errexit
+set -o errtrace
+set -o nounset
+
+function usage() {
+    progname="$(basename "$0")"
+    printf "$progname --upstream-version VERSION FILENAME\n"
+}
+
+if [ $# -ne 3 ] ; then
+    usage
+    exit 1
+fi
+
+upstream_version="$2"
+downloaded_file="$3"
+
+working_dir="$(mktemp -d -t)"
+
+function cleanup_exit() {
+    exit_status=$?
+    trap - ERR EXIT SIGTERM SIGHUP SIGINT SIGQUIT
+
+    rm -rf "${working_dir}"
+
+    exit $exit_status
+}
+trap "cleanup_exit" ERR EXIT SIGTERM SIGHUP SIGINT SIGQUIT
+
+package_name=$(dpkg-parsechangelog | sed -n -e 's/^Source: //p')
+release_version=$(dpkg-parsechangelog | sed -n -e 's/^Version: //p')
+upstream_version=$(printf "${upstream_version}+ds")
+upstream_dirname="${package_name}-${upstream_version}.orig"
+
+target_filename="${package_name}_${upstream_version}.orig.tar.gz"
+target_working_file="${working_dir}/${target_filename}"
+target_file="$(dirname "${downloaded_file}")/${target_filename}"
+
+repack_dir="${working_dir}/${upstream_dirname}"
+
+printf "Unpacking pristine upstream source ‘${downloaded_file}’:\n"
+
+tar -xzf "${downloaded_file}" --directory "${working_dir}"
+
+upstream_source_dirname=$(ls -1 "${working_dir}")
+upstream_source_dir="${working_dir}/${upstream_source_dirname}"
+
+printf "Repackaging upstream source from ‘${upstream_source_dir}’ to ‘${repack_dir}’:\n"
+
+mv "${upstream_source_dir}" "${repack_dir}"
+
+printf "Renaming files:\n"
+
+mv "${repack_dir}"/doc/_themes/saltstack/static/js/vendor/modernizr.custom.20463.js "${repack_dir}"/doc/_themes/saltstack/static/js/vendor/modernizr-2.6.2-respond-1.1.0.js
+
+printf "Rebuilding DS upstream source tarball:\n"
+
+GZIP="--best" tar --directory "${working_dir}" -czf "${target_working_file}" "${upstream_dirname}"
+
+printf "Moving completed upstream tarball to ‘${target_file}’:\n"
+
+rm -v "${downloaded_file}"
+mv "${target_working_file}" "${target_file}"
+
+printf "Done.\n"
+
+
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# “Software”), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be included
+# in all copies or substantial portions of the Software.
+#
+# The Software is provided “as is”, without warranty of any kind,
+# express or implied, including but not limited to the warranties of
+# merchantability, fitness for a particular purpose and noninfringement.
+# In no event shall the authors or copyright holders be liable for any
+# claim, damages or other liability, whether in an action of contract,
+# tort or otherwise, arising from, out of or in connection with the
+# Software or the use or other dealings in the Software.
+
+
+# Local variables:
+# coding: utf-8
+# mode: sh
+# End:
+# vim: fileencoding=utf-8 filetype=sh :
