@@ -59,6 +59,11 @@ printf "Repackaging upstream source from ‘${upstream_source_dir}’ to ‘${re
 
 mv "${upstream_source_dir}" "${repack_dir}"
 
+printf "Removing files:\n"
+
+echo pkg/windows/buildenv/nssm.exe
+rm "${repack_dir}"/pkg/windows/buildenv/nssm.exe
+
 printf "Renaming files:\n"
 
 mv "${repack_dir}"/doc/_themes/saltstack/static/js/vendor/modernizr.custom.20463.js "${repack_dir}"/doc/_themes/saltstack/static/js/vendor/modernizr-2.6.2-respond-1.1.0.js
