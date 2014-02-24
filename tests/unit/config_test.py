@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+
+# -*- coding: utf-8 -*-
 '''
     :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
     :copyright: © 2012-2013 by the SaltStack Team, see AUTHORS for more details
@@ -26,6 +28,7 @@ import salt.minion
 import salt.utils
 import integration
 from salt import config as sconfig, version as salt_version
+from salt.version import SaltStackVersion
 
 
 class ConfigTestCase(TestCase):
@@ -298,7 +301,8 @@ class ConfigTestCase(TestCase):
         self.assertEqual(syndic_opts['_minion_conf_file'], syndic_conf_path)
 
     def test_check_dns_deprecation_warning(self):
-        if salt_version.__version_info__ >= (0, 19):
+        helium_version = SaltStackVersion.from_name('Helium')
+        if salt_version.__version_info__ >= helium_version:
             raise AssertionError(
                 'Failing this test on purpose! Please delete this test case, '
                 'the \'check_dns\' keyword argument and the deprecation '
@@ -316,8 +320,9 @@ class ConfigTestCase(TestCase):
             self.assertEqual(
                 'The functionality behind the \'check_dns\' keyword argument '
                 'is no longer required, as such, it became unnecessary and is '
-                'now deprecated. \'check_dns\' will be removed in salt > '
-                '0.18.0', str(w[-1].message)
+                'now deprecated. \'check_dns\' will be removed in Salt '
+                '{0}.'.format(helium_version.formatted_version),
+                str(w[-1].message)
             )
 
         with warnings.catch_warnings(record=True) as w:
@@ -327,8 +332,9 @@ class ConfigTestCase(TestCase):
             self.assertEqual(
                 'The functionality behind the \'check_dns\' keyword argument '
                 'is no longer required, as such, it became unnecessary and is '
-                'now deprecated. \'check_dns\' will be removed in salt > '
-                '0.18.0', str(w[-1].message)
+                'now deprecated. \'check_dns\' will be removed in Salt '
+                '{0}.'.format(helium_version.formatted_version),
+                str(w[-1].message)
             )
 
         with warnings.catch_warnings(record=True) as w:
@@ -336,8 +342,9 @@ class ConfigTestCase(TestCase):
             self.assertEqual(
                 'The functionality behind the \'check_dns\' keyword argument '
                 'is no longer required, as such, it became unnecessary and is '
-                'now deprecated. \'check_dns\' will be removed in salt > '
-                '0.18.0', str(w[-1].message)
+                'now deprecated. \'check_dns\' will be removed in Salt '
+                '{0}.'.format(helium_version.formatted_version),
+                str(w[-1].message)
             )
 
         with warnings.catch_warnings(record=True) as w:
@@ -347,8 +354,9 @@ class ConfigTestCase(TestCase):
             self.assertEqual(
                 'The functionality behind the \'check_dns\' keyword argument '
                 'is no longer required, as such, it became unnecessary and is '
-                'now deprecated. \'check_dns\' will be removed in salt > '
-                '0.18.0', str(w[-1].message)
+                'now deprecated. \'check_dns\' will be removed in Salt '
+                '{0}.'.format(helium_version.formatted_version),
+                str(w[-1].message)
             )
 
     def test_issue_6714_parsing_errors_logged(self):

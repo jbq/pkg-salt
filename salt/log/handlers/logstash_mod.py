@@ -1,10 +1,5 @@
 # -*- coding: utf-8 -*-
 '''
-    :codeauthor: Pedro Algarvio (pedro@algarvio.me)
-    :copyright: © 2013 by the SaltStack Team, see AUTHORS for more details.
-    :license: Apache 2.0, see LICENSE for more details.
-
-
     Logstash Logging Handler
     ========================
 
@@ -23,7 +18,7 @@
 
         logstash_udp_handler:
           host: 127.0.0.1
-          port = 9999
+          port: 9999
 
 
     On the `Logstash`_ configuration file you need something like:
@@ -121,14 +116,24 @@ import json
 import socket
 import logging
 import logging.handlers
-from datetime import datetime
+import datetime
 
 # Import salt libs
 from salt._compat import string_types
 from salt.log.setup import LOG_LEVELS
 from salt.log.mixins import NewStyleClassMixIn
 
+# Import 3rd-party libs
+try:
+    from pytz import utc as _UTC
+    HAS_PYTZ = True
+except ImportError:
+    HAS_PYTZ = False
+
 log = logging.getLogger(__name__)
+
+# Define the module's virtual name
+__virtualname__ = 'logstash'
 
 
 def __virtual__():
@@ -141,7 +146,7 @@ def __virtual__():
             'logging handlers module.'
         )
         return False
-    return 'logstash'
+    return __virtualname__
 
 
 def setup_handlers():
@@ -216,7 +221,10 @@ class LogstashFormatter(logging.Formatter, NewStyleClassMixIn):
         super(LogstashFormatter, self).__init__(fmt=None, datefmt=None)
 
     def formatTime(self, record, datefmt=None):
-        return datetime.utcfromtimestamp(record.created).isoformat()
+        timestamp = datetime.datetime.utcfromtimestamp(record.created)
+        if HAS_PYTZ:
+            return _UTC.localize(timestamp).isoformat()
+        return '{0}+00:00'.format(timestamp.isoformat())
 
     def format(self, record):
         host = socket.getfqdn()

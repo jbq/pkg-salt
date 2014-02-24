@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+
+# -*- coding: utf-8 -*-
 '''
     :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
     :copyright: © 2013 by the SaltStack Team, see AUTHORS for more details
@@ -54,11 +56,20 @@ class VersionTestCase(TestCase):
             ('debian/0.11.1+ds-1-3-ga0afcbd', '0.11.1+ds-2'),
             ('v0.12.0-85-g2880105', 'v0.12.0-19-g767d4f9'),
             ('v0.17.0rc1-1-g52ebdfd', '0.17.0rc1'),
-            ('v0.17.0', 'v0.17.0rc1')
+            ('v0.17.0', 'v0.17.0rc1'),
+            ('Hydrogen', '0.17.0'),
+            ('Helium', 'Hydrogen'),
         )
         for v1, v2 in examples:
             self.assertTrue(SaltStackVersion.parse(v1) > v2)
             self.assertTrue(SaltStackVersion.parse(v2) < v1)
+
+    def test_unparsable_version(self):
+        with self.assertRaises(ValueError):
+            SaltStackVersion.from_name('Drunk')
+
+        with self.assertRaises(ValueError):
+            SaltStackVersion.parse('Drunk')
 
 
 if __name__ == '__main__':

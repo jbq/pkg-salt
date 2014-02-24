@@ -11,6 +11,8 @@
 
 # Import python libraries
 import warnings
+import os
+import sys
 
 # Import Salt Testing libs
 from salttesting import skipIf, TestCase
@@ -27,6 +29,7 @@ from salt.modules import virtualenv_mod
 from salt.exceptions import CommandExecutionError
 
 virtualenv_mod.__salt__ = {}
+virtualenv_mod.__opts__['venv_bin'] = 'virtualenv'
 base_virtualenv_mock = MagicMock()
 base_virtualenv_mock.__version__ = '1.9.1'
 
@@ -177,7 +180,9 @@ class VirtualenvTestCase(TestCase):
                 self.assertEqual(
                     '\'no_site_packages\' has been deprecated. Please '
                     'start using \'system_site_packages=False\' which '
-                    'means exactly the same as \'no_site_packages=True\'',
+                    'means exactly the same as \'no_site_packages=True\'. '
+                    'This warning and respective workaround will be removed '
+                    'in Salt Helium (Unreleased)',
                     str(w[-1].message)
                 )
 
@@ -313,12 +318,13 @@ class VirtualenvTestCase(TestCase):
 
     def test_python_argument(self):
         mock = MagicMock(return_value={'retcode': 0, 'stdout': ''})
+
         with patch.dict(virtualenv_mod.__salt__, {'cmd.run_all': mock}):
             virtualenv_mod.create(
-                '/tmp/foo', python='/usr/bin/python2.7',
+                '/tmp/foo', python=sys.executable,
             )
             mock.assert_called_once_with(
-                'virtualenv --python=/usr/bin/python2.7 /tmp/foo',
+                'virtualenv --python={0} /tmp/foo'.format(sys.executable),
                 runas=None
             )
 

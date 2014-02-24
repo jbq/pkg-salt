@@ -19,12 +19,15 @@ from salt._compat import string_types
 
 log = logging.getLogger(__name__)
 
+# Define the module's virtual name
+__virtualname__ = 'user'
+
 
 def __virtual__():
     '''
     Set the user module if the kernel is FreeBSD
     '''
-    return 'user' if __grains__['kernel'] == 'FreeBSD' else False
+    return __virtualname__ if __grains__['kernel'] == 'FreeBSD' else False
 
 
 def _get_gecos(name):
@@ -134,7 +137,7 @@ def delete(name, remove=False, force=False):
     return not ret['retcode']
 
 
-def getent():
+def getent(refresh=False):
     '''
     Return the list of all info for all users
 
@@ -144,7 +147,7 @@ def getent():
 
         salt '*' user.getent
     '''
-    if 'user.getent' in __context__:
+    if 'user.getent' in __context__ and not refresh:
         return __context__['user.getent']
 
     ret = []

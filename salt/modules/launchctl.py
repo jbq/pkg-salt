@@ -12,13 +12,16 @@ import plistlib
 # Import salt libs
 import salt.utils.decorators as decorators
 
+# Define the module's virtual name
+__virtualname__ = 'service'
+
 
 def __virtual__():
     '''
     Only work on MacOS
     '''
     if __grains__['os'] == 'MacOS':
-        return 'service'
+        return __virtualname__
     return False
 
 
@@ -140,6 +143,20 @@ def available(job_label):
         salt '*' service.available com.openssh.sshd
     '''
     return True if _service_by_name(job_label) else False
+
+
+def missing(job_label):
+    '''
+    The inverse of service.available
+    Check that the given service is not available.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' service.missing com.openssh.sshd
+    '''
+    return False if _service_by_name(job_label) else True
 
 
 def status(job_label, runas=None):

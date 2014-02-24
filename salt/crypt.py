@@ -42,7 +42,7 @@ def dropfile(cachedir, user=None):
     dfn = os.path.join(cachedir, '.dfn')
 
     def ready():
-        """
+        '''
         Because MWorker._update_aes uses second-precision mtime
         to detect changes to the file, we must avoid writing two
         versions with the same mtime.
@@ -50,7 +50,7 @@ def dropfile(cachedir, user=None):
         Note that this only makes rapid updates in serial safe: concurrent
         updates could still both pass this check and then write two different
         keys with the same mtime.
-        """
+        '''
         try:
             stats = os.stat(dfn)
         except os.error:
@@ -65,7 +65,7 @@ def dropfile(cachedir, user=None):
                 return True
 
     while not ready():
-        log.warning("Waiting before writing {0}".format(dfn))
+        log.warning('Waiting before writing {0}'.format(dfn))
         time.sleep(1)
 
     aes = Crypticle.generate_key_string()
@@ -164,7 +164,7 @@ class MasterKeys(dict):
             log.info('Generating keys: {0}'.format(self.opts['pki_dir']))
             gen_keys(self.opts['pki_dir'],
                      'master',
-                     4096,
+                     self.opts['keysize'],
                      self.opts.get('user'))
             key = RSA.load_key(self.rsa_path)
         return key
@@ -218,7 +218,7 @@ class Auth(object):
             log.info('Generating keys: {0}'.format(self.opts['pki_dir']))
             gen_keys(self.opts['pki_dir'],
                      'minion',
-                     4096,
+                     self.opts['keysize'],
                      self.opts.get('user'))
             key = RSA.load_key(self.rsa_path)
         return key
@@ -510,7 +510,7 @@ class SAuth(Auth):
         '''
         while True:
             creds = self.sign_in(
-                self.opts.get('_auth_timeout', 60),
+                self.opts['auth_timeout'],
                 self.opts.get('_safe_auth', True)
             )
             if creds == 'retry':

@@ -1,10 +1,5 @@
 # -*- coding: utf-8 -*-
 '''
-    :codeauthor: Pedro Algarvio (pedro@algarvio.me)
-    :copyright: © 2013 by the SaltStack Team, see AUTHORS for more details.
-    :license: Apache 2.0, see LICENSE for more details.
-
-
     Sentry Logging Handler
     ======================
 
@@ -91,10 +86,13 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+# Define the module's virtual name
+__virtualname__ = 'sentry'
+
 
 def __virtual__():
     if HAS_RAVEN is True:
-        return 'sentry'
+        return __virtualname__
     return False
 
 

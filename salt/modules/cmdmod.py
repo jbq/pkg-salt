@@ -23,6 +23,7 @@ import salt.utils.timed_subprocess
 import salt.grains.extra
 from salt._compat import string_types
 from salt.exceptions import CommandExecutionError, TimedProcTimeoutError
+from salt.log import LOG_LEVELS
 
 # Only available on POSIX systems, nonfatal on windows
 try:
@@ -31,10 +32,11 @@ try:
 except ImportError:
     pass
 
+# Define the module's virtual name
+__virtualname__ = 'cmd'
 
 # Set up logging
 log = logging.getLogger(__name__)
-
 
 DEFAULT_SHELL = salt.grains.extra.shell()['shell']
 
@@ -44,7 +46,7 @@ def __virtual__():
     Overwriting the cmd python module makes debugging modules
     with pdb a bit harder so lets do it this way instead.
     '''
-    return 'cmd'
+    return __virtualname__
 
 
 def _chugid(runas):
@@ -129,7 +131,7 @@ def _chugid_and_umask(runas, umask):
         os.umask(umask)
 
 
-def _render_cmd(cmd, cwd, template):
+def _render_cmd(cmd, cwd, template, saltenv='base'):
     '''
     If template is a valid template engine, process the cmd and cwd through
     that engine.
@@ -149,7 +151,7 @@ def _render_cmd(cmd, cwd, template):
     kwargs['pillar'] = __pillar__
     kwargs['grains'] = __grains__
     kwargs['opts'] = __opts__
-    kwargs['env'] = 'base'
+    kwargs['saltenv'] = saltenv
 
     def _render(contents):
         # write out path to temp file
@@ -177,11 +179,41 @@ def _render_cmd(cmd, cwd, template):
     return (cmd, cwd)
 
 
+def _check_loglevel(level='info', quiet=False):
+    '''
+    Retrieve the level code for use in logging.Logger.log().
+    '''
+    def _bad_level(level):
+        log.error(
+            'Invalid output_loglevel {0!r}. Valid levels are: {1}. Falling '
+            'back to \'info\'.'
+            .format(
+                level,
+                ', '.join(
+                    sorted(LOG_LEVELS, key=LOG_LEVELS.get, reverse=True)
+                )
+            )
+        )
+        return LOG_LEVELS['info']
+
+    try:
+        level = level.lower()
+        if level not in LOG_LEVELS:
+            return _bad_level(level)
+    except AttributeError:
+        return _bad_level(level)
+
+    if salt.utils.is_true(quiet) or level == 'quiet':
+        return None
+    return LOG_LEVELS[level]
+
+
 def _run(cmd,
          cwd=None,
          stdin=None,
          stdout=subprocess.PIPE,
          stderr=subprocess.PIPE,
+         output_loglevel='info',
          quiet=False,
          runas=None,
          shell=DEFAULT_SHELL,
@@ -193,10 +225,19 @@ def _run(cmd,
          umask=None,
          timeout=None,
          with_communicate=True,
-         reset_system_locale=True):
+         reset_system_locale=True,
+         saltenv='base'):
     '''
     Do the DRY thing and only call subprocess.Popen() once
     '''
+    if salt.utils.is_true(quiet):
+        salt.utils.warn_until(
+            'Lithium',
+            'The \'quiet\' option is deprecated and will be removed in the '
+            '\'Lithium\' Salt release. Please use output_loglevel=quiet '
+            'instead.'
+        )
+
     # Set the default working directory to the home directory of the user
     # salt-minion is running as. Defaults to home directory of user under which
     # the minion is running.
@@ -228,15 +269,15 @@ def _run(cmd,
         stack = traceback.extract_stack(limit=2)
 
         # extract_stack() returns a list of tuples.
-        # The last item in the list [-1] is the currrent method.
+        # The last item in the list [-1] is the current method.
         # The third item[2] in each tuple is the name of that method.
         if stack[-2][2] == 'script':
-            cmd = 'Powershell -File ' + cmd
+            cmd = 'Powershell -executionpolicy bypass -File ' + cmd
         else:
             cmd = 'Powershell "{0}"'.format(cmd.replace('"', '\\"'))
 
     # munge the cmd and cwd through the template
-    (cmd, cwd) = _render_cmd(cmd, cwd, template)
+    (cmd, cwd) = _render_cmd(cmd, cwd, template, saltenv)
 
     ret = {}
 
@@ -263,8 +304,9 @@ def _run(cmd,
         try:
             pwd.getpwnam(runas)
         except KeyError:
-            msg = 'User \'{0}\' is not available'.format(runas)
-            raise CommandExecutionError(msg)
+            raise CommandExecutionError(
+                'User {0!r} is not available'.format(runas)
+            )
         try:
             # Getting the environment for the runas user
             # There must be a better way to do this.
@@ -291,11 +333,16 @@ def _run(cmd,
             env_runas.update(env)
             env = env_runas
         except ValueError:
-            msg = 'Environment could not be retrieved for User \'{0}\''.format(runas)
-            raise CommandExecutionError(msg)
+            raise CommandExecutionError(
+                'Environment could not be retrieved for User {0!r}'.format(
+                    runas
+                )
+            )
 
-    if not salt.utils.is_true(quiet):
-        # Put the most common case first
+    if _check_loglevel(output_loglevel, quiet) is not None:
+        # Always log the shell commands at INFO unless quiet logging is
+        # requested. The command output is what will be controlled by the
+        # 'loglevel' parameter.
         log.info(
             'Executing command {0!r} {1}in directory {2!r}'.format(
                 cmd, 'as user {0!r} '.format(runas) if runas else '', cwd
@@ -403,7 +450,8 @@ def _run_quiet(cmd,
                template=None,
                umask=None,
                timeout=None,
-               reset_system_locale=True):
+               reset_system_locale=True,
+               saltenv='base'):
     '''
     Helper for running commands quietly for minion startup
     '''
@@ -412,14 +460,15 @@ def _run_quiet(cmd,
                 cwd=cwd,
                 stdin=stdin,
                 stderr=subprocess.STDOUT,
-                quiet=True,
+                output_loglevel='quiet',
                 shell=shell,
                 python_shell=python_shell,
                 env=env,
                 template=template,
                 umask=umask,
                 timeout=timeout,
-                reset_system_locale=reset_system_locale)['stdout']
+                reset_system_locale=reset_system_locale,
+                saltenv=saltenv)['stdout']
 
 
 def _run_all_quiet(cmd,
@@ -432,7 +481,8 @@ def _run_all_quiet(cmd,
                    template=None,
                    umask=None,
                    timeout=None,
-                   reset_system_locale=True):
+                   reset_system_locale=True,
+                   saltenv='base'):
     '''
     Helper for running commands quietly for minion startup.
     Returns a dict of return data
@@ -444,11 +494,12 @@ def _run_all_quiet(cmd,
                 shell=shell,
                 python_shell=python_shell,
                 env=env,
-                quiet=True,
+                output_loglevel='quiet',
                 template=template,
                 umask=umask,
                 timeout=timeout,
-                reset_system_locale=reset_system_locale)
+                reset_system_locale=reset_system_locale,
+                saltenv=saltenv)
 
 
 def run(cmd,
@@ -462,9 +513,11 @@ def run(cmd,
         template=None,
         rstrip=True,
         umask=None,
+        output_loglevel='info',
         quiet=False,
         timeout=None,
         reset_system_locale=True,
+        saltenv='base',
         **kwargs):
     '''
     Execute the passed command and return the output as a string
@@ -500,7 +553,7 @@ def run(cmd,
 
         salt '*' cmd.run "grep f" stdin='one\\ntwo\\nthree\\nfour\\nfive\\n'
     '''
-    out = _run(cmd,
+    ret = _run(cmd,
                runas=runas,
                shell=shell,
                python_shell=python_shell,
@@ -512,12 +565,23 @@ def run(cmd,
                template=template,
                rstrip=rstrip,
                umask=umask,
+               output_loglevel=output_loglevel,
                quiet=quiet,
                timeout=timeout,
-               reset_system_locale=reset_system_locale)['stdout']
-    if not quiet:
-        log.debug('output: {0}'.format(out))
-    return out
+               reset_system_locale=reset_system_locale,
+               saltenv=saltenv)
+
+    lvl = _check_loglevel(output_loglevel, quiet)
+    if lvl is not None:
+        if ret['retcode'] != 0:
+            if lvl < LOG_LEVELS['error']:
+                lvl = LOG_LEVELS['error']
+            log.error(
+                'Command {0!r} failed with return code: {1}'
+                .format(cmd, ret['retcode'])
+            )
+        log.log(lvl, 'output: {0}'.format(ret['stdout']))
+    return ret['stdout']
 
 
 def run_stdout(cmd,
@@ -531,9 +595,11 @@ def run_stdout(cmd,
                template=None,
                rstrip=True,
                umask=None,
+               output_loglevel='info',
                quiet=False,
                timeout=None,
                reset_system_locale=True,
+               saltenv='base',
                **kwargs):
     '''
     Execute a command, and only return the standard out
@@ -563,23 +629,37 @@ def run_stdout(cmd,
 
         salt '*' cmd.run_stdout "grep f" stdin='one\\ntwo\\nthree\\nfour\\nfive\\n'
     '''
-    stdout = _run(cmd,
-                  runas=runas,
-                  cwd=cwd,
-                  stdin=stdin,
-                  shell=shell,
-                  python_shell=python_shell,
-                  env=env,
-                  clean_env=clean_env,
-                  template=template,
-                  rstrip=rstrip,
-                  umask=umask,
-                  quiet=quiet,
-                  timeout=timeout,
-                  reset_system_locale=reset_system_locale)["stdout"]
-    if not quiet:
-        log.debug('stdout: {0}'.format(stdout))
-    return stdout
+    ret = _run(cmd,
+               runas=runas,
+               cwd=cwd,
+               stdin=stdin,
+               shell=shell,
+               python_shell=python_shell,
+               env=env,
+               clean_env=clean_env,
+               template=template,
+               rstrip=rstrip,
+               umask=umask,
+               output_loglevel=output_loglevel,
+               quiet=quiet,
+               timeout=timeout,
+               reset_system_locale=reset_system_locale,
+               saltenv=saltenv)
+
+    lvl = _check_loglevel(output_loglevel, quiet)
+    if lvl is not None:
+        if ret['retcode'] != 0:
+            if lvl < LOG_LEVELS['error']:
+                lvl = LOG_LEVELS['error']
+            log.error(
+                'Command {0!r} failed with return code: {1}'
+                .format(cmd, ret['retcode'])
+            )
+        if ret['stdout']:
+            log.log(lvl, 'stdout: {0}'.format(ret['stdout']))
+        if ret['stderr']:
+            log.log(lvl, 'stderr: {0}'.format(ret['stderr']))
+    return ret['stdout']
 
 
 def run_stderr(cmd,
@@ -593,9 +673,11 @@ def run_stderr(cmd,
                template=None,
                rstrip=True,
                umask=None,
+               output_loglevel='info',
                quiet=False,
                timeout=None,
                reset_system_locale=True,
+               saltenv='base',
                **kwargs):
     '''
     Execute a command and only return the standard error
@@ -625,23 +707,37 @@ def run_stderr(cmd,
 
         salt '*' cmd.run_stderr "grep f" stdin='one\\ntwo\\nthree\\nfour\\nfive\\n'
     '''
-    stderr = _run(cmd,
-                  runas=runas,
-                  cwd=cwd,
-                  stdin=stdin,
-                  shell=shell,
-                  python_shell=python_shell,
-                  env=env,
-                  clean_env=clean_env,
-                  template=template,
-                  rstrip=rstrip,
-                  umask=umask,
-                  quiet=quiet,
-                  timeout=timeout,
-                  reset_system_locale=reset_system_locale)["stderr"]
-    if not quiet:
-        log.debug('stderr: {0}'.format(stderr))
-    return stderr
+    ret = _run(cmd,
+               runas=runas,
+               cwd=cwd,
+               stdin=stdin,
+               shell=shell,
+               python_shell=python_shell,
+               env=env,
+               clean_env=clean_env,
+               template=template,
+               rstrip=rstrip,
+               umask=umask,
+               output_loglevel=output_loglevel,
+               quiet=quiet,
+               timeout=timeout,
+               reset_system_locale=reset_system_locale,
+               saltenv=saltenv)
+
+    lvl = _check_loglevel(output_loglevel, quiet)
+    if lvl is not None:
+        if ret['retcode'] != 0:
+            if lvl < LOG_LEVELS['error']:
+                lvl = LOG_LEVELS['error']
+            log.error(
+                'Command {0!r} failed with return code: {1}'
+                .format(cmd, ret['retcode'])
+            )
+        if ret['stdout']:
+            log.log(lvl, 'stdout: {0}'.format(ret['stdout']))
+        if ret['stderr']:
+            log.log(lvl, 'stderr: {0}'.format(ret['stderr']))
+    return ret['stderr']
 
 
 def run_all(cmd,
@@ -655,9 +751,11 @@ def run_all(cmd,
             template=None,
             rstrip=True,
             umask=None,
+            output_loglevel='info',
             quiet=False,
             timeout=None,
             reset_system_locale=True,
+            saltenv='base',
             **kwargs):
     '''
     Execute the passed command and return a dict of return data
@@ -698,26 +796,25 @@ def run_all(cmd,
                template=template,
                rstrip=rstrip,
                umask=umask,
+               output_loglevel=output_loglevel,
                quiet=quiet,
                timeout=timeout,
-               reset_system_locale=reset_system_locale)
+               reset_system_locale=reset_system_locale,
+               saltenv=saltenv)
 
-    if not quiet:
+    lvl = _check_loglevel(output_loglevel, quiet)
+    if lvl is not None:
         if ret['retcode'] != 0:
-            rcode = ret['retcode']
-            msg = 'Command \'{0}\' failed with return code: {1}'
-            log.error(msg.format(cmd, rcode))
-            # Don't log a blank line if there is no stderr or stdout
-            if ret['stdout']:
-                log.error('stdout: {0}'.format(ret['stdout']))
-            if ret['stderr']:
-                log.error('stderr: {0}'.format(ret['stderr']))
-        else:
-            # No need to always log output on success to the logs
-            if ret['stdout']:
-                log.debug('stdout: {0}'.format(ret['stdout']))
-            if ret['stderr']:
-                log.debug('stderr: {0}'.format(ret['stderr']))
+            if lvl < LOG_LEVELS['error']:
+                lvl = LOG_LEVELS['error']
+            log.error(
+                'Command {0!r} failed with return code: {1}'
+                .format(cmd, ret['retcode'])
+            )
+        if ret['stdout']:
+            log.log(lvl, 'stdout: {0}'.format(ret['stdout']))
+        if ret['stderr']:
+            log.log(lvl, 'stderr: {0}'.format(ret['stderr']))
     return ret
 
 
@@ -731,9 +828,11 @@ def retcode(cmd,
             clean_env=False,
             template=None,
             umask=None,
+            output_loglevel='info',
             quiet=False,
             timeout=None,
             reset_system_locale=True,
+            saltenv='base',
             **kwargs):
     '''
     Execute a shell command and return the command's return code.
@@ -763,20 +862,34 @@ def retcode(cmd,
 
         salt '*' cmd.retcode "grep f" stdin='one\\ntwo\\nthree\\nfour\\nfive\\n'
     '''
-    return _run(cmd,
-                runas=runas,
-                cwd=cwd,
-                stdin=stdin,
-                shell=shell,
-                python_shell=python_shell,
-                env=env,
-                clean_env=clean_env,
-                template=template,
-                umask=umask,
-                quiet=quiet,
-                timeout=timeout,
-                with_communicate=False,
-                reset_system_locale=reset_system_locale)['retcode']
+    ret = _run(cmd,
+              runas=runas,
+              cwd=cwd,
+              stdin=stdin,
+              stderr=subprocess.STDOUT,
+              shell=shell,
+              python_shell=python_shell,
+              env=env,
+              clean_env=clean_env,
+              template=template,
+              umask=umask,
+              output_loglevel=output_loglevel,
+              quiet=quiet,
+              timeout=timeout,
+              reset_system_locale=reset_system_locale,
+              saltenv=saltenv)
+
+    lvl = _check_loglevel(output_loglevel, quiet)
+    if lvl is not None:
+        if ret['retcode'] != 0:
+            if lvl < LOG_LEVELS['error']:
+                lvl = LOG_LEVELS['error']
+            log.error(
+                'Command {0!r} failed with return code: {1}'
+                .format(cmd, ret['retcode'])
+            )
+        log.log(lvl, 'output: {0}'.format(ret['stdout']))
+    return ret['retcode']
 
 
 def script(source,
@@ -789,9 +902,12 @@ def script(source,
            env=(),
            template='jinja',
            umask=None,
+           output_loglevel='info',
+           quiet=False,
            timeout=None,
            reset_system_locale=True,
-           __env__='base',
+           __env__=None,
+           saltenv='base',
            **kwargs):
     '''
     Download a script from a remote location and execute the script locally.
@@ -827,14 +943,14 @@ def script(source,
             log.error('cmd.script: Unable to clean tempfile {0!r}: {1}'
                       .format(path, exc))
 
-    if isinstance(env, string_types):
+    if isinstance(__env__, string_types):
         salt.utils.warn_until(
-            (0, 19),
-            'Passing a salt environment should be done using \'__env__\' not '
-            '\'env\'.'
+            'Boron',
+            'Passing a salt environment should be done using \'saltenv\' not '
+            '\'__env__\'. This functionality will be removed in Salt Boron.'
         )
         # Backwards compatibility
-        __env__ = env
+        saltenv = __env__
 
     path = salt.utils.mkstemp(dir=cwd, suffix=os.path.splitext(source)[1])
 
@@ -842,7 +958,7 @@ def script(source,
         fn_ = __salt__['cp.get_template'](source,
                                           path,
                                           template,
-                                          __env__,
+                                          saltenv,
                                           **kwargs)
         if not fn_:
             _cleanup_tempfile(path)
@@ -852,7 +968,7 @@ def script(source,
                     'stderr': '',
                     'cache_error': True}
     else:
-        fn_ = __salt__['cp.cache_file'](source, __env__)
+        fn_ = __salt__['cp.cache_file'](source, saltenv)
         if not fn_:
             _cleanup_tempfile(path)
             return {'pid': 0,
@@ -867,13 +983,16 @@ def script(source,
     ret = _run(path + ' ' + str(args) if args else path,
                cwd=cwd,
                stdin=stdin,
-               quiet=kwargs.get('quiet', False),
+               output_loglevel=output_loglevel,
+               quiet=quiet,
                runas=runas,
                shell=shell,
                python_shell=python_shell,
+               env=env,
                umask=umask,
                timeout=timeout,
-               reset_system_locale=reset_system_locale)
+               reset_system_locale=reset_system_locale,
+               saltenv=saltenv)
     _cleanup_tempfile(path)
     return ret
 
@@ -889,7 +1008,8 @@ def script_retcode(source,
                    umask=None,
                    timeout=None,
                    reset_system_locale=True,
-                   __env__='base',
+                   __env__=None,
+                   saltenv='base',
                    **kwargs):
     '''
     Download a script from a remote location and execute the script locally.
@@ -917,6 +1037,15 @@ def script_retcode(source,
 
         salt '*' cmd.script_retcode salt://scripts/runme.sh stdin='one\\ntwo\\nthree\\nfour\\nfive\\n'
     '''
+    if isinstance(__env__, string_types):
+        salt.utils.warn_until(
+            'Boron',
+            'Passing a salt environment should be done using \'saltenv\' not '
+            '\'env\'. This functionality will be removed in Salt Boron.'
+        )
+        # Backwards compatibility
+        saltenv = __env__
+
     return script(source=source,
                   cwd=cwd,
                   stdin=stdin,
@@ -928,6 +1057,7 @@ def script_retcode(source,
                   umask=umask,
                   timeout=timeout,
                   reset_system_locale=reset_system_locale,
+                  saltenv=saltenv,
                   **kwargs)['retcode']
 
 

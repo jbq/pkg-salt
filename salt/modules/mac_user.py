@@ -21,11 +21,14 @@ from salt._compat import string_types
 
 log = logging.getLogger(__name__)
 
+# Define the module's virtual name
+__virtualname__ = 'user'
+
 
 def __virtual__():
     if __grains__.get('kernel') != 'Darwin':
         return False
-    return 'user' if _osmajor() >= 10.7 else False
+    return __virtualname__ if _osmajor() >= 10.7 else False
 
 
 def _osmajor():
@@ -53,7 +56,7 @@ def _dscl(cmd, ctype='create'):
         source, noderoot = 'localhost', '/Local/Default'
     return __salt__['cmd.run_all'](
         'dscl {0} -{1} {2}{3}'.format(source, ctype, noderoot, cmd),
-        quiet=True if ctype == 'passwd' else False
+        output_loglevel='quiet' if ctype == 'passwd' else False
     )
 
 
@@ -148,7 +151,7 @@ def delete(name, *args):
     return _dscl('/Users/{0}'.format(name), ctype='delete')['retcode'] == 0
 
 
-def getent():
+def getent(refresh=False):
     '''
     Return the list of all info for all users
 
@@ -158,7 +161,7 @@ def getent():
 
         salt '*' user.getent
     '''
-    if 'user.getent' in __context__:
+    if 'user.getent' in __context__ and not refresh:
         return __context__['user.getent']
 
     ret = []

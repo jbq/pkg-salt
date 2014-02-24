@@ -3,12 +3,15 @@
 Execute overstate functions
 '''
 
+# Import pytohn libs
+from __future__ import print_function
+
 # Import salt libs
 import salt.overstate
 import salt.output
 
 
-def over(env='base', os_fn=None):
+def over(saltenv='base', os_fn=None):
     '''
     Execute an overstate sequence to orchestrate the executing of states
     over a group of systems
@@ -17,11 +20,10 @@ def over(env='base', os_fn=None):
 
     .. code-block:: bash
 
-        salt-run state.over
-        salt-run state.over env=dev /root/overstate.sls
+        salt-run state.over base /path/to/myoverstate.sls
     '''
     stage_num = 0
-    overstate = salt.overstate.OverState(__opts__, env, os_fn)
+    overstate = salt.overstate.OverState(__opts__, saltenv, os_fn)
     for stage in overstate.stages_iter():
         if isinstance(stage, dict):
             # This is highstate data
@@ -48,7 +50,7 @@ def over(env='base', os_fn=None):
     return overstate.over_run
 
 
-def sls(mods, env='base', test=None, exclude=None):
+def sls(mods, saltenv='base', test=None, exclude=None):
     '''
     Execute a state run from the master, used as a powerful orchestration
     system.
@@ -58,17 +60,17 @@ def sls(mods, env='base', test=None, exclude=None):
     .. code-block:: bash
 
         salt-run state.sls webserver
-        salt-run state.sls webserver env=dev test=True
+        salt-run state.sls webserver saltenv=dev test=True
     '''
     __opts__['file_client'] = 'local'
     minion = salt.minion.MasterMinion(__opts__)
-    running = minion.functions['state.sls'](mods, env, test, exclude)
+    running = minion.functions['state.sls'](mods, saltenv, test, exclude)
     ret = {minion.opts['id']: running}
     salt.output.display_output(ret, 'highstate', opts=__opts__)
     return ret
 
 
-def show_stages(env='base', os_fn=None):
+def show_stages(saltenv='base', os_fn=None):
     '''
     Display the stage data to be executed
 
@@ -77,9 +79,9 @@ def show_stages(env='base', os_fn=None):
     .. code-block:: bash
 
         salt-run state.show_stages
-        salt-run state.show_stages env=dev /root/overstate.sls
+        salt-run state.show_stages saltenv=dev /root/overstate.sls
     '''
-    overstate = salt.overstate.OverState(__opts__, env, os_fn)
+    overstate = salt.overstate.OverState(__opts__, saltenv, os_fn)
     salt.output.display_output(
             overstate.over,
             'overstatestage',

@@ -4,6 +4,7 @@ The management of salt command line utilities are stored in here
 '''
 
 # Import python libs
+from __future__ import print_function
 import os
 import sys
 
@@ -177,7 +178,7 @@ class SaltCMD(parsers.SaltCMDOptionParser):
                     if ret[host][fun]:
                         docs[fun] = ret[host][fun]
         for fun in sorted(docs):
-            print(fun + ':')
+            salt.output.display_output(fun + ':', 'text', self.config)
             print(docs[fun])
             print('')
 
@@ -281,6 +282,16 @@ class SaltCall(parsers.SaltCallOptionParser):
                     [self.config['log_file']],
                     self.config['user']
                 )
+
+        if self.options.file_root:
+            # check if the argument is pointing to a file on disk
+            file_root = os.path.abspath(self.options.file_root)
+            self.config['file_roots'] = {'base': [file_root]}
+
+        if self.options.pillar_root:
+            # check if the argument is pointing to a file on disk
+            pillar_root = os.path.abspath(self.options.pillar_root)
+            self.config['pillar_roots'] = {'base': [pillar_root]}
 
         if self.options.local:
             self.config['file_client'] = 'local'

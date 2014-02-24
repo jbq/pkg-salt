@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 # Import python libs
 import getpass
 import grp
@@ -51,7 +53,7 @@ class FileModuleTest(integration.ModuleCase):
         shutil.rmtree(self.mydir, ignore_errors=True)
         super(FileModuleTest, self).tearDown()
 
-    @skipIf(sys.platform.startswith('win'), 'No chgrp on Windows')
+    @skipIf(salt.utils.is_windows(), 'No chgrp on Windows')
     def test_chown(self):
         user = getpass.getuser()
         if sys.platform == 'darwin':
@@ -64,14 +66,14 @@ class FileModuleTest(integration.ModuleCase):
         self.assertEqual(fstat.st_uid, os.getuid())
         self.assertEqual(fstat.st_gid, grp.getgrnam(group).gr_gid)
 
-    @skipIf(sys.platform.startswith('win'), 'No chgrp on Windows')
+    @skipIf(salt.utils.is_windows(), 'No chgrp on Windows')
     def test_chown_no_user(self):
         user = 'notanyuseriknow'
         group = grp.getgrgid(pwd.getpwuid(os.getuid()).pw_gid).gr_name
         ret = self.run_function('file.chown', arg=[self.myfile, user, group])
         self.assertIn('not exist', ret)
 
-    @skipIf(sys.platform.startswith('win'), 'No chgrp on Windows')
+    @skipIf(salt.utils.is_windows(), 'No chgrp on Windows')
     def test_chown_no_user_no_group(self):
         user = 'notanyuseriknow'
         group = 'notanygroupyoushoulduse'
@@ -79,7 +81,7 @@ class FileModuleTest(integration.ModuleCase):
         self.assertIn('Group does not exist', ret)
         self.assertIn('User does not exist', ret)
 
-    @skipIf(sys.platform.startswith('win'), 'No chgrp on Windows')
+    @skipIf(salt.utils.is_windows(), 'No chgrp on Windows')
     def test_chown_no_path(self):
         user = getpass.getuser()
         if sys.platform == 'darwin':
@@ -90,7 +92,7 @@ class FileModuleTest(integration.ModuleCase):
                                 arg=['/tmp/nosuchfile', user, group])
         self.assertIn('File not found', ret)
 
-    @skipIf(sys.platform.startswith('win'), 'No chgrp on Windows')
+    @skipIf(salt.utils.is_windows(), 'No chgrp on Windows')
     def test_chown_noop(self):
         user = ''
         group = ''
@@ -100,7 +102,7 @@ class FileModuleTest(integration.ModuleCase):
         self.assertEqual(fstat.st_uid, os.getuid())
         self.assertEqual(fstat.st_gid, os.getgid())
 
-    @skipIf(sys.platform.startswith('win'), 'No chgrp on Windows')
+    @skipIf(salt.utils.is_windows(), 'No chgrp on Windows')
     def test_chgrp(self):
         if sys.platform == 'darwin':
             group = 'everyone'
@@ -111,7 +113,7 @@ class FileModuleTest(integration.ModuleCase):
         fstat = os.stat(self.myfile)
         self.assertEqual(fstat.st_gid, grp.getgrnam(group).gr_gid)
 
-    @skipIf(sys.platform.startswith('win'), 'No chgrp on Windows')
+    @skipIf(salt.utils.is_windows(), 'No chgrp on Windows')
     def test_chgrp_failure(self):
         group = 'thisgroupdoesntexist'
         ret = self.run_function('file.chgrp', arg=[self.myfile, group])
@@ -157,7 +159,7 @@ class FileModuleTest(integration.ModuleCase):
     def test_cannot_remove(self):
         ret = self.run_function('file.remove', arg=['tty'])
         self.assertEqual(
-            'ERROR executing file.remove: File path must be absolute.', ret
+            'ERROR executing \'file.remove\': File path must be absolute.', ret
         )
 
     def test_source_list_for_single_file_returns_unchanged(self):
@@ -186,10 +188,10 @@ class FileModuleTest(integration.ModuleCase):
             'cp.list_master': MagicMock(side_effect=list_master),
             'cp.list_master_dirs': MagicMock(return_value=[]),
         }
-        ret = filemod.source_list(['salt://http/httpd.conf?env=dev',
+        ret = filemod.source_list(['salt://http/httpd.conf?saltenv=dev',
                                    'salt://http/httpd.conf.fallback'],
                                   'filehash', 'base')
-        self.assertItemsEqual(ret, ['salt://http/httpd.conf?env=dev',
+        self.assertItemsEqual(ret, ['salt://http/httpd.conf?saltenv=dev',
                                     'filehash'])
 
     def test_source_list_for_list_returns_file_from_dict(self):

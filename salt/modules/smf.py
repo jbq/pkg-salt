@@ -8,6 +8,9 @@ __func_alias__ = {
     'reload_': 'reload'
 }
 
+# Define the module's virtual name
+__virtualname__ = 'service'
+
 
 def __virtual__():
     '''
@@ -21,7 +24,7 @@ def __virtual__():
     if __grains__['os'] in enable:
         if __grains__['os'] == 'Solaris' and __grains__['kernelrelease'] == "5.9":
             return False
-        return 'service'
+        return __virtualname__
     return False
 
 
@@ -71,15 +74,31 @@ def get_disabled():
 
 def available(name):
     '''
-    Return if the specified service is available
+    Returns ``True`` if the specified service is available, otherwise returns
+    ``False``.
 
     CLI Example:
 
     .. code-block:: bash
 
-        salt '*' service.available
+        salt '*' service.available net-snmp
     '''
     return name in get_all()
+
+
+def missing(name):
+    '''
+    The inverse of service.available.
+    Returns ``True`` if the specified service is not available, otherwise returns
+    ``False``.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' service.missing net-snmp
+    '''
+    return not name in get_all()
 
 
 def get_all():

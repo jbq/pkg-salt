@@ -36,13 +36,16 @@ import salt.utils
 
 log = logging.getLogger(__name__)
 
+# Define the module's virtual name
+__virtualname__ = 'pkg'
+
 
 def __virtual__():
     '''
     Set the virtual pkg module if the os is Windows
     '''
     if salt.utils.is_windows() and HAS_DEPENDENCIES:
-        return 'pkg'
+        return __virtualname__
     return False
 
 
@@ -443,7 +446,7 @@ def _get_reg_value(reg_hive, reg_key, value_name=''):
     return value_data
 
 
-def refresh_db():
+def refresh_db(saltenv='base'):
     '''
     Just recheck the repository and return a dict::
 
@@ -457,18 +460,18 @@ def refresh_db():
     '''
     __context__.pop('winrepo.data', None)
     repocache = __opts__['win_repo_cachefile']
-    cached_repo = __salt__['cp.is_cached'](repocache)
+    cached_repo = __salt__['cp.is_cached'](repocache, saltenv)
     if not cached_repo:
         # It's not cached. Cache it, mate.
-        cached_repo = __salt__['cp.cache_file'](repocache)
+        cached_repo = __salt__['cp.cache_file'](repocache, saltenv)
         return True
     # Check if the master's cache file has changed
-    if __salt__['cp.hash_file'](repocache) != __salt__['cp.hash_file'](cached_repo):
-        cached_repo = __salt__['cp.cache_file'](repocache)
+    if __salt__['cp.hash_file'](repocache) != __salt__['cp.hash_file'](cached_repo, saltenv):
+        cached_repo = __salt__['cp.cache_file'](repocache, saltenv)
     return True
 
 
-def install(name=None, refresh=False, pkgs=None, **kwargs):
+def install(name=None, refresh=False, pkgs=None, saltenv='base', **kwargs):
     '''
     Install the passed package
 
@@ -530,26 +533,26 @@ def install(name=None, refresh=False, pkgs=None, **kwargs):
                 or installer.startswith('http:') \
                 or installer.startswith('https:') \
                 or installer.startswith('ftp:'):
-            cached_pkg = __salt__['cp.is_cached'](installer)
+            cached_pkg = __salt__['cp.is_cached'](installer, saltenv)
             if not cached_pkg:
                 # It's not cached. Cache it, mate.
-                cached_pkg = __salt__['cp.cache_file'](installer)
+                cached_pkg = __salt__['cp.cache_file'](installer, saltenv)
         else:
             cached_pkg = installer
 
         cached_pkg = cached_pkg.replace('/', '\\')
         msiexec = pkginfo[version_num].get('msiexec')
-        install_flags = '{0} {1}'.format(pkginfo[version_num]['install_flags'], options and options.get('extra_install_flags'))
+        install_flags = '{0} {1}'.format(pkginfo[version_num]['install_flags'], options and options.get('extra_install_flags') or "")
         cmd = '{msiexec}"{cached_pkg}" {install_flags}'.format(
             msiexec='msiexec /i ' if msiexec else '',
             cached_pkg=cached_pkg,
             install_flags=install_flags
         )
-        __salt__['cmd.run_all'](cmd)
+        __salt__['cmd.run'](cmd, output_loglevel='debug')
 
     __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
-    return __salt__['pkg_resource.find_changes'](old, new)
+    return salt.utils.compare_dicts(old, new)
 
 
 def upgrade(refresh=True):
@@ -641,11 +644,11 @@ def remove(name=None, pkgs=None, version=None, extra_uninstall_flags=None, **kwa
             cached_pkg)) + '"' + str(pkginfo[version].get('uninstall_flags', '') + " " + (extra_uninstall_flags or ''))
         if pkginfo[version].get('msiexec'):
             cmd = 'msiexec /x ' + cmd
-        __salt__['cmd.run_all'](cmd)
+        __salt__['cmd.run'](cmd, output_loglevel='debug')
 
     __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
-    return __salt__['pkg_resource.find_changes'](old, new)
+    return salt.utils.compare_dicts(old, new)
 
 
 def purge(name=None, pkgs=None, version=None, **kwargs):
@@ -684,7 +687,7 @@ def purge(name=None, pkgs=None, version=None, **kwargs):
     return remove(name=name, pkgs=pkgs, version=version, **kwargs)
 
 
-def get_repo_data():
+def get_repo_data(saltenv='base'):
     '''
     Returns the cached winrepo data
 
@@ -697,11 +700,11 @@ def get_repo_data():
     #if 'winrepo.data' in __context__:
     #    return __context__['winrepo.data']
     repocache = __opts__['win_repo_cachefile']
-    cached_repo = __salt__['cp.is_cached'](repocache)
+    cached_repo = __salt__['cp.is_cached'](repocache, saltenv)
     if not cached_repo:
         __salt__['pkg.refresh_db']()
     try:
-        with salt.utils.fopen(cached_repo, 'r') as repofile:
+        with salt.utils.fopen(cached_repo, 'rb') as repofile:
             try:
                 repodata = msgpack.loads(repofile.read()) or {}
                 #__context__['winrepo.data'] = repodata

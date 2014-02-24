@@ -82,7 +82,7 @@ Here is an example of a state that uses the :formula:`epel-formula` in a
 ``require`` declaration which directs Salt to not install the ``python26``
 package until after the EPEL repository has also been installed:
 
-.. code:: yaml
+.. code-block:: yaml
 
     include:
       - epel
@@ -104,7 +104,7 @@ For example the easiest way to set up an OpenStack deployment on a single
 machine is to include the :formula:`openstack-standalone-formula` directly from
 a :file:`top.sls` file:
 
-.. code:: yaml
+.. code-block:: yaml
 
     base:
       'myopenstackmaster':
@@ -113,7 +113,7 @@ a :file:`top.sls` file:
 Quickly deploying OpenStack across several dedicated machines could also be
 done directly from a Top File and may look something like this:
 
-.. code:: yaml
+.. code-block:: yaml
 
     base:
       'controller':
@@ -176,9 +176,17 @@ A basic Formula repository should have the following layout::
     |   |-- map.jinja
     |   |-- init.sls
     |   `-- bar.sls
+    |-- CHANGELOG.rst
     |-- LICENSE
     |-- pillar.example
-    `-- README.rst
+    |-- README.rst
+    `-- VERSION
+
+.. seealso:: :formula:`template-formula`
+
+    The :formula:`template-formula` repository has a pre-built layout that
+    serves as the basic structure for a new formula repository. Just copy the
+    files from there and edit them.
 
 ``README.rst``
 --------------
@@ -189,7 +197,7 @@ target platform, and any other installation or usage instructions or tips.
 
 A sample skeleton for the ``README.rst`` file:
 
-.. code:: rest
+.. code-block:: rest
 
     foo
     ===
@@ -209,6 +217,28 @@ A sample skeleton for the ``README.rst`` file:
     ``foo.bar``
         Install the ``bar`` package.
 
+``CHANGELOG.rst``
+-----------------
+
+The ``CHANGELOG.rst`` file should detail the individual versions, their
+release date and a set of bullet points for each version highlighting the
+overall changes in a given version of the formula.
+
+A sample skeleton for the `CHANGELOG.rst` file:
+
+:file:`CHANGELOG.rst`:
+
+.. code-block:: rest
+
+    foo formula
+    ===========
+
+    0.0.2 (2013-01-01)
+
+    - Re-organized formula file layout
+    - Fixed filename used for upstart logger template
+    - Allow for pillar message to have default if none specified
+
 ``map.jinja``
 -------------
 
@@ -218,13 +248,21 @@ parameterized information that can be reused throughout a Formula. See
 a file should be named :file:`map.jinja` and live alongside the state
 files.
 
-The following is an example from the MySQL Formula.
+The following is an example from the MySQL Formula that has been slightly
+modified to be more readable and less terse.
+
+In essence, it is a simple dictionary that serves as a lookup table. The
+:py:func:`grains.filter_by <salt.modules.grains.filter_by>` function then does
+a lookup on that table using the ``os_family`` grain (by default) and sets the
+result to a variable that can be used throughout the formula.
+
+.. seealso:: :py:func:`grains.filter_by <salt.modules.grains.filter_by>`
 
 :file:`map.jinja`:
 
-.. code:: jinja
+.. code-block:: jinja
 
-    {% set mysql = salt['grains.filter_by']({
+    {% set mysql_lookup_table = {
         'Debian': {
             'server': 'mysql-server',
             'client': 'mysql-client',
@@ -243,12 +281,57 @@ The following is an example from the MySQL Formula.
             'service': 'mysql',
             'config': '/etc/mysql/my.cnf',
         },
+    } %}
+
+    {% set mysql = salt['grains.filter_by'](mysql_lookup_table,
+        merge=salt['pillar.get']('mysql:lookup')) 
+
+The above example is used to help explain how the mapping works. In most
+map files you will see the following structure: 
+
+.. code-block:: jinja
+
+    {% set mysql = salt['grains.filter_by']({
+        'Debian': {
+            'server': 'mysql-server',
+            'client': 'mysql-client',
+            'service': 'mysql',
+            'config': '/etc/mysql/my.cnf',
+            'python': 'python-mysqldb',
+        },
+        'RedHat': {
+            'server': 'mysql-server',
+            'client': 'mysql',
+            'service': 'mysqld',
+            'config': '/etc/my.cnf',
+            'python': 'MySQL-python',
+        },
+        'Gentoo': {
+            'server': 'dev-db/mysql',
+            'mysql-client': 'dev-db/mysql',
+            'service': 'mysql',
+            'config': '/etc/mysql/my.cnf',
+            'python': 'dev-python/mysql-python',
+        },
     }, merge=salt['pillar.get']('mysql:lookup')) %}
+
+The ``merge`` keyword specifies the location of a dictionary in Pillar that can
+be used to override values returned from the lookup table. If the value exists
+in Pillar it will take precedence, otherwise ``merge`` will be ignored. This is
+useful when software or configuration files is installed to non-standard
+locations. For example, the following Pillar would replace the ``config`` value
+from the call above.
+
+.. code-block:: yaml
+
+    mysql:
+      lookup:
+        config: /usr/local/etc/mysql/my.cnf
 
 Any of the values defined above can be fetched for the current platform in any
 state file using the following syntax:
 
-.. code:: yaml
+.. code-block:: yaml
 
     {% from "mysql/map.jinja" import mysql with context %}
 
@@ -319,7 +402,7 @@ formula is not applicable to a platform it should do nothing. See the
 
 Any platform-specific states must be wrapped in conditional statements:
 
-.. code:: jinja
+.. code-block:: jinja
 
     {% if grains['os_family'] == 'Debian' %}
     ...
@@ -328,7 +411,7 @@ Any platform-specific states must be wrapped in conditional statements:
 A handy method for using platform-specific values is to create a lookup table
 using the :py:func:`~salt.modules.grains.filter_by` function:
 
-.. code:: jinja
+.. code-block:: jinja
 
     {% set apache = salt['grains.filter_by']({
         'Debian': {'conf': '/etc/apache2/conf.d'},
@@ -349,7 +432,7 @@ Each Formula should strive for sane defaults that can then be customized using
 Pillar. Pillar lookups must use the safe :py:func:`~salt.modules.pillar.get`
 and must provide a default value:
 
-.. code:: jinja
+.. code-block:: jinja
 
     {% if salt['pillar.get']('horizon:use_ssl', False) %}
     ssl_crt: {{ salt['pillar.get']('horizon:ssl_crt', '/etc/ssl/certs/horizon.crt') }}
@@ -369,7 +452,7 @@ Remember that both State files and Pillar files can easily call out to Salt
 :ref:`execution modules <all-salt.modules>` and have access to all the system
 grains as well.
 
-.. code:: jinja
+.. code-block:: jinja
 
     {% if '/storage' in salt['mount.active']() %}
     /usr/local/etc/myfile.conf:
@@ -385,7 +468,20 @@ Salt modules or adding new modules. An example of this is the
 Versioning
 ----------
 
-Formula versions are tracked using Git tags.
+Formula are versioned according to Semantic Versioning, http://semver.org/.
+
+    Given a version number MAJOR.MINOR.PATCH, increment the:
+
+    #. MAJOR version when you make incompatible API changes,
+    #. MINOR version when you add functionality in a backwards-compatible manner, and
+    #. PATCH version when you make backwards-compatible bug fixes.
+
+    Additional labels for pre-release and build metadata are available as extensions
+    to the MAJOR.MINOR.PATCH format.
+
+Formula versions are tracked using Git tags as well as the ``VERSION`` file
+in the formula repository. The ``VERSION`` file should contain the currently
+released version of the particular formula.
 
 Testing Formulas
 ----------------

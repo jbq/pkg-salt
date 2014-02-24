@@ -3,5 +3,6 @@ M2Crypto
 msgpack-python
 pycrypto
 PyYAML
-pyzmq >= 2.1.9
-markupsafe
+pyzmq >= 2.2.0
+MarkupSafe
+apache-libcloud

@@ -15,12 +15,10 @@ import re
 
 # Import salt libs
 import salt.utils
-
-log = logging.getLogger(__name__)
-
-HAS_PORTAGE = False
+from salt.exceptions import CommandExecutionError, MinionError
 
 # Import third party libs
+HAS_PORTAGE = False
 try:
     import portage
     HAS_PORTAGE = True
@@ -36,12 +34,19 @@ except ImportError:
         except ImportError:
             pass
 
+log = logging.getLogger(__name__)
+
+# Define the module's virtual name
+__virtualname__ = 'pkg'
+
 
 def __virtual__():
     '''
     Confirm this module is on a Gentoo based system
     '''
-    return 'pkg' if (HAS_PORTAGE and __grains__['os'] == 'Gentoo') else False
+    if HAS_PORTAGE and __grains__['os'] == 'Gentoo':
+        return __virtualname__
+    return False
 
 
 def _vartree():
@@ -246,7 +251,7 @@ def _get_upgradable():
     '''
 
     cmd = 'emerge --pretend --update --newuse --deep --ask n world'
-    out = __salt__['cmd.run_stdout'](cmd)
+    out = __salt__['cmd.run_stdout'](cmd, output_loglevel='debug')
 
     rexp = re.compile(r'(?m)^\[.+\] '
                       r'([^ ]+/[^ ]+)'    # Package string
@@ -489,7 +494,6 @@ def install(name=None,
         {'<package>': {'old': '<old-version>',
                        'new': '<new-version>'}}
     '''
-
     log.debug('Called modules.pkg.install: {0}'.format(
         {
             'name': name,
@@ -502,10 +506,12 @@ def install(name=None,
     if salt.utils.is_true(refresh):
         refresh_db()
 
-    pkg_params, pkg_type = __salt__['pkg_resource.parse_targets'](name,
-                                                                  pkgs,
-                                                                  sources,
-                                                                  **kwargs)
+    try:
+        pkg_params, pkg_type = __salt__['pkg_resource.parse_targets'](
+            name, pkgs, sources, **kwargs
+        )
+    except MinionError as exc:
+        raise CommandExecutionError(exc)
 
     # Handle version kwarg for a single package target
     if pkgs is None and sources is None:
@@ -578,12 +584,12 @@ def install(name=None,
     cmd = 'emerge --quiet --ask n {0} {1}'.format(emerge_opts, ' '.join(targets))
 
     old = list_pkgs()
-    call = __salt__['cmd.run_all'](cmd)
+    call = __salt__['cmd.run_all'](cmd, output_loglevel='debug')
     __context__.pop('pkg.list_pkgs', None)
     if call['retcode'] != 0:
         return _process_emerge_err(call['stdout'], call['stderr'])
     new = list_pkgs()
-    changes.update(__salt__['pkg_resource.find_changes'](old, new))
+    changes.update(salt.utils.compare_dicts(old, new))
     return changes
 
 
@@ -623,12 +629,12 @@ def update(pkg, slot=None, fromrepo=None, refresh=False):
 
     old = list_pkgs()
     cmd = 'emerge --update --newuse --oneshot --ask n --quiet {0}'.format(full_atom)
-    call = __salt__['cmd.run_all'](cmd)
+    call = __salt__['cmd.run_all'](cmd, output_loglevel='debug')
     __context__.pop('pkg.list_pkgs', None)
     if call['retcode'] != 0:
         return _process_emerge_err(call['stdout'], call['stderr'])
     new = list_pkgs()
-    return __salt__['pkg_resource.find_changes'](old, new)
+    return salt.utils.compare_dicts(old, new)
 
 
 def upgrade(refresh=True):
@@ -651,12 +657,12 @@ def upgrade(refresh=True):
 
     old = list_pkgs()
     cmd = 'emerge --update --newuse --deep --ask n --quiet world'
-    call = __salt__['cmd.run_all'](cmd)
+    call = __salt__['cmd.run_all'](cmd, output_loglevel='debug')
     __context__.pop('pkg.list_pkgs', None)
     if call['retcode'] != 0:
         return _process_emerge_err(call['stdout'], call['stderr'])
     new = list_pkgs()
-    return __salt__['pkg_resource.find_changes'](old, new)
+    return salt.utils.compare_dicts(old, new)
 
 
 def remove(name=None, slot=None, fromrepo=None, pkgs=None, **kwargs):
@@ -691,9 +697,12 @@ def remove(name=None, slot=None, fromrepo=None, pkgs=None, **kwargs):
         salt '*' pkg.remove <package1>,<package2>,<package3>
         salt '*' pkg.remove pkgs='["foo", "bar"]'
     '''
-    old = list_pkgs()
-    pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
+    try:
+        pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
+    except MinionError as exc:
+        raise CommandExecutionError(exc)
 
+    old = list_pkgs()
     if name and not pkgs and (slot is not None or fromrepo is not None)and len(pkg_params) == 1:
         fullatom = name
         if slot is not None:
@@ -708,10 +717,10 @@ def remove(name=None, slot=None, fromrepo=None, pkgs=None, **kwargs):
         return {}
     cmd = 'emerge --unmerge --quiet --quiet-unmerge-warn --ask n' \
           '{0}'.format(' '.join(targets))
-    __salt__['cmd.run_all'](cmd)
+    __salt__['cmd.run_all'](cmd, output_loglevel='debug')
     __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
-    return __salt__['pkg_resource.find_changes'](old, new)
+    return salt.utils.compare_dicts(old, new)
 
 
 def purge(name=None, slot=None, fromrepo=None, pkgs=None, **kwargs):
@@ -780,9 +789,12 @@ def depclean(name=None, slot=None, fromrepo=None, pkgs=None):
 
         salt '*' pkg.depclean <package name>
     '''
-    old = list_pkgs()
-    pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
+    try:
+        pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
+    except MinionError as exc:
+        raise CommandExecutionError(exc)
 
+    old = list_pkgs()
     if name and not pkgs and (slot is not None or fromrepo is not None)and len(pkg_params) == 1:
         fullatom = name
         if slot is not None:
@@ -794,10 +806,10 @@ def depclean(name=None, slot=None, fromrepo=None, pkgs=None):
         targets = [x for x in pkg_params if x in old]
 
     cmd = 'emerge --depclean --ask n --quiet {0}'.format(' '.join(targets))
-    __salt__['cmd.run_all'](cmd)
+    __salt__['cmd.run_all'](cmd, output_loglevel='debug')
     __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
-    return __salt__['pkg_resource.find_changes'](old, new)
+    return salt.utils.compare_dicts(old, new)
 
 
 def version_cmp(pkg1, pkg2):

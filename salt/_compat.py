@@ -11,6 +11,23 @@ try:
     import cPickle as pickle
 except ImportError:
     import pickle
+try:
+    # Python >2.5
+    import xml.etree.cElementTree as ElementTree
+except ImportError:
+    try:
+        # Python >2.5
+        import xml.etree.ElementTree as ElementTree
+    except ImportError:
+        try:
+            # normal cElementTree install
+            import elementtree.cElementTree as ElementTree
+        except ImportError:
+            try:
+                # normal ElementTree install
+                import elementtree.ElementTree as ElementTree
+            except ImportError:
+                raise
 
 
 # True if we are running on Python 3.
@@ -129,6 +146,7 @@ if PY3:
     from urllib.request import install_opener as url_install_opener
     url_unquote_text = url_unquote
     url_unquote_native = url_unquote
+    import configparser
 else:
     from urlparse import urlparse
     from urlparse import urlunparse
@@ -143,6 +161,7 @@ else:
     from urllib2 import HTTPBasicAuthHandler as url_auth_handler
     from urllib2 import build_opener as url_build_opener
     from urllib2 import install_opener as url_install_opener
+    import ConfigParser as configparser
 
     def url_unquote_text(v, encoding='utf-8', errors='replace'):
         v = url_unquote(v)
