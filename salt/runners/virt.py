@@ -3,10 +3,14 @@
 Control virtual machines via Salt
 '''
 
+# Import python libs
+from __future__ import print_function
+
 # Import Salt libs
 import salt.client
 import salt.output
 import salt.utils.virt
+import salt.key
 
 
 def _determine_hyper(data, omit=''):
@@ -69,6 +73,8 @@ def query(hyper=None, quiet=False):
         if not isinstance(info[id_], dict):
             continue
         if 'ret' not in info[id_]:
+            continue
+        if not isinstance(info[id_]['ret'], dict):
             continue
         chunk[id_] = info[id_]['ret']
         ret.update(chunk)
@@ -136,7 +142,15 @@ def hyper_info(hyper=None):
     return data
 
 
-def init(name, cpu, mem, image, hyper=None, seed=True, nic='default', install=True):
+def init(
+        name,
+        cpu,
+        mem,
+        image,
+        hyper=None,
+        seed=True,
+        nic='default',
+        install=True):
     '''
     Initialize a new vm
     '''
@@ -267,7 +281,7 @@ def force_off(name):
     return 'good'
 
 
-def purge(name):
+def purge(name, delete_key=True):
     '''
     Destroy the named vm
     '''
@@ -285,6 +299,10 @@ def purge(name):
             timeout=600)
     for comp in cmd_ret:
         ret.update(comp)
+
+    if delete_key:
+        skey = salt.key.Key(__opts__)
+        skey.delete_key(name)
     print('Purged VM {0}'.format(name))
     return 'good'
 
@@ -347,7 +365,11 @@ def migrate(name, target=''):
     client = salt.client.LocalClient(__opts__['conf_file'])
     data = query(quiet=True)
     origin_data = _find_vm(name, data, quiet=True)
-    origin_hyper = origin_data.keys()[0]
+    try:
+        origin_hyper = origin_data.keys()[0]
+    except IndexError:
+        print('Named vm {0} was not found to migrate'.format(name))
+        return ''
     disks = origin_data[origin_hyper][name]['disks']
     if not origin_data:
         print('Named vm {0} was not found to migrate'.format(name))
@@ -358,6 +380,6 @@ def migrate(name, target=''):
         print('Target hypervisor {0} not found'.format(origin_data))
         return ''
     client.cmd(target, 'virt.seed_non_shared_migrate', [disks, True])
-    print client.cmd_async(origin_hyper,
+    print(client.cmd_async(origin_hyper,
                            'virt.migrate_non_shared',
-                           [name, target])
+                           [name, target]))

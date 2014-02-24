@@ -21,6 +21,8 @@ import salt.payload
 from salt._compat import string_types
 
 
+__proxyenabled__ = ['*']
+
 __outputter__ = {
     'sls': 'highstate',
     'top': 'highstate',
@@ -104,10 +106,10 @@ def running():
 
 
 def _prior_running_states(jid):
-    """
+    '''
     Return a list of dicts of prior calls to state functions.  This function is
     used to queue state calls so only one is run at a time.
-    """
+    '''
 
     ret = []
     active = __salt__['saltutil.is_running']('state.*')
@@ -247,11 +249,18 @@ def highstate(test=None, queue=False, **kwargs):
         opts['test'] = __opts__.get('test', None)
 
     if 'env' in kwargs:
+        salt.utils.warn_until(
+            'Boron',
+            'Passing a salt environment should be done using \'saltenv\' '
+            'not \'env\'. This functionality will be removed in Salt Boron.'
+        )
         opts['environment'] = kwargs['env']
+    elif 'saltenv' in kwargs:
+        opts['environment'] = kwargs['saltenv']
 
     pillar = kwargs.get('pillar')
 
-    st_ = salt.state.HighState(opts, pillar)
+    st_ = salt.state.HighState(opts, pillar, kwargs.get('__pub_jid'))
     st_.push_active()
     try:
         ret = st_.call_highstate(
@@ -271,12 +280,12 @@ def highstate(test=None, queue=False, **kwargs):
 
     # Not 100% if this should be fatal or not,
     # but I'm guessing it likely should not be.
-    cumask = os.umask(191)
+    cumask = os.umask(077)
     try:
         if salt.utils.is_windows():
             # Make sure cache file isn't read-only
             __salt__['cmd.run']('attrib -R "{0}"'.format(cache_file))
-        with salt.utils.fopen(cache_file, 'w+') as fp_:
+        with salt.utils.fopen(cache_file, 'w+b') as fp_:
             serial.dump(ret, fp_)
     except (IOError, OSError):
         msg = 'Unable to write to "state.highstate" cache file {0}'
@@ -289,10 +298,17 @@ def highstate(test=None, queue=False, **kwargs):
     return ret
 
 
-def sls(mods, env='base', test=None, exclude=None, queue=False, **kwargs):
+def sls(mods,
+        saltenv='base',
+        test=None,
+        exclude=None,
+        queue=False,
+        env=None,
+        **kwargs):
     '''
-    Execute a set list of state modules from an environment, default
-    environment is base
+    Execute a set list of state modules from an environment. The default
+    environment is ``base``, use ``saltenv`` (``env`` in Salt 0.17.x and older)
+    to specify a different environment
 
     CLI Example:
 
@@ -301,6 +317,14 @@ def sls(mods, env='base', test=None, exclude=None, queue=False, **kwargs):
         salt '*' state.sls core,edit.vim dev
         salt '*' state.sls core exclude="[{'id': 'id_to_exclude'}, {'sls': 'sls_to_exclude'}]"
     '''
+    if env is not None:
+        salt.utils.warn_until(
+            'Boron',
+            'Passing a salt environment should be done using \'saltenv\' '
+            'not \'env\'. This functionality will be removed in Salt Boron.'
+        )
+        # Backwards compatibility
+        saltenv = env
 
     if queue:
         _wait(kwargs.get('__pub_jid'))
@@ -332,11 +356,11 @@ def sls(mods, env='base', test=None, exclude=None, queue=False, **kwargs):
             '{0}.cache.p'.format(kwargs.get('cache_name', 'highstate'))
             )
 
-    st_ = salt.state.HighState(opts, pillar)
+    st_ = salt.state.HighState(opts, pillar, kwargs.get('__pub_jid'))
 
     if kwargs.get('cache'):
         if os.path.isfile(cfn):
-            with salt.utils.fopen(cfn, 'r') as fp_:
+            with salt.utils.fopen(cfn, 'rb') as fp_:
                 high_ = serial.load(fp_)
                 return st_.state.call_high(high_)
 
@@ -345,7 +369,7 @@ def sls(mods, env='base', test=None, exclude=None, queue=False, **kwargs):
 
     st_.push_active()
     try:
-        high_, errors = st_.render_highstate({env: mods})
+        high_, errors = st_.render_highstate({saltenv: mods})
 
         if errors:
             __context__['retcode'] = 1
@@ -364,12 +388,12 @@ def sls(mods, env='base', test=None, exclude=None, queue=False, **kwargs):
     if __salt__['config.option']('state_data', '') == 'terse' or kwargs.get('terse'):
         ret = _filter_running(ret)
     cache_file = os.path.join(__opts__['cachedir'], 'sls.p')
-    cumask = os.umask(191)
+    cumask = os.umask(077)
     try:
         if salt.utils.is_windows():
             # Make sure cache file isn't read-only
             __salt__['cmd.run']('attrib -R "{0}"'.format(cache_file))
-        with salt.utils.fopen(cache_file, 'w+') as fp_:
+        with salt.utils.fopen(cache_file, 'w+b') as fp_:
             serial.dump(ret, fp_)
     except (IOError, OSError):
         msg = 'Unable to write to "state.sls" cache file {0}'
@@ -379,12 +403,16 @@ def sls(mods, env='base', test=None, exclude=None, queue=False, **kwargs):
     # Work around Windows multiprocessing bug, set __opts__['test'] back to
     # value from before this function was run.
     __opts__['test'] = orig_test
-    with salt.utils.fopen(cfn, 'w+') as fp_:
-        try:
-            serial.dump(high_, fp_)
-        except TypeError:
-            # Can't serialize pydsl
-            pass
+    try:
+        with salt.utils.fopen(cfn, 'w+b') as fp_:
+            try:
+                serial.dump(high_, fp_)
+            except TypeError:
+                # Can't serialize pydsl
+                pass
+    except (IOError, OSError):
+        msg = 'Unable to write to highstate cache file {0}. Do you have permissions?'
+        log.error(msg.format(fp_))
     return ret
 
 
@@ -490,9 +518,16 @@ def show_lowstate(queue=False, **kwargs):
     return ret
 
 
-def show_low_sls(mods, env='base', test=None, queue=False, **kwargs):
+def show_low_sls(mods,
+                 saltenv='base',
+                 test=None,
+                 queue=False,
+                 env=None,
+                 **kwargs):
     '''
-    Display the low data from a specific sls
+    Display the low data from a specific sls. The default environment is
+    ``base``, use ``saltenv`` (``env`` in Salt 0.17.x and older) to specify a
+    different environment.
 
     CLI Example:
 
@@ -500,6 +535,15 @@ def show_low_sls(mods, env='base', test=None, queue=False, **kwargs):
 
         salt '*' state.show_low_sls foo
     '''
+    if env is not None:
+        salt.utils.warn_until(
+            'Boron',
+            'Passing a salt environment should be done using \'saltenv\' '
+            'not \'env\'. This functionality will be removed in Salt Boron.'
+        )
+        # Backwards compatibility
+        saltenv = env
+
     if queue:
         _wait(kwargs.get('__pub_jid'))
     else:
@@ -518,7 +562,7 @@ def show_low_sls(mods, env='base', test=None, queue=False, **kwargs):
         mods = mods.split(',')
     st_.push_active()
     try:
-        high_, errors = st_.render_highstate({env: mods})
+        high_, errors = st_.render_highstate({saltenv: mods})
     finally:
         st_.pop_active()
     errors += st_.state.verify_high(high_)
@@ -532,10 +576,11 @@ def show_low_sls(mods, env='base', test=None, queue=False, **kwargs):
     return ret
 
 
-def show_sls(mods, env='base', test=None, queue=False, **kwargs):
+def show_sls(mods, saltenv='base', test=None, queue=False, env=None, **kwargs):
     '''
     Display the state data from a specific sls or list of sls files on the
-    master
+    master. The default environment is ``base``, use ``saltenv`` (``env`` in
+    Salt 0.17.x and older) to specify a different environment.
 
     This function does not support topfiles.  For ``top.sls`` please use
     ``show_top`` instead.
@@ -546,6 +591,14 @@ def show_sls(mods, env='base', test=None, queue=False, **kwargs):
 
         salt '*' state.show_sls core,edit.vim dev
     '''
+    if env is not None:
+        salt.utils.warn_until(
+            'Boron',
+            'Passing a salt environment should be done using \'saltenv\' '
+            'not \'env\'. This functionality will be removed in Salt Boron.'
+        )
+        # Backwards compatibility
+        saltenv = env
     if queue:
         _wait(kwargs.get('__pub_jid'))
     else:
@@ -564,7 +617,7 @@ def show_sls(mods, env='base', test=None, queue=False, **kwargs):
         mods = mods.split(',')
     st_.push_active()
     try:
-        high_, errors = st_.render_highstate({env: mods})
+        high_, errors = st_.render_highstate({saltenv: mods})
     finally:
         st_.pop_active()
     errors += st_.state.verify_high(high_)
@@ -603,20 +656,6 @@ def show_top(queue=False, **kwargs):
         return errors
     matches = st_.top_matches(top_)
     return matches
-
-# Just commenting out, someday I will get this working
-#def show_masterstate():
-#    '''
-#    Display the data gathered from the master compiled state
-#
-#    CLI Example:
-#
-#    .. code-block:: bash
-#
-#        salt '*' state.show_masterstate
-#    '''
-#    st_ = salt.state.RemoteHighState(__opts__, __grains__)
-#    return st_.compile_master()
 
 
 def single(fun, name, test=None, queue=False, **kwargs):

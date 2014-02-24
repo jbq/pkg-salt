@@ -38,7 +38,6 @@ __salt__ = {
     'cmd.run': salt.modules.cmdmod._run_quiet,
     'cmd.run_all': salt.modules.cmdmod._run_all_quiet
 }
-
 log = logging.getLogger(__name__)
 
 HAS_WMI = False
@@ -145,8 +144,8 @@ def _linux_gpu_data():
 
     elif __opts__.get('enable_gpu_grains', None) is False:
         log.info(
-        'Skipping lspci call because enable_gpu_grains was set to False in the config. '
-        'GPU grains will not be available.'
+            'Skipping lspci call because enable_gpu_grains was set to False '
+            'in the config. GPU grains will not be available.'
         )
         return {}
 
@@ -385,7 +384,7 @@ def _memdata(osdata):
                 mem = __salt__['cmd.run']('{0} -n hw.memsize'.format(sysctl))
             else:
                 mem = __salt__['cmd.run']('{0} -n hw.physmem'.format(sysctl))
-            if (osdata['kernel'] == 'NetBSD' and mem.startswith('-')):
+            if osdata['kernel'] == 'NetBSD' and mem.startswith('-'):
                 mem = __salt__['cmd.run']('{0} -n hw.physmem64'.format(sysctl))
             grains['mem_total'] = int(mem) / 1024 / 1024
     elif osdata['kernel'] == 'SunOS':
@@ -510,6 +509,9 @@ def _virtual(osdata):
     isdir = os.path.isdir
     sysctl = salt.utils.which('sysctl')
     if osdata['kernel'] in choices:
+        if os.path.isfile('/proc/1/cgroup'):
+            if ':/lxc/' in salt.utils.fopen('/proc/1/cgroup', 'r').read():
+                grains['virtual_subtype'] = 'LXC'
         if isdir('/proc/vz'):
             if os.path.isfile('/proc/vz/version'):
                 grains['virtual'] = 'openvzhn'
@@ -704,6 +706,7 @@ _OS_NAME_MAP = {
     'fedoraremi': 'Fedora',
     'amazonami': 'Amazon',
     'alt': 'ALT',
+    'enterprise': 'OEL',
     'oracleserv': 'OEL',
     'cloudserve': 'CloudLinux',
     'pidora': 'Fedora',
@@ -767,6 +770,7 @@ def os_data():
     # ('Linux', 'MINIONNAME', '2.6.32-38-server', '#83-Ubuntu SMP Wed Jan 4 11:26:59 UTC 2012', 'x86_64', '')
     (grains['kernel'], grains['nodename'],
      grains['kernelrelease'], version, grains['cpuarch'], _) = platform.uname()
+
     if salt.utils.is_windows():
         grains['osrelease'] = grains['kernelrelease']
         grains['osversion'] = grains['kernelrelease'] = version
@@ -977,6 +981,10 @@ def locale_info():
         defaultencoding
     '''
     grains = {}
+
+    if 'proxyminion' in __opts__:
+        return grains
+
     try:
         (grains['defaultlanguage'], grains['defaultencoding']) = locale.getdefaultlocale()
     except Exception:
@@ -998,6 +1006,10 @@ def hostname():
     #   localhost
     #   domain
     grains = {}
+
+    if 'proxyminion' in __opts__:
+        return grains
+
     grains['localhost'] = socket.gethostname()
     if '.' in socket.getfqdn():
         grains['fqdn'] = socket.getfqdn()
@@ -1011,7 +1023,12 @@ def append_domain():
     '''
     Return append_domain if set
     '''
+
     grain = {}
+
+    if 'proxyminion' in __opts__:
+        return grain
+
     if 'append_domain' in __opts__:
         grain['append_domain'] = __opts__['append_domain']
     return grain
@@ -1021,6 +1038,10 @@ def ip4():
     '''
     Return a list of ipv4 addrs
     '''
+
+    if 'proxyminion' in __opts__:
+        return {}
+
     return {'ipv4': salt.utils.network.ip_addrs(include_loopback=True)}
 
 
@@ -1028,6 +1049,10 @@ def fqdn_ip4():
     '''
     Return a list of ipv4 addrs of fqdn
     '''
+
+    if 'proxyminion' in __opts__:
+        return {}
+
     try:
         info = socket.getaddrinfo(hostname()['fqdn'], None, socket.AF_INET)
         addrs = list(set(item[4][0] for item in info))
@@ -1040,6 +1065,10 @@ def ip6():
     '''
     Return a list of ipv6 addrs
     '''
+
+    if 'proxyminion' in __opts__:
+        return {}
+
     return {'ipv6': salt.utils.network.ip_addrs6(include_loopback=True)}
 
 
@@ -1047,6 +1076,10 @@ def fqdn_ip6():
     '''
     Return a list of ipv6 addrs of fqdn
     '''
+
+    if 'proxyminion' in __opts__:
+        return {}
+
     try:
         info = socket.getaddrinfo(hostname()['fqdn'], None, socket.AF_INET6)
         addrs = list(set(item[4][0] for item in info))
@@ -1061,6 +1094,10 @@ def ip_interfaces():
     '''
     # Provides:
     #   ip_interfaces
+
+    if 'proxyminion' in __opts__:
+        return {}
+
     ret = {}
     ifaces = salt.utils.network.interfaces()
     for face in ifaces:
@@ -1075,12 +1112,27 @@ def ip_interfaces():
     return {'ip_interfaces': ret}
 
 
+def hwaddr_interfaces():
+    '''
+    Provide a dict of the connected interfaces and their hw addresses (Mac Address)
+    '''
+    # Provides:
+    #   hwaddr_interfaces
+    ret = {}
+    ifaces = salt.utils.network.interfaces()
+    for face in ifaces:
+        if 'hwaddr' in ifaces[face]:
+            ret[face] = ifaces[face]['hwaddr']
+    return {'hwaddr_interfaces': ret}
+
+
 def path():
     '''
     Return the path
     '''
     # Provides:
     #   path
+
     return {'path': os.environ['PATH'].strip()}
 
 
@@ -1144,12 +1196,19 @@ def _dmidecode_data(regex_dict):
     '''
     ret = {}
 
+    if 'proxyminion' in __opts__:
+        return {}
+
     # No use running if dmidecode/smbios isn't in the path
     if salt.utils.which('dmidecode'):
         out = __salt__['cmd.run']('dmidecode')
     elif salt.utils.which('smbios'):
         out = __salt__['cmd.run']('smbios')
     else:
+        log.info(
+            'The `dmidecode` binary is not available on the system. GPU grains '
+            'will not be available.'
+        )
         return ret
 
     for section in regex_dict:
@@ -1199,6 +1258,10 @@ def _hw_data(osdata):
 
     .. versionadded:: 0.9.5
     '''
+
+    if 'proxyminion' in __opts__:
+        return {}
+
     grains = {}
     # TODO: *BSD dmidecode output
     if osdata['kernel'] == 'Linux':
@@ -1275,6 +1338,10 @@ def _smartos_zone_data():
     # Provides:
     #   pkgsrcversion
     #   imageversion
+
+    if 'proxyminion' in __opts__:
+        return {}
+
     grains = {}
 
     pkgsrcversion = re.compile('^release:\\s(.+)')
@@ -1306,6 +1373,9 @@ def get_server_id():
     '''
     # Provides:
     #   server_id
+
+    if 'proxyminion' in __opts__:
+        return {}
     return {'server_id': abs(hash(__opts__.get('id', '')) % (2 ** 31))}
 
 

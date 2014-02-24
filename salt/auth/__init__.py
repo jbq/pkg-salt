@@ -14,6 +14,7 @@ so that any external authentication system can be used inside of Salt
 # 6. Interface to verify tokens
 
 # Import python libs
+from __future__ import print_function
 import os
 import hashlib
 import time
@@ -22,8 +23,10 @@ import random
 import getpass
 
 # Import salt libs
+import salt.config
 import salt.loader
 import salt.utils
+import salt.utils.minions
 import salt.payload
 
 log = logging.getLogger(__name__)
@@ -31,7 +34,7 @@ log = logging.getLogger(__name__)
 
 class LoadAuth(object):
     '''
-    Wrap the authentication system to handle periphrial components
+    Wrap the authentication system to handle peripheral components
     '''
     def __init__(self, opts):
         self.opts = opts
@@ -117,7 +120,7 @@ class LoadAuth(object):
                  'name': fcall['args'][0],
                  'eauth': load['eauth'],
                  'token': tok}
-        with salt.utils.fopen(t_path, 'w+') as fp_:
+        with salt.utils.fopen(t_path, 'w+b') as fp_:
             fp_.write(self.serial.dumps(tdata))
         return tdata
 
@@ -129,7 +132,7 @@ class LoadAuth(object):
         t_path = os.path.join(self.opts['token_dir'], tok)
         if not os.path.isfile(t_path):
             return {}
-        with salt.utils.fopen(t_path, 'r') as fp_:
+        with salt.utils.fopen(t_path, 'rb') as fp_:
             tdata = self.serial.loads(fp_.read())
         rm_tok = False
         if 'expire' not in tdata:
@@ -146,6 +149,139 @@ class LoadAuth(object):
         return tdata
 
 
+class Authorize(object):
+    '''
+    The authorization engine used by EAUTH
+    '''
+    def __init__(self, opts, load, loadauth=None):
+        self.opts = salt.config.master_config(opts['conf_file'])
+        self.load = load
+        self.ckminions = salt.utils.minions.CkMinions(opts)
+        if loadauth is None:
+            self.loadauth = LoadAuth(opts)
+        else:
+            self.loadauth = loadauth
+
+    def auth_data(self):
+        '''
+        Gather and create the autorization data sets
+        '''
+        auth_data = self.opts['external_auth']
+        #for auth_back in self.opts.get('external_auth_sources', []):
+        #    fstr = '{0}.perms'.format(auth_back)
+        #    if fstr in self.loadauth.auth:
+        #        auth_data.append(getattr(self.loadauth.auth)())
+        return auth_data
+
+    def token(self, adata, load):
+        '''
+        Determine if token auth is valid and yield the adata
+        '''
+        try:
+            token = self.loadauth.get_tok(load['token'])
+        except Exception as exc:
+            log.error(
+                'Exception occurred when generating auth token: {0}'.format(
+                    exc
+                )
+            )
+            yield {}
+        if not token:
+            log.warning('Authentication failure of type "token" occurred.')
+            yield {}
+        for sub_auth in adata:
+            for sub_adata in adata:
+                if token['eauth'] not in adata:
+                    continue
+            if not ((token['name'] in adata[token['eauth']]) |
+                    ('*' in adata[token['eauth']])):
+                continue
+            yield {'sub_auth': sub_auth, 'token': token}
+        yield {}
+
+    def eauth(self, adata, load):
+        '''
+        Determine if the given eauth is valid and yield the adata
+        '''
+        for sub_auth in [adata]:
+            if load['eauth'] not in sub_auth:
+                continue
+            try:
+                name = self.loadauth.load_name(load)
+                if not ((name in sub_auth[load['eauth']]) |
+                        ('*' in sub_auth[load['eauth']])):
+                    continue
+                if not self.loadauth.time_auth(load):
+                    continue
+            except Exception as exc:
+                log.error(
+                    'Exception occurred while authenticating: {0}'.format(exc)
+                )
+                continue
+            yield {'sub_auth': sub_auth, 'name': name}
+        yield {}
+
+    def rights_check(self, form, sub_auth, name, load, eauth=None):
+        '''
+        Read in the access system to determine if the validated user has
+        requested rights
+        '''
+        if load.get('eauth'):
+            sub_auth = sub_auth[load['eauth']]
+        good = self.ckminions.any_auth(
+                form,
+                sub_auth[name] if name in sub_auth else sub_auth['*'],
+                load.get('fun', None),
+                load.get('tgt', None),
+                load.get('tgt_type', 'glob'))
+        if not good:
+            # Accept find_job so the CLI will function cleanly
+            if load.get('fun', '') != 'saltutil.find_job':
+                return good
+        return good
+
+    def rights(self, form, load):
+        '''
+        Determine what type of authentication is being requested and pass
+        authorization
+        '''
+        adata = self.auth_data()
+        good = False
+        if load.get('token', False):
+            good = False
+            for sub_auth in self.token(adata, load):
+                if sub_auth:
+                    if self.rights_check(
+                            form,
+                            adata[sub_auth['token']['eauth']],
+                            sub_auth['token']['name'],
+                            load,
+                            sub_auth['token']['eauth']):
+                        good = True
+            if not good:
+                log.warning(
+                    'Authentication failure of type "token" occurred.'
+                )
+                return False
+        elif load.get('eauth'):
+            good = False
+            for sub_auth in self.eauth(adata, load):
+                if sub_auth:
+                    if self.rights_check(
+                            form,
+                            sub_auth['sub_auth'],
+                            sub_auth['name'],
+                            load,
+                            load['eauth']):
+                        good = True
+            if not good:
+                log.warning(
+                    'Authentication failure of type "eauth" occurred.'
+                )
+                return False
+        return good
+
+
 class Resolver(object):
     '''
     The class used to resolve options for the command line and for generic
@@ -154,6 +290,13 @@ class Resolver(object):
     def __init__(self, opts):
         self.opts = opts
         self.auth = salt.loader.auth(opts)
+
+    def _send_token_request(self, load):
+        sreq = salt.payload.SREQ(
+            'tcp://{0[interface]}:{0[ret_port]}'.format(self.opts),
+            )
+        tdata = sreq.send('clear', load)
+        return tdata
 
     def cli(self, eauth):
         '''
@@ -193,10 +336,7 @@ class Resolver(object):
         '''
         load['cmd'] = 'mk_token'
         load['eauth'] = eauth
-        sreq = salt.payload.SREQ(
-                'tcp://{0[interface]}:{0[ret_port]}'.format(self.opts),
-                )
-        tdata = sreq.send('clear', load)
+        tdata = self._send_token_request(load)
         if 'token' not in tdata:
             return tdata
         try:
@@ -208,28 +348,18 @@ class Resolver(object):
 
     def mk_token(self, load):
         '''
-        Request a token fromt he master
+        Request a token from the master
         '''
         load['cmd'] = 'mk_token'
-        sreq = salt.payload.SREQ(
-                'tcp://{0[interface]}:{0[ret_port]}'.format(self.opts),
-                )
-        tdata = sreq.send('clear', load)
-        if 'token' not in tdata:
-            return tdata
+        tdata = self._send_token_request(load)
         return tdata
 
     def get_token(self, token):
         '''
-        Request a token fromt he master
+        Request a token from the master
         '''
         load = {}
         load['token'] = token
         load['cmd'] = 'get_token'
-        sreq = salt.payload.SREQ(
-                'tcp://{0[interface]}:{0[ret_port]}'.format(self.opts),
-                )
-        tdata = sreq.send('clear', load)
-        if 'token' not in tdata:
-            return tdata
+        tdata = self._send_token_request(load)
         return tdata

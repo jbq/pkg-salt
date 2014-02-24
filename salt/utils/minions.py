@@ -25,6 +25,42 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 
+def get_minion_data(minion, opts):
+    '''
+    Get the grains/pillar for a specific minion.  If minion is None, it
+    will return the grains/pillar for the first minion it finds.
+
+    Return value is a tuple of the minion ID, grains, and pillar
+    '''
+    if opts.get('minion_data_cache', False):
+        serial = salt.payload.Serial(opts)
+        cdir = os.path.join(opts['cachedir'], 'minions')
+        if not os.path.isdir(cdir):
+            return minion if minion else None, None, None
+        minions = os.listdir(cdir)
+        if minion is None:
+            # If no minion specified, take first one with valid grains
+            for id_ in minions:
+                datap = os.path.join(cdir, id_, 'data.p')
+                if not os.path.isfile(datap):
+                    continue
+                miniondata = serial.load(salt.utils.fopen(datap, 'rb'))
+                grains = miniondata.get('grains')
+                pillar = miniondata.get('pillar')
+                return id_, grains, pillar
+        else:
+            # Search for specific minion
+            datap = os.path.join(cdir, minion, 'data.p')
+            if not os.path.isfile(datap):
+                return minion, None, None
+            miniondata = serial.load(salt.utils.fopen(datap, 'rb'))
+            grains = miniondata.get('grains')
+            pillar = miniondata.get('pillar')
+            return minion, grains, pillar
+    # No cache dir, return empty dict
+    return minion if minion else None, None, None
+
+
 def nodegroup_comp(group, nodegroups, skip=None):
     '''
     Take the nodegroup and the nodegroups and fill in nodegroup refs
@@ -54,6 +90,7 @@ class CkMinions(object):
     def __init__(self, opts):
         self.opts = opts
         self.serial = salt.payload.Serial(opts)
+        self.ip_addrs = salt.utils.network.ip_addrs()
 
     def _check_glob_minions(self, expr):
         '''
@@ -75,6 +112,8 @@ class CkMinions(object):
         '''
         Return the minions found by looking via a list
         '''
+        if isinstance(expr, str):
+            expr = [m for m in expr.split(',') if m]
         ret = []
         for fn_ in os.listdir(os.path.join(self.opts['pki_dir'], 'minions')):
             if fn_ in expr:
@@ -111,7 +150,7 @@ class CkMinions(object):
                 if not os.path.isfile(datap):
                     continue
                 grains = self.serial.load(
-                    salt.utils.fopen(datap)
+                    salt.utils.fopen(datap, 'rb')
                 ).get('grains')
                 if not salt.utils.subdict_match(grains, expr):
                     minions.remove(id_)
@@ -135,7 +174,7 @@ class CkMinions(object):
                 if not os.path.isfile(datap):
                     continue
                 grains = self.serial.load(
-                    salt.utils.fopen(datap)
+                    salt.utils.fopen(datap, 'rb')
                 ).get('grains')
                 if not salt.utils.subdict_match(grains, expr,
                                                 delim=':', regex_match=True):
@@ -160,7 +199,7 @@ class CkMinions(object):
                 if not os.path.isfile(datap):
                     continue
                 pillar = self.serial.load(
-                    salt.utils.fopen(datap)
+                    salt.utils.fopen(datap, 'rb')
                 ).get('pillar')
                 if not salt.utils.subdict_match(pillar, expr):
                     minions.remove(id_)
@@ -184,7 +223,7 @@ class CkMinions(object):
                 if not os.path.isfile(datap):
                     continue
                 grains = self.serial.load(
-                    salt.utils.fopen(datap)
+                    salt.utils.fopen(datap, 'rb')
                 ).get('grains')
 
                 num_parts = len(expr.split('/'))
@@ -233,7 +272,7 @@ class CkMinions(object):
                 if not os.path.isfile(datap):
                     continue
                 grains = self.serial.load(
-                    salt.utils.fopen(datap)
+                    salt.utils.fopen(datap, 'rb')
                 ).get('grains')
 
                 range_ = seco.range.Range(self.opts['range_server'])
@@ -347,6 +386,37 @@ class CkMinions(object):
                 return []
         return list(minions)
 
+    def connected_ids(self, subset=None):
+        '''
+        Return a set of all connected minion ids, optionally within a subset
+        '''
+        minions = set()
+        if self.opts.get('minion_data_cache', False):
+            cdir = os.path.join(self.opts['cachedir'], 'minions')
+            if not os.path.isdir(cdir):
+                return list(minions)
+            addrs = salt.utils.network.local_port_tcp(int(self.opts['publish_port']))
+            if '127.0.0.1' in addrs:
+                addrs.update(self.ip_addrs)
+            if subset:
+                search = subset
+            else:
+                search = os.listdir(cdir)
+            for id_ in search:
+                datap = os.path.join(cdir, id_, 'data.p')
+                if not os.path.isfile(datap):
+                    continue
+                grains = self.serial.load(
+                    salt.utils.fopen(datap, 'rb')
+                ).get('grains')
+                for ipv4 in grains.get('ipv4', []):
+                    if ipv4 == '127.0.0.1' or ipv4 == '0.0.0.0':
+                        continue
+                    if ipv4 in addrs:
+                        minions.add(id_)
+                        break
+        return minions
+
     def _all_minions(self, expr=None):
         '''
         Return a list of all minions that have auth'd
@@ -439,6 +509,21 @@ class CkMinions(object):
                 log.error('Invalid regular expression: {0}'.format(regex))
         return all(vals)
 
+    def any_auth(self, form, auth_list, fun, tgt=None, tgt_type='glob'):
+        '''
+        Read in the form and determine which auth check routine to execute
+        '''
+        if form == 'publish':
+            return self.auth_check(
+                    auth_list,
+                    fun,
+                    tgt,
+                    tgt_type)
+        return self.spec_check(
+                auth_list,
+                fun,
+                form)
+
     def auth_check(self, auth_list, funs, tgt, tgt_type='glob'):
         '''
         Returns a bool which defines if the requested function is authorized.
@@ -522,6 +607,40 @@ class CkMinions(object):
                 if ind == '@runners':
                     return True
                 if ind == '@runner':
+                    return True
+            elif isinstance(ind, dict):
+                if len(ind) != 1:
+                    continue
+                valid = ind.keys()[0]
+                if valid.startswith('@') and valid[1:] == mod:
+                    if isinstance(ind[valid], str):
+                        if self.match_check(ind[valid], fun):
+                            return True
+                    elif isinstance(ind[valid], list):
+                        for regex in ind[valid]:
+                            if self.match_check(regex, fun):
+                                return True
+        return False
+
+    def spec_check(self, auth_list, fun, form):
+        '''
+        Check special API permissions
+        '''
+        if form != 'cloud':
+            comps = fun.split('.')
+            if len(comps) != 2:
+                return False
+            mod = comps[0]
+            fun = comps[1]
+        else:
+            mod = fun
+        for ind in auth_list:
+            if isinstance(ind, str):
+                if ind.startswith('@') and ind[1:] == mod:
+                    return True
+                if ind == '@{0}'.format(form):
+                    return True
+                if ind == '@{0}s'.format(form):
                     return True
             elif isinstance(ind, dict):
                 if len(ind) != 1:

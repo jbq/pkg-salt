@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
 '''
-Interaction with Git repositories.
-==================================
-
-NOTE: This module is under heavy development and the API is subject to change.
-It may be replaced with a generic VCS module if this proves viable.
+Interaction with Git repositories
+=================================
 
 Important: Before using git over ssh, make sure your remote host fingerprint
 exists in "~/.ssh/known_hosts" file. To avoid requiring password
@@ -124,7 +121,7 @@ def latest(name,
         return _fail(ret, '"target" option is required')
 
     salt.utils.warn_until(
-        (0, 18),
+        'Hydrogen',
         'Please remove \'runas\' support at this stage. \'user\' support was '
         'added in 0.17.0',
         _dont_call_warnings=True
@@ -216,7 +213,7 @@ def latest(name,
                                           identity=identity)
                 elif rev:
 
-                    cmd = "git rev-parse " + rev + '^{commit}'
+                    cmd = 'git rev-parse {0} ^{{commit}}'.format(rev)
                     retcode = __salt__['cmd.retcode'](cmd,
                                                       cwd=target,
                                                       runas=user)
@@ -272,8 +269,8 @@ def latest(name,
                     shutil.rmtree(target)
             # git clone is required, but target exists and is non-empty
             elif os.listdir(target):
-                return _fail(ret, 'Directory exists, is non-empty, and force '
-                    'option not in use')
+                return _fail(ret, 'Directory \'{0}\' exists, is non-empty, and '
+                             'force option not in use'.format(target))
 
         # git clone is required
         log.debug(
@@ -351,7 +348,7 @@ def present(name, bare=True, runas=None, user=None, force=False):
     ret = {'name': name, 'result': True, 'comment': '', 'changes': {}}
 
     salt.utils.warn_until(
-        (0, 18),
+        'Hydrogen',
         'Please remove \'runas\' support at this stage. \'user\' support was '
         'added in 0.17.0',
         _dont_call_warnings=True

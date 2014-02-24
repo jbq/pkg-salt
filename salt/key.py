@@ -5,6 +5,7 @@ used to manage salt keys directly without interfacing with the CLI.
 '''
 
 # Import python libs
+from __future__ import print_function
 import os
 import shutil
 import fnmatch
@@ -35,7 +36,7 @@ class KeyCLI(object):
                 'key',
                 self.opts
             )
-        elif status.startswith('pre') or status.startswith('un'):
+        elif status.startswith(('pre', 'un')):
             salt.output.display_output(
                 {'minions_pre': keys['minions_pre']},
                 'key',
@@ -606,14 +607,8 @@ class Key(object):
                     self.event.fire_event(eload, tagify(prefix='key'))
                 except (IOError, OSError):
                     pass
-
         self.check_minion_cache()
-        if include_accepted:
-            # Since some of the rejected keys may have already been
-            # accepted, we must revoke their auth by generating
-            # a new AES key
-            salt.crypt.dropfile(self.opts['cachedir'], self.opts['user'])
-
+        salt.crypt.dropfile(self.opts['cachedir'], self.opts['user'])
         return (
             self.name_match(match) if match is not None
             else self.dict_match(matches)

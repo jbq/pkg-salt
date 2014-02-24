@@ -24,6 +24,7 @@ import logging
 
 # Import salt libs
 import salt.utils
+from salt.version import SaltStackVersion as _SaltStackVersion
 from salt.exceptions import CommandExecutionError, CommandNotFoundError
 
 # Import 3rd-party libs
@@ -36,13 +37,16 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Define the module's virtual name
+__virtualname__ = 'pip'
+
 
 def __virtual__():
     '''
     Only load if the pip module is available in __salt__
     '''
     if HAS_PIP and 'pip.list' in __salt__:
-        return 'pip'
+        return __virtualname__
     return False
 
 
@@ -108,15 +112,14 @@ def installed(name,
               no_chown=False,
               cwd=None,
               activate=False,
-              pre_releases=False,
-              __env__='base'):
+              pre_releases=False):
     '''
     Make sure the package is installed
 
     name
         The name of the python package to install. You can also specify version
         numbers here using the standard operators ``==, >=, <=``. If
-        ``requiremenets`` is given, this parameter will be ignored.
+        ``requirements`` is given, this parameter will be ignored.
 
     Example::
 
@@ -172,6 +175,20 @@ def installed(name,
 
     .. versionchanged:: 0.17.0
         ``use_wheel`` option added.
+
+    .. admonition:: Attention
+
+        As of Salt 0.17.0 the pip state **needs** an importable pip module.
+        This usually means having the system's pip package installed or running
+        Salt from an active `virtualenv`_.
+
+        The reason for this requirement is because ``pip`` already does a
+        pretty good job parsing it's own requirements. It makes no sense for
+        Salt to do ``pip`` requirements parsing and validation before passing
+        them to the ``pip`` library. It's functionality duplication and it's
+        more error prone.
+
+    .. _`virtualenv`: http://www.virtualenv.org
     '''
     if pip_bin and not bin_env:
         bin_env = pip_bin
@@ -193,10 +210,15 @@ def installed(name,
 
     if repo is not None:
         msg = ('The \'repo\' argument to pip.installed is deprecated and will '
-               'be removed in 0.18.0. Please use \'name\' instead. The '
-               'current value for name, {0!r} will be replaced by the value '
-               'of repo, {1!r}'.format(name, repo))
-        salt.utils.warn_until((0, 18), msg)
+               'be removed in Salt {version}. Please use \'name\' instead. '
+               'The current value for name, {0!r} will be replaced by the '
+               'value of repo, {1!r}'.format(
+                   name,
+                   repo,
+                   version=_SaltStackVersion.from_name(
+                       'Hydrogen').formatted_version
+               ))
+        salt.utils.warn_until('Hydrogen', msg)
         ret.setdefault('warnings', []).append(msg)
         name = repo
 
@@ -255,11 +277,13 @@ def installed(name,
 
     if runas is not None:
         # The user is using a deprecated argument, warn!
-        msg = (
-            'The \'runas\' argument to pip.installed is deprecated, and will '
-            'be removed in 0.18.0. Please use \'user\' instead.'
-        )
-        salt.utils.warn_until((0, 18), msg)
+        msg = ('The \'runas\' argument to pip.installed is deprecated, and '
+               'will be removed in Salt {version}. Please use \'user\' '
+               'instead.'.format(
+                   version=_SaltStackVersion.from_name(
+                       'Hydrogen').formatted_version
+               ))
+        salt.utils.warn_until('Hydrogen', msg)
         ret.setdefault('warnings', []).append(msg)
 
         # "There can only be one"
@@ -358,10 +382,10 @@ def installed(name,
         cwd=cwd,
         activate=activate,
         pre_releases=pre_releases,
-        __env__=__env__
+        saltenv=__env__
     )
 
-    if pip_install_call and (pip_install_call['retcode'] == 0):
+    if pip_install_call and (pip_install_call.get('retcode', 1) == 0):
         ret['result'] = True
 
         if requirements or editable:
@@ -397,8 +421,11 @@ def installed(name,
             ret['comment'] = 'Package was successfully installed'
     elif pip_install_call:
         ret['result'] = False
-        error = 'Error: {0} {1}'.format(pip_install_call['stdout'],
-                                        pip_install_call['stderr'])
+        if 'stdout' in pip_install_call:
+            error = 'Error: {0} {1}'.format(pip_install_call['stdout'],
+                                            pip_install_call['stderr'])
+        else:
+            error = 'Error: {0}'.format(pip_install_call['comment'])
 
         if requirements or editable:
             comments = []
@@ -428,8 +455,7 @@ def removed(name,
             timeout=None,
             user=None,
             runas=None,
-            cwd=None,
-            __env__='base'):
+            cwd=None):
     '''
     Make sure that a package is not installed.
 
@@ -444,11 +470,13 @@ def removed(name,
 
     if runas is not None:
         # The user is using a deprecated argument, warn!
-        msg = (
-            'The \'runas\' argument to pip.installed is deprecated, and will '
-            'be removed in 0.18.0. Please use \'user\' instead.'
-        )
-        salt.utils.warn_until((0, 18), msg)
+        msg = ('The \'runas\' argument to pip.installed is deprecated, and '
+               'will be removed in Salt {version}. Please use \'user\' '
+               'instead.'.format(
+                   version=_SaltStackVersion.from_name(
+                       'Hydrogen').formatted_version
+               ))
+        salt.utils.warn_until('Hydrogen', msg)
         ret.setdefault('warnings', []).append(msg)
 
     # "There can only be one"
@@ -485,8 +513,7 @@ def removed(name,
                                  proxy=proxy,
                                  timeout=timeout,
                                  user=user,
-                                 cwd=cwd,
-                                 __env__='base'):
+                                 cwd=cwd):
         ret['result'] = True
         ret['changes'][name] = 'Removed'
         ret['comment'] = 'Package was successfully removed.'

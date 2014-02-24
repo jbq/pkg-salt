@@ -10,8 +10,12 @@ import re
 
 # Import salt libs
 import salt.utils
+from salt.exceptions import CommandExecutionError, MinionError
 
 log = logging.getLogger(__name__)
+
+# Define the module's virtual name
+__virtualname__ = 'pkg'
 
 
 def __virtual__():
@@ -23,7 +27,7 @@ def __virtual__():
     # Not all versions of Suse use zypper, check that it is available
     if not salt.utils.which('zypper'):
         return False
-    return 'pkg'
+    return __virtualname__
 
 
 def list_upgrades(refresh=True):
@@ -39,8 +43,10 @@ def list_upgrades(refresh=True):
     if salt.utils.is_true(refresh):
         refresh_db()
     ret = {}
-    out = __salt__['cmd.run_stdout']('zypper list-updates').splitlines()
-    for line in out:
+    out = __salt__['cmd.run_stdout'](
+        'zypper list-updates', output_loglevel='debug'
+    )
+    for line in out.splitlines():
         if not line:
             continue
         if '|' not in line:
@@ -87,10 +93,15 @@ def latest_version(*names, **kwargs):
     if refresh:
         refresh_db()
 
-    cmd = 'zypper info -t package {0}'.format(' '.join(names))
-    output = __salt__['cmd.run_all'](cmd).get('stdout', '')
-    output = re.split('Information for package \\S+:\n', output)
-    for package in output:
+    restpackages = names
+    outputs = []
+    # Split call to zypper into batches of 500 packages
+    while restpackages:
+        cmd = 'zypper info -t package {0}'.format(' '.join(restpackages[:500]))
+        output = __salt__['cmd.run_stdout'](cmd, output_loglevel='debug')
+        outputs.extend(re.split('Information for package \\S+:\n', output))
+        restpackages = restpackages[500:]
+    for package in outputs:
         pkginfo = {}
         for line in package.splitlines():
             try:
@@ -175,7 +186,8 @@ def list_pkgs(versions_as_list=False, **kwargs):
 
     cmd = 'rpm -qa --queryformat "%{NAME}_|-%{VERSION}_|-%{RELEASE}\\n"'
     ret = {}
-    for line in __salt__['cmd.run'](cmd).splitlines():
+    out = __salt__['cmd.run'](cmd, output_loglevel='debug')
+    for line in out.splitlines():
         name, pkgver, rel = line.split('_|-')
         if rel:
             pkgver += '-{0}'.format(rel)
@@ -202,8 +214,8 @@ def refresh_db():
     '''
     cmd = 'zypper refresh'
     ret = {}
-    out = __salt__['cmd.run'](cmd).splitlines()
-    for line in out:
+    out = __salt__['cmd.run'](cmd, output_loglevel='debug')
+    for line in out.splitlines():
         if not line:
             continue
         if line.strip().startswith('Repository'):
@@ -219,6 +231,7 @@ def refresh_db():
 
 def install(name=None,
             refresh=False,
+            fromrepo=None,
             pkgs=None,
             sources=None,
             **kwargs):
@@ -241,6 +254,9 @@ def install(name=None,
 
     refresh
         Whether or not to refresh the package database before installing.
+
+    fromrepo
+        Specify a package repository to install from.
 
     version
         Can be either a version number, or the combination of a comparison
@@ -285,10 +301,13 @@ def install(name=None,
     if salt.utils.is_true(refresh):
         refresh_db()
 
-    pkg_params, pkg_type = __salt__['pkg_resource.parse_targets'](name,
-                                                                  pkgs,
-                                                                  sources,
-                                                                  **kwargs)
+    try:
+        pkg_params, pkg_type = __salt__['pkg_resource.parse_targets'](
+            name, pkgs, sources, **kwargs
+        )
+    except MinionError as exc:
+        raise CommandExecutionError(exc)
+
     if pkg_params is None or len(pkg_params) == 0:
         return {}
 
@@ -318,8 +337,8 @@ def install(name=None,
                     targets.append('{0}{1}{2}'.format(param, prefix, verstr))
                     log.debug(targets)
                 else:
-                    msg = 'Invalid version string "{0}" for package ' \
-                          '"{1}"'.format(version_num, name)
+                    msg = ('Invalid version string {0!r} for package '
+                           '{1!r}'.format(version_num, name))
                     problems.append(msg)
         if problems:
             for problem in problems:
@@ -329,22 +348,43 @@ def install(name=None,
         targets = pkg_params
 
     old = list_pkgs()
-    # Quotes needed around package targets because of the possibility of output
-    # redirection characters "<" or ">" in zypper command.
-    cmd = 'zypper -n install -l "{0}"'.format('" "'.join(targets))
-    stdout = __salt__['cmd.run_all'](cmd).get('stdout', '')
     downgrades = []
-    for line in stdout.splitlines():
-        match = re.match("^The selected package '([^']+)'.+has lower version",
-                         line)
-        if match:
-            downgrades.append(match.group(1))
-    if downgrades:
-        cmd = 'zypper -n install -l --force {0}'.format(' '.join(downgrades))
-        __salt__['cmd.run_all'](cmd)
+    if fromrepo:
+        fromrepoopt = "--force --force-resolution --from {0} ".format(fromrepo)
+        log.info('Targeting repo {0!r}'.format(fromrepo))
+    else:
+        fromrepoopt = ""
+    # Split the targets into batches of 500 packages each, so that
+    # the maximal length of the command line is not broken
+    while targets:
+        # Quotes needed around package targets because of the possibility of
+        # output redirection characters "<" or ">" in zypper command.
+        cmd = (
+            'zypper --non-interactive install --name '
+            '--auto-agree-with-licenses {0}"{1}"'
+            .format(fromrepoopt, '" "'.join(targets[:500]))
+        )
+        targets = targets[500:]
+        out = __salt__['cmd.run'](cmd, output_loglevel='debug')
+        for line in out.splitlines():
+            match = re.match(
+                "^The selected package '([^']+)'.+has lower version",
+                line
+            )
+            if match:
+                downgrades.append(match.group(1))
+
+    while downgrades:
+        cmd = (
+            'zypper --non-interactive install --name '
+            '--auto-agree-with-licenses --force {0}{1}'
+            .format(fromrepoopt, ' '.join(downgrades[:500]))
+        )
+        __salt__['cmd.run'](cmd, output_loglevel='debug')
+        downgrades = downgrades[500:]
     __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
-    return __salt__['pkg_resource.find_changes'](old, new)
+    return salt.utils.compare_dicts(old, new)
 
 
 def upgrade(refresh=True):
@@ -365,11 +405,11 @@ def upgrade(refresh=True):
     if salt.utils.is_true(refresh):
         refresh_db()
     old = list_pkgs()
-    cmd = 'zypper -n up -l'
-    __salt__['cmd.run_all'](cmd)
+    cmd = 'zypper --non-interactive update --auto-agree-with-licenses'
+    __salt__['cmd.run'](cmd, output_loglevel='debug')
     __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
-    return __salt__['pkg_resource.find_changes'](old, new)
+    return salt.utils.compare_dicts(old, new)
 
 
 def _uninstall(action='remove', name=None, pkgs=None):
@@ -377,17 +417,26 @@ def _uninstall(action='remove', name=None, pkgs=None):
     remove and purge do identical things but with different zypper commands,
     this function performs the common logic.
     '''
+    try:
+        pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
+    except MinionError as exc:
+        raise CommandExecutionError(exc)
+
     purge_arg = '-u' if action == 'purge' else ''
-    pkg_params = __salt__['pkg_resource.parse_targets'](name, pkgs)[0]
     old = list_pkgs()
     targets = [x for x in pkg_params if x in old]
     if not targets:
         return {}
-    cmd = 'zypper -n remove {0} {1}'.format(purge_arg, ' '.join(targets))
-    __salt__['cmd.run_all'](cmd)
+    while targets:
+        cmd = (
+            'zypper --non-interactive remove {0} {1}'
+            .format(purge_arg, ' '.join(targets[:500]))
+        )
+        __salt__['cmd.run'](cmd, output_loglevel='debug')
+        targets = targets[500:]
     __context__.pop('pkg.list_pkgs', None)
     new = list_pkgs()
-    return __salt__['pkg_resource.find_changes'](old, new)
+    return salt.utils.compare_dicts(old, new)
 
 
 def remove(name=None, pkgs=None, **kwargs):

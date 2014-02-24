@@ -10,6 +10,8 @@ import os
 import pprint
 import re
 import sys
+
+# Import third party libs
 import yaml
 
 # Import salt libs
@@ -24,23 +26,40 @@ def _parse_pkg_meta(path):
     Parse metadata from a binary package and return the package's name and
     version number.
     '''
-    def parse_rpm(path):
+    def parse_rpm_redhat(path):
         try:
-            from salt.modules.yumpkg5 import __QUERYFORMAT, _parse_pkginfo
+            from salt.modules.yumpkg import __QUERYFORMAT, _parse_pkginfo
             from salt.utils import namespaced_function as _namespaced_function
             _parse_pkginfo = _namespaced_function(_parse_pkginfo, globals())
         except ImportError:
             log.critical('Error importing helper functions. This is almost '
                          'certainly a bug.')
             return '', ''
-        pkginfo = __salt__['cmd.run_all'](
-            'rpm -qp --queryformat {0!r} {1!r}'.format(__QUERYFORMAT, path)
-        ).get('stdout', '').strip()
+        pkginfo = __salt__['cmd.run_stdout'](
+            'rpm -qp --queryformat {0!r} {1!r}'.format(
+                # Binary packages have no REPOID, replace this so the rpm
+                # command does not fail with "invalid tag" error
+                __QUERYFORMAT.replace('%{REPOID}', 'binarypkg'),
+                path
+            )
+        ).strip()
         pkginfo = _parse_pkginfo(pkginfo)
         if pkginfo is None:
             return '', ''
         else:
             return pkginfo.name, pkginfo.version
+
+    def parse_rpm_suse(path):
+        pkginfo = __salt__['cmd.run_stdout'](
+            'rpm -qp --queryformat {0!r} {1!r}'.format(
+                r'%{NAME}_|-%{VERSION}_|-%{RELEASE}\n',
+                path
+            )
+        ).strip()
+        name, version, rel = path.split('_|-')
+        if rel:
+            version = '-'.join((version, rel))
+        return name, version
 
     def parse_pacman(path):
         name = ''
@@ -105,8 +124,10 @@ def _parse_pkg_meta(path):
                 name += ':{0}'.format(arch)
         return name, version
 
-    if __grains__['os_family'] in ('Suse', 'RedHat', 'Mandriva'):
-        metaparser = parse_rpm
+    if __grains__['os_family'] in ('RedHat', 'Mandriva'):
+        metaparser = parse_rpm_redhat
+    elif __grains__['os_family'] in ('Suse',):
+        metaparser = parse_rpm_suse
     elif __grains__['os_family'] in ('Arch',):
         metaparser = parse_pacman
     elif __grains__['os_family'] in ('Debian',):
@@ -189,7 +210,11 @@ def _verify_binary_pkg(srcinfo):
     return problems
 
 
-def parse_targets(name=None, pkgs=None, sources=None, **kwargs):
+def parse_targets(name=None,
+                  pkgs=None,
+                  sources=None,
+                  saltenv='base',
+                  **kwargs):
     '''
     Parses the input to pkg.install and returns back the package(s) to be
     installed. Returns a list of packages, as well as a string noting whether
@@ -201,6 +226,16 @@ def parse_targets(name=None, pkgs=None, sources=None, **kwargs):
 
         salt '*' pkg_resource.parse_targets
     '''
+    if '__env__' in kwargs:
+        salt.utils.warn_until(
+            'Boron',
+            'Passing a salt environment should be done using \'saltenv\' '
+            'not \'__env__\'. This functionality will be removed in Salt '
+            'Boron.'
+        )
+        # Backwards compatibility
+        saltenv = kwargs['__env__']
+
     if __grains__['os'] == 'MacOS' and sources:
         log.warning('Parameter "sources" ignored on MacOS hosts.')
 
@@ -226,9 +261,7 @@ def parse_targets(name=None, pkgs=None, sources=None, **kwargs):
                 # Cache package from remote source (salt master, HTTP, FTP)
                 srcinfo.append((pkg_name,
                                 pkg_src,
-                               __salt__['cp.cache_file'](pkg_src,
-                                                         kwargs.get('__env__',
-                                                                    'base')),
+                               __salt__['cp.cache_file'](pkg_src, saltenv),
                                'remote'))
             else:
                 # Package file local to the minion
@@ -272,10 +305,10 @@ def version(*names, **kwargs):
     '''
     ret = {}
     versions_as_list = \
-        salt.utils.is_true(kwargs.get('versions_as_list'))
+        salt.utils.is_true(kwargs.pop('versions_as_list', False))
     pkg_glob = False
     if len(names) != 0:
-        pkgs = __salt__['pkg.list_pkgs'](versions_as_list=True)
+        pkgs = __salt__['pkg.list_pkgs'](versions_as_list=True, **kwargs)
         for name in names:
             if '*' in name:
                 pkg_glob = True
@@ -348,34 +381,6 @@ def stringify(pkgs):
             pkgs[key] = ','.join(pkgs[key])
     except AttributeError as e:
         log.exception(e)
-
-
-def find_changes(old=None, new=None):
-    '''
-    Compare before and after results from pkg.list_pkgs() to determine what
-    changes were made to the packages installed on the minion.
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' pkg_resource.find_changes
-    '''
-    pkgs = {}
-    for npkg in set((new or {}).keys()).union((old or {}).keys()):
-        if npkg not in old:
-            # the package is freshly installed
-            pkgs[npkg] = {'old': '',
-                          'new': new[npkg]}
-        elif npkg not in new:
-            # the package is removed
-            pkgs[npkg] = {'new': '',
-                          'old': old[npkg]}
-        elif new[npkg] != old[npkg]:
-            # the package was here before and the version has changed
-            pkgs[npkg] = {'old': old[npkg],
-                          'new': new[npkg]}
-    return pkgs
 
 
 def version_clean(version):

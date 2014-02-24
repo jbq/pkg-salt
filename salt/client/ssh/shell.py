@@ -6,11 +6,14 @@ Manage transport commands via ssh
 # Import python libs
 import os
 import time
+import logging
 import subprocess
 
 # Import salt libs
 import salt.utils
 import salt.utils.nb_popen
+
+log = logging.getLogger(__name__)
 
 
 def gen_key(path):
@@ -50,7 +53,7 @@ class Shell(object):
 
     def get_error(self, errstr):
         '''
-        Parse out an error and return a targetted error string
+        Parse out an error and return a targeted error string
         '''
         for line in errstr.split('\n'):
             if line.startswith('ssh:'):
@@ -91,7 +94,7 @@ class Shell(object):
         Return options to pass to sshpass
         '''
         # TODO ControlMaster does not work without ControlPath
-        # user could take advange of it if they set ControlPath in thier
+        # user could take advantage of it if they set ControlPath in their
         # ssh config.  Also, ControlPersist not widely available.
         options = ['ControlMaster=auto',
                    'StrictHostKeyChecking=no',
@@ -125,6 +128,8 @@ class Shell(object):
         Return the string to execute ssh-copy-id
         '''
         if self.passwd and salt.utils.which('sshpass'):
+            # Using single quotes prevents shell expansion and
+            # passwords containig '$'
             return "sshpass -p '{0}' {1} {2} '{3} -p {4} {5}@{6}'".format(
                     self.passwd,
                     'ssh-copy-id',
@@ -141,6 +146,8 @@ class Shell(object):
         have two commands
         '''
         if self.passwd and salt.utils.which('sshpass'):
+            # Using single quotes prevents shell expansion and
+            # passwords containig '$'
             return "sshpass -p '{0}' {1} {2} {3} -p {4} {5}@{6}".format(
                     self.passwd,
                     'ssh-copy-id',
@@ -169,6 +176,8 @@ class Shell(object):
 
         if self.passwd and salt.utils.which('sshpass'):
             opts = self._passwd_opts()
+            # Using single quotes prevents shell expansion and
+            # passwords containig '$'
             return "sshpass -p '{0}' {1} {2} {3} {4} {5}".format(
                     self.passwd,
                     ssh,
@@ -233,6 +242,12 @@ class Shell(object):
         r_out = []
         r_err = []
         cmd = self._cmd_str(cmd)
+
+        logmsg = 'Executing non-blocking command: {0}'.format(cmd)
+        if self.passwd:
+            logmsg = logmsg.replace(self.passwd, ('*' * len(self.passwd))[:6])
+        log.debug(logmsg)
+
         for out, err in self._run_nb_cmd(cmd):
             if out is not None:
                 r_out.append(out)
@@ -246,6 +261,12 @@ class Shell(object):
         Execute a remote command
         '''
         cmd = self._cmd_str(cmd)
+
+        logmsg = 'Executing command: {0}'.format(cmd)
+        if self.passwd:
+            logmsg = logmsg.replace(self.passwd, ('*' * len(self.passwd))[:6])
+        log.debug(logmsg)
+
         ret = self._run_cmd(cmd)
         return ret
 
@@ -255,4 +276,10 @@ class Shell(object):
         '''
         cmd = '{0} {1}:{2}'.format(local, self.host, remote)
         cmd = self._cmd_str(cmd, ssh='scp')
+
+        logmsg = 'Executing command: {0}'.format(cmd)
+        if self.passwd:
+            logmsg = logmsg.replace(self.passwd, ('*' * len(self.passwd))[:6])
+        log.debug(logmsg)
+
         return self._run_cmd(cmd)

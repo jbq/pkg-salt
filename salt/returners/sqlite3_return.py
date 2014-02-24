@@ -25,7 +25,7 @@ Use the commands to create the sqlite3 database and tables::
     --
 
     CREATE TABLE jids (
-      jid integer PRIMARY KEY,
+      jid TEXT PRIMARY KEY,
       load TEXT NOT NULL
       );
 
@@ -37,6 +37,7 @@ Use the commands to create the sqlite3 database and tables::
       fun TEXT KEY,
       jid TEXT KEY,
       id TEXT KEY,
+      fun_args TEXT,
       date TEXT NOT NULL,
       full_ret TEXT NOT NULL,
       success TEXT NOT NULL
@@ -58,11 +59,14 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+# Define the module's virtual name
+__virtualname__ = 'sqlite3'
+
 
 def __virtual__():
     if not HAS_SQLITE3:
         return False
-    return 'sqlite3'
+    return __virtualname__
 
 
 def _get_conn():
@@ -103,12 +107,13 @@ def returner(ret):
     conn = _get_conn()
     cur = conn.cursor()
     sql = '''INSERT INTO salt_returns
-             (fun, jid, id, date, full_ret, success)
-             VALUES (:fun, :jid, :id, :date, :full_ret, :success)'''
+             (fun, jid, id, fun_args, date, full_ret, success)
+             VALUES (:fun, :jid, :id, :fun_args, :date, :full_ret, :success)'''
     cur.execute(sql,
                 {'fun': ret['fun'],
                  'jid': ret['jid'],
                  'id': ret['id'],
+                 'fun_args': str(ret['fun_args']) if ret['fun_args'] else None,
                  'date': str(datetime.datetime.now()),
                  'full_ret': json.dumps(ret['return']),
                  'success': ret['success']})

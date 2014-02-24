@@ -4,6 +4,7 @@ A salt interface to psutil, a system and process library.
 See http://code.google.com/p/psutil.
 
 :depends:   - psutil Python module, version 0.3.0 or later
+            - python-utmp package (optional)
 '''
 
 # Import python libs
@@ -62,7 +63,10 @@ def top(num_processes=5, interval=3):
     time.sleep(interval)
     usage = set()
     for process, start in start_usage.items():
-        user, system = process.get_cpu_times()
+        try:
+            user, system = process.get_cpu_times()
+        except psutil.NoSuchProcess:
+            continue
         now = user + system
         diff = now - start
         usage.add((diff, process))
@@ -75,6 +79,8 @@ def top(num_processes=5, interval=3):
         else:
             cmdline = process.cmdline
         info = {'cmd': cmdline,
+                'user': process.username,
+                'status': process.status,
                 'pid': process.pid,
                 'create_time': process.create_time}
         for key, value in process.get_cpu_times()._asdict().items():
@@ -158,13 +164,13 @@ def pkill(pattern, user=None, signal=15, full=False):
 
     .. code-block:: bash
 
-        salt 'www.*' httpd signal=1
+        salt 'www.*' ps.pkill httpd signal=1
 
     Send SIGKILL to all bash processes owned by user 'tom':
 
     .. code-block:: bash
 
-        salt '*' bash signal=9 user=tom
+        salt '*' ps.pkill bash signal=9 user=tom
     '''
 
     killed = []
@@ -211,13 +217,13 @@ def pgrep(pattern, user=None, full=False):
 
     .. code-block:: bash
 
-        salt 'www.*' httpd
+        salt 'www.*' ps.pgrep httpd
 
     Find all bash processes owned by user 'tom':
 
     .. code-block:: bash
 
-        salt '*' bash user=tom
+        salt '*' ps.pgrep bash user=tom
     '''
 
     procs = []
@@ -442,3 +448,50 @@ def disk_io_counters():
         salt '*' ps.disk_io_counters
     '''
     return dict(psutil.disk_io_counters()._asdict())
+
+
+def get_users():
+    '''
+    Return logged-in users.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' ps.get_users
+    '''
+    try:
+        recs = psutil.get_users()
+        return [dict(x._asdict()) for x in recs]
+    except AttributeError:
+        # get_users is only present in psutil > v0.5.0
+        # try utmp
+        try:
+            import utmp
+            result = []
+            while True:
+                rec = utmp.utmpaccess.getutent()
+                if rec is None:
+                    return result
+                elif rec[0] == 7:
+                    started = rec[8]
+                    if isinstance(started, tuple):
+                        started = started[0]
+                    result.append({'name': rec[4], 'terminal': rec[2],
+                                   'started': started, 'host': rec[5]})
+        except ImportError:
+            return False
+# This is a possible last ditch method
+#        result = []
+#        w = __salt__['cmd.run'](
+#            'who', env='{"LC_ALL": "en_US.UTF-8"}').splitlines()
+#        for u in w:
+#            u = u.split()
+#            started = __salt__['cmd.run'](
+#                'date --d "{0} {1}" +%s'.format(u[2], u[3])).strip()
+#            rec = {'name': u[0], 'terminal': u[1],
+#                   'started': started, 'host': None}
+#            if len(u) > 4:
+#                rec['host'] = u[4][1:-1]
+#            result.append(rec)
+#        return result

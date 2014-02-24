@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 '''
-Work with linux containers
+Control Linux Containers via Salt
 
 :depends: lxc package for distribution
 '''
 
 # Import python libs
+from __future__ import print_function
 import logging
 import tempfile
 import os
@@ -23,7 +24,7 @@ __func_alias__ = {
 
 
 def __virtual__():
-    if not salt.utils.which('lxc'):
+    if not salt.utils.which('lxc-version'):
         return False
     return 'lxc'
 
@@ -68,7 +69,8 @@ def _nic_profile(nic):
 def _gen_config(nicp,
                 cpuset=None,
                 cpushare=None,
-                memory=None):
+                memory=None,
+                nic_opts=None):
     '''
     Generate the config string for an lxc container
     '''
@@ -85,7 +87,19 @@ def _gen_config(nicp,
         data.append(('lxc.network.type', args.pop('type', 'veth')))
         data.append(('lxc.network.name', dev))
         data.append(('lxc.network.flags', args.pop('flags', 'up')))
-        data.append(('lxc.network.hwaddr', salt.utils.gen_mac()))
+        opts = nic_opts.get(dev) if nic_opts else None
+        if opts:
+            mac = opts.get('mac')
+            ipv4 = opts.get('ipv4')
+            ipv6 = opts.get('ipv6')
+        else:
+            ipv4, ipv6 = None, None
+            mac = salt.utils.gen_mac()
+        data.append(('lxc.network.hwaddr', mac))
+        if ipv4:
+            data.append(('lxc.network.ipv4', ipv4))
+        if ipv6:
+            data.append(('lxc.network.ipv6', ipv6))
         for k, v in args.items():
             data.append(('lxc.network.{0}'.format(k), v))
 
@@ -98,6 +112,7 @@ def init(name,
          memory=None,
          nic='default',
          profile=None,
+         nic_opts=None,
          **kwargs):
     '''
     Initialize a new container.
@@ -107,7 +122,9 @@ def init(name,
         salt 'minion' lxc.init name [cpuset=cgroups_cpuset] \\
                 [cpushare=cgroups_cpushare] [memory=cgroups_memory] \\
                 [nic=nic_profile] [profile=lxc_profile] \\
-                [start=(true|false)]
+                [nic_opts=nic_opts] [start=(true|false)] \\
+                [seed=(true|false)] [install=(true|false)] \\
+                [config=minion_config]
 
     name
         Name of the container.
@@ -127,16 +144,43 @@ def init(name,
     profile
         A LXC profile (defined in config or pillar).
 
+    nic_opts
+        Extra options for network interfaces. E.g:
+        {"eth0": {"mac": "aa:bb:cc:dd:ee:ff", "ipv4": "10.1.1.1", "ipv6": "2001:db8::ff00:42:8329"}}
+
     start
-        If true, start the newly created container.
+        Start the newly created container.
+
+    seed
+        Seed the container with the minion config. Default: true
+
+    install
+        If salt-minion is not already installed, install it. Default: true
+
+    config
+        Optional config paramers. By default, the id is set to the name of the
+        container.
     '''
     nicp = _nic_profile(nic)
     start_ = kwargs.pop('start', False)
+    seed = kwargs.pop('seed', True)
+    install = kwargs.pop('install', True)
+    seed_cmd = kwargs.pop('seed_cmd', None)
+    config = kwargs.pop('config', None)
+
     with tempfile.NamedTemporaryFile() as cfile:
         cfile.write(_gen_config(cpuset=cpuset, cpushare=cpushare,
-                                memory=memory, nicp=nicp))
+                                memory=memory, nicp=nicp, nic_opts=nic_opts))
         cfile.flush()
-        ret = create(name, config=cfile.name, profile=profile)
+        ret = create(name, config=cfile.name, profile=profile, **kwargs)
+    if not ret['created']:
+        return ret
+    rootfs = info(name)['rootfs']
+    if seed:
+        __salt__['seed.apply'](rootfs, id_=name, config=config,
+                               install=install)
+    elif seed_cmd:
+        __salt__[seed_cmd](rootfs, name, config)
     if start_ and ret['created']:
         ret['state'] = start(name)['state']
     else:
@@ -203,7 +247,7 @@ def create(name, config=None, profile=None, options=None, **kwargs):
 
     if config:
         cmd += ' -f {0}'.format(config)
-    if template or profile.get('template'):
+    if template:
         cmd += ' -t {0}'.format(template)
     if backing:
         cmd += ' -B {0}'.format(backing)
@@ -211,8 +255,11 @@ def create(name, config=None, profile=None, options=None, **kwargs):
             cmd += ' --vgname {0}'.format(vgname)
         if size:
             cmd += ' --fssize {0}'.format(size)
-    if options:
-        cmd += ' -- {0}'.format(options)
+    if profile:
+        cmd += ' --'
+        options = profile
+        for k, v in options.items():
+            cmd += ' --{0} {1}'.format(k, v)
 
     ret = __salt__['cmd.run_all'](cmd)
     if ret['retcode'] == 0 and exists(name):
@@ -223,7 +270,8 @@ def create(name, config=None, profile=None, options=None, **kwargs):
             cmd = 'lxc-destroy -n {0}'.format(name)
             __salt__['cmd.retcode'](cmd)
         log.warn('lxc-create failed to create container')
-        return {'created': False, 'error': 'container could not be created'}
+        return {'created': False, 'error':
+                'container could not be created: {0}'.format(ret['stderr'])}
 
 
 def list_():
@@ -234,27 +282,33 @@ def list_():
 
         salt '*' lxc.list
     '''
-    ret = __salt__['cmd.run']('lxc-list').splitlines()
+    ctnrs = __salt__['cmd.run']('lxc-ls | sort -u').splitlines()
 
     stopped = []
     frozen = []
     running = []
-    current = None
 
-    for l in ret:
-        l = l.strip()
-        if not len(l):
+    for c in ctnrs:
+        lines = __salt__['cmd.run']('lxc-info -n ' + c).splitlines()
+
+        for line in lines:
+            stat = line.split(':')
+            if stat[0] == 'state':
+                s = stat[1].strip()
+                break
+
+        if not len(s):
             continue
-        if l == 'STOPPED':
-            current = stopped
+        if s == 'STOPPED':
+            stopped.append(c)
             continue
-        if l == 'FROZEN':
-            current = frozen
+        if s == 'FROZEN':
+            frozen.append(c)
             continue
-        if l == 'RUNNING':
-            current = running
+        if s == 'RUNNING':
+            running.append(c)
             continue
-        current.append(l)
+
     return {'running': running,
             'stopped': stopped,
             'frozen': frozen}
@@ -326,15 +380,17 @@ def unfreeze(name):
     return _change_state('lxc-unfreeze', name, 'running')
 
 
-def destroy(name):
+def destroy(name, stop=True):
     '''
     Destroy the named container.
     WARNING: Destroys all data associated with the container.
 
     .. code-block:: bash
 
-        salt '*' lxc.destroy name
+        salt '*' lxc.destroy name [stop=(true|false)]
     '''
+    if stop:
+        _change_state('lxc-stop', name, 'stopped')
     return _change_state('lxc-destroy', name, None)
 
 
@@ -347,7 +403,7 @@ def exists(name):
         salt '*' lxc.exists name
     '''
     l = list_()
-    return name in (l['running'] + l['stopped'] + l['frozen'])
+    return name in l['running'] + l['stopped'] + l['frozen']
 
 
 def state(name):
@@ -371,6 +427,44 @@ def state(name):
         return r['state:'].lower()
 
 
+def get_parameter(name, parameter):
+    '''
+    Returns the value of a cgroup parameter for a container.
+
+    .. code-block:: bash
+
+        salt '*' lxc.get_parameter name parameter
+    '''
+    if not exists(name):
+        return None
+
+    cmd = 'lxc-cgroup -n {0} {1}'.format(name, parameter)
+    ret = __salt__['cmd.run_all'](cmd)
+    if ret['retcode'] != 0:
+        return False
+    else:
+        return {parameter: ret['stdout'].strip()}
+
+
+def set_parameter(name, parameter, value):
+    '''
+    Set the value of a cgroup parameter for a container.
+
+    .. code-block:: bash
+
+        salt '*' lxc.set_parameter name parameter value
+    '''
+    if not exists(name):
+        return None
+
+    cmd = 'lxc-cgroup -n {0} {1} {2}'.format(name, parameter, value)
+    ret = __salt__['cmd.run_all'](cmd)
+    if ret['retcode'] != 0:
+        return False
+    else:
+        return True
+
+
 def info(name):
     '''
     Returns information about a container.
@@ -380,7 +474,6 @@ def info(name):
         salt '*' lxc.info name
     '''
     f = '/var/lib/lxc/{0}/config'.format(name)
-    cgroup_dir = '/sys/fs/cgroup/memory/lxc/{0}/'.format(name)
     if not os.path.isfile(f):
         return None
 
@@ -408,11 +501,11 @@ def info(name):
     ret['state'] = state(name)
 
     if ret['state'] == 'running':
-        with open(cgroup_dir + 'memory.limit_in_bytes') as f:
-            limit = int(f.read())
-        with open(cgroup_dir + 'memory.usage_in_bytes') as f:
-            memory = int(f.read())
-        free = limit - memory
+        limit = int(get_parameter(name, 'memory.limit_in_bytes').get(
+            'memory.limit_in_bytes'))
+        usage = int(get_parameter(name, 'memory.usage_in_bytes').get(
+            'memory.usage_in_bytes'))
+        free = limit - usage
         ret['memory_limit'] = limit
         ret['memory_free'] = free
 

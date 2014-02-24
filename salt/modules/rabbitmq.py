@@ -6,31 +6,35 @@ data.
 '''
 
 # Import salt libs
-from salt import exceptions, utils
+import salt.utils
+from salt.utils import decorators
 
 # Import python libs
 import logging
+import random
+import string
 
 log = logging.getLogger(__name__)
 
 
 def __virtual__():
-    '''Verify RabbitMQ is installed.
     '''
-    name = 'rabbitmq'
-    try:
-        utils.check_or_die('rabbitmqctl')
-    except exceptions.CommandNotFoundError:
-        name = False
-    return name
+    Verify RabbitMQ is installed.
+    '''
+    return salt.utils.which('rabbitmqctl') is not None
 
 
 def _format_response(response, msg):
-    if 'Error' in response:
-        msg = 'Error'
-
+    if isinstance(response, dict):
+        if response['retcode'] != 0:
+            msg = 'Error'
+        else:
+            msg = response['stdout']
+    else:
+        if 'Error' in response:
+            msg = 'Error'
     return {
-        msg: response.replace('\n', '')
+        msg: response
     }
 
 
@@ -103,7 +107,7 @@ def vhost_exists(name, runas=None):
     return name in list_vhosts(runas=runas)
 
 
-def add_user(name, password, runas=None):
+def add_user(name, password=None, runas=None):
     '''
     Add a rabbitMQ user via rabbitmqctl user_add <user> <password>
 
@@ -113,9 +117,28 @@ def add_user(name, password, runas=None):
 
         salt '*' rabbitmq.add_user rabbit_user password
     '''
+    clear_pw = False
+
+    if password is None:
+        # Generate a random, temporary password. RabbitMQ requires one.
+        clear_pw = True
+        password = ''.join(random.choice(
+            string.ascii_uppercase + string.digits) for x in range(15))
+
     res = __salt__['cmd.run'](
-        'rabbitmqctl add_user {0} \'{1}\''.format(name, password),
+        'rabbitmqctl add_user {0} {1!r}'.format(name, password),
         runas=runas)
+
+    if clear_pw:
+        # Now, Clear the random password from the account, if necessary
+        res2 = clear_password(name, runas)
+
+        if 'Error' in res2.keys():
+            # Clearing the password failed. We should try to cleanup
+            # and rerun and error.
+            delete_user(name, runas)
+            msg = 'Error'
+            return _format_response(res2, msg)
 
     msg = 'Added'
     return _format_response(res, msg)
@@ -149,7 +172,7 @@ def change_password(name, password, runas=None):
         salt '*' rabbitmq.change_password rabbit_user password
     '''
     res = __salt__['cmd.run'](
-        'rabbitmqctl change_password {0} \'{1}\''.format(name, password),
+        'rabbitmqctl change_password {0} {1!r}'.format(name, password),
         runas=runas)
     msg = 'Password Changed'
 
@@ -225,6 +248,22 @@ def set_permissions(vhost, user, conf='.*', write='.*', read='.*',
     return _format_response(res, msg)
 
 
+def list_permissions(vhost, runas=None):
+    '''
+    Lists permissions for vhost via rabbitmqctl list_permissions
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' rabbitmq.list_permissions '/myvhost'
+    '''
+    res = __salt__['cmd.run'](
+        'rabbitmqctl list_permissions -p {0}'.format(vhost),
+        runas=runas)
+    return [r.split('\t') for r in res.splitlines()]
+
+
 def list_user_permissions(name, user=None):
     '''
     List permissions for a user via rabbitmqctl list_user_permissions
@@ -239,6 +278,22 @@ def list_user_permissions(name, user=None):
         'rabbitmqctl list_user_permissions {0}'.format(name),
         runas=user)
     return [r.split('\t') for r in res.splitlines()]
+
+
+def set_user_tags(name, tags, runas=None):
+    '''Add user tags via rabbitctl set_user_tags
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' rabbitmq.set_user_tags 'myadmin' 'administrator'
+    '''
+    res = __salt__['cmd.run'](
+        'rabbitmqctl set_user_tags {0} {1}'.format(name, tags),
+        runas=runas)
+    msg = "Tag(s) set"
+    return _format_response(res, msg)
 
 
 def status(user=None):
@@ -268,12 +323,31 @@ def cluster_status(user=None):
 
         salt '*' rabbitmq.cluster_status
     '''
-    ret = {}
     res = __salt__['cmd.run'](
         'rabbitmqctl cluster_status',
         runas=user)
 
     return res
+
+
+def join_cluster(host, user='rabbit', runas=None):
+    '''
+    Join a rabbit cluster
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' rabbitmq.join_cluster 'rabbit' 'rabbit.example.com'
+    '''
+
+    stop_app(runas)
+    res = __salt__['cmd.run'](
+        'rabbitmqctl join_cluster {0}@{1}'.format(user, host),
+        runas=runas)
+    start_app(runas)
+
+    return _format_response(res, 'Join')
 
 
 def stop_app(runas=None):
@@ -396,21 +470,22 @@ def list_policies(runas=None):
     for line in res.splitlines():
         if '...' not in line and line != '\n':
             parts = line.split('\t')
-            if len(parts) != 5:
+            if len(parts) != 6:
                 continue
             vhost, name = parts[0], parts[1]
             if vhost not in ret:
                 ret[vhost] = {}
             ret[vhost][name] = {
-                'pattern': parts[2],
-                'definition': parts[3],
-                'priority': parts[4]
+                'apply_to': parts[2],
+                'pattern': parts[3],
+                'definition': parts[4],
+                'priority': parts[5]
             }
     log.debug('Listing policies: {0}'.format(ret))
     return ret
 
 
-def set_policy(vhost, name, pattern, definition, priority=0, runas=None):
+def set_policy(vhost, name, pattern, definition, priority=None, runas=None):
     '''
     Set a policy based on rabbitmqctl set_policy.
 
@@ -423,8 +498,13 @@ def set_policy(vhost, name, pattern, definition, priority=0, runas=None):
         salt '*' rabbitmq.set_policy / HA '.*' '{"ha-mode": "all"}'
     '''
     res = __salt__['cmd.run'](
-        "rabbitmqctl set_policy -p {0} {1} '{2}' '{3}' {4}".format(
-            vhost, name, pattern, definition.replace("'", '"'), priority),
+        "rabbitmqctl set_policy -p {0}{1}{2} {3} '{4}' '{5}'".format(
+            vhost,
+            ' --priority ' if priority else '',
+            priority if priority else '',
+            name,
+            pattern,
+            definition.replace("'", '"')),
         runas=runas)
     log.debug('Set policy: {0}'.format(res))
     return _format_response(res, 'Set')
@@ -464,3 +544,53 @@ def policy_exists(vhost, name, runas=None):
     '''
     policies = list_policies(runas=runas)
     return bool(vhost in policies and name in policies[vhost])
+
+
+@decorators.which('rabbitmq-plugins')
+def plugin_is_enabled(name, runas=None):
+    '''
+    Return whether the plugin is enabled.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' rabbitmq.plugin_is_enabled foo
+    '''
+    ret = __salt__['cmd.run']('rabbitmq-plugins list -m -e', runas=runas)
+    return bool(name in ret)
+
+
+@decorators.which('rabbitmq-plugins')
+def enable_plugin(name, runas=None):
+    '''
+    Enable a RabbitMQ plugin via the rabbitmq-plugins command.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' rabbitmq.enable_plugin foo
+    '''
+    ret = __salt__['cmd.run_all'](
+            'rabbitmq-plugins enable {0}'.format(name),
+            runas=runas)
+    return _format_response(ret, 'Enabled')
+
+
+@decorators.which('rabbitmq-plugins')
+def disable_plugin(name, runas=None):
+    '''
+    Disable a RabbitMQ plugin via the rabbitmq-plugins command.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' rabbitmq.disable_plugin foo
+    '''
+
+    ret = __salt__['cmd.run_all'](
+            'rabbitmq-plugins disable {0}'.format(name),
+            runas=runas)
+    return _format_response(ret, 'Disabled')

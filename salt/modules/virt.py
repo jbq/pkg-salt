@@ -10,11 +10,16 @@ Work with virtual machines managed by libvirt
 # Import python libs
 import os
 import re
+import sys
 import shutil
 import subprocess
+import string  # pylint: disable=deprecated-module
+import logging
 
 # Import third party libs
 import yaml
+import jinja2
+import jinja2.exceptions
 try:
     import libvirt
     from xml.dom import minidom
@@ -24,9 +29,19 @@ except ImportError:
 
 # Import salt libs
 import salt.utils
+import salt.utils.templates
+import salt.utils.validate.net
 from salt._compat import StringIO as _StringIO
-from salt.exceptions import CommandExecutionError
+from salt.exceptions import CommandExecutionError, SaltInvocationError
 
+log = logging.getLogger(__name__)
+
+# Set up template environment
+JINJA = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(
+        os.path.join(salt.utils.templates.TEMPLATE_DIRNAME, 'virt')
+    )
+)
 
 VIRT_STATE_NAME_MAP = {0: 'running',
                        1: 'running',
@@ -35,6 +50,8 @@ VIRT_STATE_NAME_MAP = {0: 'running',
                        4: 'shutdown',
                        5: 'shutdown',
                        6: 'crashed'}
+
+VIRT_DEFAULT_HYPER = 'kvm'
 
 
 def __virtual__():
@@ -180,142 +197,130 @@ def _get_target(target, ssh):
     return ' {0}://{1}/{2}'.format(proto, target, 'system')
 
 
-def _prepare_serial_port_xml(serial_type='pty', telnet_port='', console=True, **kwargs_sink):
-    '''
-    Prepares the serial and console sections of the VM xml
-
-    serial_type: presently 'pty' or 'tcp'(telnet)
-
-    telnet_port: When selecting tcp, which port to listen on
-
-    console: Is this serial device the console or for some other purpose
-
-    Returns string representing the serial and console devices suitable for
-    insertion into the VM XML definition
-    '''
-
-    import jinja2
-
-    templates = {
-            'pty': '''
-                <serial type='pty'>
-                    <target port='0'/>
-                </serial>
-                {% if console %}
-                <console type='pty'>
-                    <target type='serial' port='0'/>
-                </console>
-                {% endif %}
-            ''',
-
-            'tcp': '''
-                <serial type='tcp'>
-                    <source mode='bind' host='' service='{{ telnet_port }}'/>
-                    <protocol type='telnet'/>
-                    <target port='0'/>
-                </serial>
-                {% if console %}
-                <console type='tcp'>
-                    <source mode='bind' host='' service='{{telnet_port}}'/>
-                    <protocol type='telnet'/>
-                    <target type='serial' port='0'/>
-                </console>
-                {% endif %}
-            '''
-    }
-
-    dict_loader = jinja2.DictLoader(templates)
-    env = jinja2.Environment(loader=dict_loader)
-    template = env.get_template(serial_type)
-    return template.render(serial_type=serial_type,
-                           telnet_port=telnet_port,
-                           console=console)
-
-
 def _gen_xml(name,
              cpu,
              mem,
-             vda,
+             diskp,
              nicp,
              hypervisor,
              **kwargs):
     '''
     Generate the XML string to define a libvirt vm
     '''
+    hypervisor = 'vmware' if hypervisor == 'esxi' else hypervisor
     mem = mem * 1024  # MB
-    data = '''
-<domain type='%%HYPERVISOR%%'>
-        <name>%%NAME%%</name>
-        <vcpu>%%CPU%%</vcpu>
-        <memory unit='KiB'>%%MEM%%</memory>
-        <os>
-                <type>hvm</type>
-                %%BOOT%%
-        </os>
-        <devices>
-                <disk type='file' device='disk'>
-                        <source file='%%VDA%%'/>
-                        <target dev='vda' bus='virtio'/>
-                        <driver name='qemu' type='%%DISKTYPE%%' cache='none' io='native'/>
-                </disk>
-                %%NICS%%
-                <graphics type='vnc' listen='0.0.0.0' autoport='yes'/>
-                %%SERIAL%%
-        </devices>
-        <features>
-                <acpi/>
-        </features>
-</domain>
-'''
-    data = data.replace('%%HYPERVISOR%%', hypervisor)
-    data = data.replace('%%NAME%%', name)
-    data = data.replace('%%CPU%%', str(cpu))
-    data = data.replace('%%MEM%%', str(mem))
-    data = data.replace('%%VDA%%', vda)
-    data = data.replace('%%DISKTYPE%%', _image_type(vda))
+    context = {
+        'hypervisor': hypervisor,
+        'name': name,
+        'cpu': str(cpu),
+        'mem': str(mem),
+    }
+    if hypervisor in ['qemu', 'kvm']:
+        context['controller_model'] = False
+    elif hypervisor in ['esxi', 'vmware']:
+        # TODO: make bus and model parameterized, this works for 64-bit Linux
+        context['controller_model'] = 'lsilogic'
+
+    if 'boot_dev' in kwargs:
+        context['boot_dev'] = []
+        for dev in kwargs['boot_dev'].split():
+            context['boot_dev'].append(dev)
+    else:
+        context['boot_dev'] = ['hd']
 
     if 'serial_type' in kwargs:
-        serial_section = _prepare_serial_port_xml(**kwargs)
-    else:
-        serial_section = ''
-    data = data.replace('%%SERIAL%%', serial_section)
-
-    boot_str = ''
-    if 'boot_dev' in kwargs:
-        for dev in kwargs['boot_dev']:
-            boot_part = "<boot dev='%%DEV%%' />"
-            boot_part = boot_part.replace('%%DEV%%', dev)
-            boot_str += boot_part
-    else:
-        boot_str = '''<boot dev='hd'/>'''
-    data = data.replace('%%BOOT%%', boot_str)
-
-    nic_str = ''
-    for dev, args in nicp.items():
-        nic_t = '''
-                <interface type='%%TYPE%%'>
-                    <source %%SOURCE%%/>
-                    <mac address='%%MAC%%'/>
-                    <model type='%%MODEL%%'/>
-                </interface>\n'''
-        if 'bridge' in args:
-            nic_t = nic_t.replace('%%SOURCE%%', 'bridge=\'{0}\''.format(args['bridge']))
-            nic_t = nic_t.replace('%%TYPE%%', 'bridge')
-        elif 'network' in args:
-            nic_t = nic_t.replace('%%SOURCE%%', 'network=\'{0}\''.format(args['network']))
-            nic_t = nic_t.replace('%%TYPE%%', 'network')
-        if 'model' in args:
-            nic_t = nic_t.replace('%%MODEL%%', args['model'])
-        dmac = '{0}_mac'.format(dev)
-        if dmac in kwargs:
-            nic_t = nic_t.replace('%%MAC%%', kwargs[dmac])
+        context['serial_type'] = kwargs['serial_type']
+    if 'serial_type' in context and context['serial_type'] == 'tcp':
+        if 'telnet_port' in kwargs:
+            context['telnet_port'] = kwargs['telnet_port']
         else:
-            nic_t = nic_t.replace('%%MAC%%', salt.utils.gen_mac())
-        nic_str += nic_t
-    data = data.replace('%%NICS%%', nic_str)
-    return data
+            context['telnet_port'] = 23023  # FIXME: use random unused port
+    if 'serial_type' in context:
+        if 'console' in kwargs:
+            context['console'] = kwargs['console']
+        else:
+            context['console'] = True
+
+    context['disks'] = {}
+    for i, disk in enumerate(diskp):
+        for disk_name, args in disk.items():
+            context['disks'][disk_name] = {}
+            fn_ = '{0}.{1}'.format(disk_name, args['format'])
+            context['disks'][disk_name]['file_name'] = fn_
+            context['disks'][disk_name]['source_file'] = os.path.join(args['pool'],
+                                                                      name,
+                                                                      fn_)
+            if hypervisor in ['qemu', 'kvm']:
+                context['disks'][disk_name]['target_dev'] = 'vd{0}'.format(string.ascii_lowercase[i])
+                context['disks'][disk_name]['address'] = False
+                context['disks'][disk_name]['driver'] = True
+            elif hypervisor in ['esxi', 'vmware']:
+                context['disks'][disk_name]['target_dev'] = 'sd{0}'.format(string.ascii_lowercase[i])
+                context['disks'][disk_name]['address'] = True
+                context['disks'][disk_name]['driver'] = False
+            context['disks'][disk_name]['disk_bus'] = args['model']
+            context['disks'][disk_name]['type'] = args['format']
+            context['disks'][disk_name]['index'] = str(i)
+
+    context['nics'] = nicp
+
+    fn_ = 'libvirt_domain.jinja'
+    try:
+        template = JINJA.get_template(fn_)
+    except jinja2.exceptions.TemplateNotFound:
+        log.error('Could not load template {0}'.format(fn_))
+        return ''
+
+    return template.render(**context)
 
 
+def _gen_vol_xml(vmname,
+                 diskname,
+                 size,
+                 hypervisor,
+                 **kwargs):
+    '''
+    Generate the XML string to define a libvirt storage volume
+    '''
+    size = int(size) * 1024  # MB
+    disk_info = _get_image_info(hypervisor, vmname, **kwargs)
+    context = {
+        'name': vmname,
+        'filename': '{0}.{1}'.format(diskname, disk_info['disktype']),
+        'volname': diskname,
+        'disktype': disk_info['disktype'],
+        'size': str(size),
+        'pool': disk_info['pool'],
+    }
+    fn_ = 'libvirt_volume.jinja'
+    try:
+        template = JINJA.get_template(fn_)
+    except jinja2.exceptions.TemplateNotFound:
+        log.error('Could not load template {0}'.format(fn_))
+        return ''
+    return template.render(**context)
+
+
+def _qemu_image_info(path):
+    '''
+    Detect information for the image at path
+    '''
+    ret = {}
+    out = __salt__['cmd.run']('qemu-img info {0}'.format(path))
+
+    match_map = {'size': r'virtual size: \w+ \((\d+) byte[s]?\)',
+                 'format': r'file format: (\w+)'}
+
+    for info, search in match_map.items():
+        try:
+            ret[info] = re.search(search, out).group(1)
+        except AttributeError:
+            continue
+    return ret
+
+
+# TODO: this function is deprecated, should be replaced with
+# _qemu_image_info()
 def _image_type(vda):
     '''
     Detect what driver needs to be used for the given image
@@ -327,33 +332,195 @@ def _image_type(vda):
         return 'raw'
 
 
-def _nic_profile(nic):
+# TODO: this function is deprecated, should be merged and replaced
+# with _disk_profile()
+def _get_image_info(hypervisor, name, **kwargs):
     '''
-    Gather the nic profile from the config or apply the default
+    Determine disk image info, such as filename, image format and
+    storage pool, based on which hypervisor is used
+    '''
+    ret = {}
+    if hypervisor in ['esxi', 'vmware']:
+        ret['disktype'] = 'vmdk'
+        ret['filename'] = '{0}{1}'.format(name, '.vmdk')
+        ret['pool'] = '[{0}] '.format(kwargs.get('pool', '0'))
+    elif hypervisor in ['kvm', 'qemu']:
+        ret['disktype'] = 'qcow2'
+        ret['filename'] = '{0}{1}'.format(name, '.qcow2')
+        ret['pool'] = __salt__['config.option']('virt.images')
+    return ret
 
-    This is the ``default`` profile, which can be overridden in the
-    configuration:
+
+def _disk_profile(profile, hypervisor, **kwargs):
+    '''
+    Gather the disk profile from the config or apply the default based
+    on the active hypervisor
+
+    This is the ``default`` profile for KVM/QEMU, which can be
+    overridden in the configuration:
 
     .. code-block:: yaml
 
         virt:
-          nic:
+          disk:
             default:
-              eth0:
-                bridge: br0
-                model: virtio
+              - system:
+                  size: 8192
+                  format: qcow2
+                  model: virtio
+
+    The ``format`` and ``model`` parameters are optional, and will
+    default to whatever is best suitable for the active hypervisor.
     '''
-    default = {'eth0': {'bridge': 'br0', 'model': 'virtio'}}
-    return __salt__['config.option']('virt.nic', {}).get(nic, default)
+    default = [
+          {'system':
+             {'size': '8192'}
+          }
+    ]
+    if hypervisor in ['esxi', 'vmware']:
+        overlay = {'format': 'vmdk',
+                   'model': 'scsi',
+                   'pool': '[{0}] '.format(kwargs.get('pool', '0'))
+                  }
+    elif hypervisor in ['qemu', 'kvm']:
+        overlay = {'format': 'qcow2',
+                   'model': 'virtio',
+                   'pool': __salt__['config.option']('virt.images')
+                  }
+    else:
+        overlay = {}
+
+    disklist = __salt__['config.get']('virt:disk', {}).get(profile, default)
+    for key, val in overlay.items():
+        for i, disks in enumerate(disklist):
+            for disk in disks:
+                if key not in disks[disk]:
+                    disklist[i][disk][key] = val
+    return disklist
+
+
+def _nic_profile(profile_name, hypervisor, **kwargs):
+
+    default = [{'eth0': {}}]
+    vmware_overlay = {'type': 'bridge', 'source': 'DEFAULT', 'model': 'e1000'}
+    kvm_overlay = {'type': 'bridge', 'source': 'br0', 'model': 'virtio'}
+    overlays = {
+            'kvm': kvm_overlay,
+            'qemu': kvm_overlay,
+            'esxi': vmware_overlay,
+            'vmware': vmware_overlay,
+            }
+
+    # support old location
+    config_data = __salt__['config.option']('virt.nic', {}).get(
+        profile_name, None
+    )
+
+    if config_data is None:
+        config_data = __salt__['config.get']('virt:nic', {}).get(
+            profile_name, default
+        )
+
+    interfaces = []
+
+    def append_dict_profile_to_interface_list(profile_dict):
+        for interface_name, attributes in profile_dict.items():
+            attributes['name'] = interface_name
+            interfaces.append(attributes)
+
+    # old style dicts (top-level dicts)
+    #
+    # virt:
+    #    nic:
+    #        eth0:
+    #            bridge: br0
+    #        eth1:
+    #            network: test_net
+    if isinstance(config_data, dict):
+        append_dict_profile_to_interface_list(config_data)
+
+    # new style lists (may contain dicts)
+    #
+    # virt:
+    #   nic:
+    #     - eth0:
+    #         bridge: br0
+    #     - eth1:
+    #         network: test_net
+    #
+    # virt:
+    #   nic:
+    #     - name: eth0
+    #       bridge: br0
+    #     - name: eth1
+    #       network: test_net
+    elif isinstance(config_data, list):
+        for interface in config_data:
+            if isinstance(interface, dict):
+                if len(interface.keys()) == 1:
+                    append_dict_profile_to_interface_list(interface)
+                else:
+                    interfaces.append(interface)
+
+    def _normalize_net_types(attributes):
+        '''
+        Guess which style of definition:
+
+            bridge: br0
+
+             or
+
+            network: net0
+
+             or
+
+            type: network
+            source: net0
+        '''
+        for type_ in ['bridge', 'network']:
+            if type_ in attributes:
+                attributes['type'] = type_
+                # we want to discard the original key
+                attributes['source'] = attributes.pop(type_)
+
+        attributes['type'] = attributes.get('type', None)
+        attributes['source'] = attributes.get('source', None)
+
+    def _apply_default_overlay(attributes):
+        for key, value in overlays[hypervisor].items():
+            if key not in attributes or not attributes[key]:
+                attributes[key] = value
+
+    def _assign_mac(attributes):
+        dmac = '{0}_mac'.format(attributes['name'])
+        if dmac in kwargs:
+            dmac = kwargs[dmac]
+            if salt.utils.validate.net.mac(dmac):
+                attributes['mac'] = dmac
+            else:
+                msg = 'Malformed MAC address: {0}'.format(dmac)
+                raise CommandExecutionError(msg)
+        else:
+            attributes['mac'] = salt.utils.gen_mac()
+
+    for interface in interfaces:
+        _normalize_net_types(interface)
+        _assign_mac(interface)
+        if hypervisor in overlays:
+            _apply_default_overlay(interface)
+
+    return interfaces
 
 
 def init(name,
          cpu,
          mem,
-         image,
+         image=None,
          nic='default',
-         hypervisor='kvm',
-         start=True,
+         hypervisor=VIRT_DEFAULT_HYPER,
+         start=True,  # pylint: disable=redefined-outer-name
+         disk='default',
+         saltenv='base',
          **kwargs):
     '''
     Initialize a new vm
@@ -363,27 +530,92 @@ def init(name,
     .. code-block:: bash
 
         salt 'hypervisor' virt.init vm_name 4 512 salt://path/to/image.raw
+        salt 'hypervisor' virt.init vm_name 4 512 nic=profile disk=profile
     '''
-    img_dir = os.path.join(__salt__['config.option']('virt.images'), name)
-    img_dest = os.path.join(
-            __salt__['config.option']('virt.images'),
-            name,
-            'vda')
-    sfn = __salt__['cp.cache_file'](image)
-    if not os.path.isdir(img_dir):
-        os.makedirs(img_dir)
-    nicp = _nic_profile(nic)
-    salt.utils.copyfile(sfn, img_dest)
-    xml = _gen_xml(name, cpu, mem, img_dest, nicp, hypervisor, **kwargs)
+    hypervisor = __salt__['config.get']('libvirt:hypervisor', hypervisor)
+
+    nicp = _nic_profile(nic, hypervisor, **kwargs)
+
+    diskp = None
+    seedable = False
+    if image:  # with disk template image
+        # if image was used, assume only one disk, i.e. the
+        # 'default' disk profile
+        # TODO: make it possible to use disk profiles and use the
+        # template image as the system disk
+        diskp = _disk_profile('default', hypervisor, **kwargs)
+
+        # When using a disk profile extract the sole dict key of the first
+        # array element as the filename for disk
+        disk_name = diskp[0].keys()[0]
+        disk_type = diskp[0][disk_name]['format']
+        disk_file_name = '{0}.{1}'.format(disk_name, disk_type)
+
+        if hypervisor in ['esxi', 'vmware']:
+            # TODO: we should be copying the image file onto the ESX host
+            raise SaltInvocationError('virt.init does not support image '
+                                      'template template in conjunction '
+                                      'with esxi hypervisor')
+        elif hypervisor in ['qemu', 'kvm']:
+            img_dir = __salt__['config.option']('virt.images')
+            img_dest = os.path.join(
+                img_dir,
+                name,
+                disk_file_name
+            )
+            img_dir = os.path.dirname(img_dest)
+            sfn = __salt__['cp.cache_file'](image, saltenv)
+            if not os.path.isdir(img_dir):
+                os.makedirs(img_dir)
+            try:
+                salt.utils.copyfile(sfn, img_dest)
+                mask = os.umask(0)
+                os.umask(mask)
+                # Apply umask and remove exec bit
+                mode = (0o0777 ^ mask) & 0o0666
+                os.chmod(img_dest, mode)
+
+            except os.error:
+                return False
+            seedable = True
+        else:
+            log.error('unsupported hypervisor when handling disk image')
+
+    else:
+        # no disk template image specified, create disks based on disk profile
+        diskp = _disk_profile(disk, hypervisor, **kwargs)
+        if hypervisor in ['qemu', 'kvm']:
+            # TODO: we should be creating disks in the local filesystem with
+            # qemu-img
+            raise SaltInvocationError('virt.init does not support disk '
+                                      'profiles in conjunction with '
+                                      'qemu/kvm at this time, use image '
+                                      'template instead')
+        else:
+            # assume libvirt manages disks for us
+            for disk in diskp:
+                for disk_name, args in disk.items():
+                    xml = _gen_vol_xml(name,
+                                       disk_name,
+                                       args['size'],
+                                       hypervisor)
+                    define_vol_xml_str(xml)
+
+    xml = _gen_xml(name, cpu, mem, diskp, nicp, hypervisor, **kwargs)
     define_xml_str(xml)
-    if kwargs.get('seed'):
+
+    if kwargs.get('seed') and seedable:
         install = kwargs.get('install', True)
-        __salt__['seed.apply'](img_dest, id_=name, config=kwargs.get('config'),
-                install=install)
-    elif kwargs.get('seed_cmd'):
+        __salt__['seed.apply'](img_dest,
+                               id_=name,
+                               config=kwargs.get('config'),
+                               install=install)
+    elif kwargs.get('seed_cmd') and seedable:
         __salt__[kwargs['seed_cmd']](img_dest, name, kwargs.get('config'))
     if start:
         create(name)
+
+    return True
 
 
 def list_vms():
@@ -852,6 +1084,36 @@ def get_xml(vm_):
     return dom.XMLDesc(0)
 
 
+def get_profiles(hypervisor=None):
+    '''
+    Return the virt profiles for hypervisor.
+
+    Currently there are profiles for:
+
+     - nic
+     - disk
+
+    CLI Example::
+
+        salt '*' virt.get_profiles
+        salt '*' virt.get_profiles hypervisor=esxi
+    '''
+    ret = {}
+    if hypervisor:
+        hypervisor = hypervisor
+    else:
+        hypervisor = __salt__['config.get']('libvirt:hypervisor', VIRT_DEFAULT_HYPER)
+    virtconf = __salt__['config.get']('virt', {})
+    for typ in ['disk', 'nic']:
+        _func = getattr(sys.modules[__name__], '_{0}_profile'.format(typ))
+        ret[typ] = {'default': _func('default', hypervisor)}
+        if typ in virtconf:
+            ret.setdefault(typ, {})
+            for prf in virtconf[typ]:
+                ret[typ][prf] = _func(prf, hypervisor)
+    return ret
+
+
 def shutdown(vm_):
     '''
     Send a soft shutdown signal to the named vm
@@ -1318,6 +1580,11 @@ def is_hyper():
 
         salt '*' virt.is_hyper
     '''
+    try:
+        import libvirt
+    except ImportError:
+        # not a usable hypervisor without libvirt module
+        return False
     return is_xen_hyper() or is_kvm_hyper()
 
 
@@ -1476,12 +1743,11 @@ def vm_diskstats(vm_=None):
         # Do not use get_disks, since it uses qemu-img and is very slow
         # and unsuitable for any sort of real time statistics
         disks = get_disk_devs(vm_)
-        ret = {
-                'rd_req': 0,
-                'rd_bytes': 0,
-                'wr_req': 0,
-                'wr_bytes': 0,
-                'errs': 0
+        ret = {'rd_req': 0,
+               'rd_bytes': 0,
+               'wr_req': 0,
+               'wr_bytes': 0,
+               'errs': 0
                }
         for disk in disks:
             stats = dom.blockStats(disk)

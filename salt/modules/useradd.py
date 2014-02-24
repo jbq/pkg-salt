@@ -19,9 +19,13 @@ import salt.utils
 from salt._compat import string_types
 
 log = logging.getLogger(__name__)
+
 RETCODE_12_ERROR_REGEX = re.compile(
     r'userdel(.*)warning(.*)/var/mail(.*)No such file or directory'
 )
+
+# Define the module's virtual name
+__virtualname__ = 'user'
 
 
 def __virtual__():
@@ -29,10 +33,10 @@ def __virtual__():
     Set the user module if the kernel is Linux or OpenBSD
     and remove some of the functionality on OS X
     '''
-    return (
-        'user' if __grains__['kernel'] in ('Linux', 'OpenBSD', 'NetBSD')
-        else False
-    )
+
+    if __grains__['kernel'] in ('Linux', 'OpenBSD', 'NetBSD'):
+        return __virtualname__
+    return False
 
 
 def _get_gecos(name):
@@ -194,7 +198,7 @@ def delete(name, remove=False, force=False):
     return False
 
 
-def getent():
+def getent(refresh=False):
     '''
     Return the list of all info for all users
 
@@ -204,7 +208,7 @@ def getent():
 
         salt '*' user.getent
     '''
-    if 'user.getent' in __context__:
+    if 'user.getent' in __context__ and not refresh:
         return __context__['user.getent']
 
     ret = []

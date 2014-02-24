@@ -14,6 +14,8 @@ import salt
 import salt.version
 import salt.loader
 
+__proxyenabled__ = ['*']
+
 
 def echo(text):
     '''
@@ -39,7 +41,11 @@ def ping():
 
         salt '*' test.ping
     '''
-    return True
+
+    if 'proxyobject' in __opts__:
+        return __opts__['proxyobject'].ping()
+    else:
+        return True
 
 
 def sleep(length):
@@ -199,8 +205,8 @@ def arg_type(*args, **kwargs):
     '''
     ret = {'args': [], 'kwargs': {}}
     # all the args
-    for arg in args:
-        ret['args'].append(str(type(arg)))
+    for argument in args:
+        ret['args'].append(str(type(argument)))
 
     # all the kwargs
     for key, val in kwargs.iteritems():

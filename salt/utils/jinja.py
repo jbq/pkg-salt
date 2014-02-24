@@ -7,6 +7,7 @@ Jinja loading utils to enable a more powerful backend for jinja templates
 from os import path
 import logging
 import json
+import pprint
 from functools import wraps
 
 # Import third party libs
@@ -30,6 +31,15 @@ __all__ = [
 ]
 
 
+# To dump OrderedDict objects as regular dicts. Used by the yaml
+# template filter.
+class OrderedDictDumper(yaml.Dumper):
+    pass
+yaml.add_representer(OrderedDict,
+                     yaml.representer.SafeRepresenter.represent_dict,
+                     Dumper=OrderedDictDumper)
+
+
 class SaltCacheLoader(BaseLoader):
     '''
     A special jinja Template Loader for salt.
@@ -38,15 +48,24 @@ class SaltCacheLoader(BaseLoader):
     Templates are cached like regular salt states
     and only loaded once per loader instance.
     '''
-    def __init__(self, opts, env='base', encoding='utf-8'):
+    def __init__(self, opts, saltenv='base', encoding='utf-8', env=None):
+        if env is not None:
+            salt.utils.warn_until(
+                'Boron',
+                'Passing a salt environment should be done using \'saltenv\' '
+                'not \'env\'. This functionality will be removed in Salt '
+                'Boron.'
+            )
+            # Backwards compatibility
+            saltenv = env
         self.opts = opts
-        self.env = env
+        self.saltenv = saltenv
         self.encoding = encoding
         if opts.get('file_client', 'remote') == 'local':
-            self.searchpath = opts['file_roots'][env]
+            self.searchpath = opts['file_roots'][saltenv]
         else:
-            self.searchpath = [path.join(opts['cachedir'], 'files', env)]
-        log.debug('Jinja search path: \'{0}\''.format(self.searchpath))
+            self.searchpath = [path.join(opts['cachedir'], 'files', saltenv)]
+        log.debug('Jinja search path: {0!r}'.format(self.searchpath))
         self._file_client = None
         self.cached = []
 
@@ -63,7 +82,7 @@ class SaltCacheLoader(BaseLoader):
         Cache a file from the salt master
         '''
         saltpath = path.join('salt://', template)
-        self.file_client().get_file(saltpath, '', True, self.env)
+        self.file_client().get_file(saltpath, '', True, self.saltenv)
 
     def check_cache(self, template):
         '''
@@ -157,11 +176,13 @@ class SerializerExtension(Extension, object):
 
         yaml = {{ data|yaml }}
         json = {{ data|json }}
+        python = {{ data|python }}
 
     will be rendered has::
 
         yaml = {bar: 42, baz: [1, 2, 3], foo: true, qux: 2.0}
         json = {"baz": [1, 2, 3], "foo": true, "bar": 42, "qux": 2.0}
+        python = {'bar': 42, 'baz': [1, 2, 3], 'foo': True, 'qux': 2.0}
 
     Load filters
     ~~~~~~~~~~~~
@@ -250,6 +271,7 @@ class SerializerExtension(Extension, object):
         self.environment.filters.update({
             'yaml': self.format_yaml,
             'json': self.format_json,
+            'python': self.format_python,
             'load_yaml': self.load_yaml,
             'load_json': self.load_json
         })
@@ -280,7 +302,11 @@ class SerializerExtension(Extension, object):
         return Markup(json.dumps(value, sort_keys=True).strip())
 
     def format_yaml(self, value):
-        return Markup(yaml.dump(value, default_flow_style=True).strip())
+        return Markup(yaml.dump(value, default_flow_style=True,
+                                Dumper=OrderedDictDumper).strip())
+
+    def format_python(self, value):
+        return Markup(pprint.pformat(value).strip())
 
     def load_yaml(self, value):
         if isinstance(value, TemplateModule):

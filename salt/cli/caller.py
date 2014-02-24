@@ -5,6 +5,7 @@ minion modules.
 '''
 
 # Import python libs
+from __future__ import print_function
 import os
 import sys
 import logging
@@ -69,13 +70,17 @@ class Caller(object):
             args, kwargs = salt.minion.parse_args_and_kwargs(
                 self.minion.functions[fun], self.opts['arg'], data=sdata)
             try:
-                with salt.utils.fopen(proc_fn, 'w+') as fp_:
+                with salt.utils.fopen(proc_fn, 'w+b') as fp_:
                     fp_.write(self.serial.dumps(sdata))
             except NameError:
                 # Don't require msgpack with local
                 pass
             func = self.minion.functions[fun]
-            ret['return'] = func(*args, **kwargs)
+            try:
+                ret['return'] = func(*args, **kwargs)
+            except TypeError as exc:
+                sys.stderr.write(('Passed invalid arguments: {0}\n').format(exc))
+                sys.exit(1)
             ret['retcode'] = sys.modules[func.__module__].__context__.get(
                     'retcode', 0)
         except (CommandExecutionError) as exc:
@@ -101,8 +106,10 @@ class Caller(object):
         if self.opts.get('return', ''):
             ret['id'] = self.opts['id']
             ret['fun'] = fun
+            ret['fun_args'] = self.opts['arg']
             for returner in self.opts['return'].split(','):
                 try:
+                    ret['success'] = True
                     self.minion.returners['{0}.returner'.format(returner)](ret)
                 except Exception:
                     pass

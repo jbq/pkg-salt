@@ -30,22 +30,23 @@ In this module, a few objects are defined for you, including the usual
             'pkg': [
                 'installed',
                 {'name': 's3cmd'},
-                ],
-            }
+            ],
+        }
 
-        config[home + '/.s3cfg'} = {
-            'file.managed': [{
-                'source': 'salt://s3cfg/templates/s3cfg',
-                'template': 'jinja',
-                'user': user,
-                'group': group,
-                'mode': 600,
-                'context': {
+        config[home + '/.s3cfg'] = {
+            'file.managed': [
+                {'source': 'salt://s3cfg/templates/s3cfg'},
+                {'template': 'jinja'},
+                {'user': user},
+                {'group': group},
+                {'mode': 600},
+                {'context': {
                     'aws_key': __pillar__['AWS_ACCESS_KEY_ID'],
                     'aws_secret_key': __pillar__['AWS_SECRET_ACCESS_KEY'],
                     },
-                }],
-            }
+                },
+            ],
+        }
 
         return config
 
@@ -59,7 +60,7 @@ from salt.exceptions import SaltRenderError
 import salt.utils.templates
 
 
-def render(template, env='', sls='', tmplpath=None, **kws):
+def render(template, saltenv='base', sls='', tmplpath=None, **kws):
     '''
     Render the python module's components
 
@@ -80,8 +81,8 @@ def render(template, env='', sls='', tmplpath=None, **kws):
             opts=__opts__,
             __pillar__=__pillar__,
             pillar=__pillar__,
-            __env__=env,
-            env=env,
+            __env__=saltenv,
+            saltenv=saltenv,
             __sls__=sls,
             sls=sls,
             **kws)

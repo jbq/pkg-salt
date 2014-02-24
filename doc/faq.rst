@@ -1,11 +1,13 @@
 Frequently Asked Questions
 ==========================
 
+.. contents:: FAQ
+
 Is Salt open-core?
 ------------------
 
 No. Salt is 100% committed to being open-source, including all of our APIs and
-the new `'Halite' web interface`_ which will be included in version 0.17.0. It
+the new `'Halite' web interface`_ which was introduced in version 0.17.0. It
 is developed under the `Apache 2.0 license`_, allowing it to be used in both
 open and proprietary projects.
 
@@ -19,8 +21,14 @@ Minions need to be able to connect to the Master on TCP ports 4505 and 4506.
 Minions do not need any inbound ports open. More detailed information on
 firewall settings can be found :doc:`here </topics/tutorials/firewall>`.
 
-My script runs every time I run a :mod:`state.highstate <salt.modules.state.highstate>`. Why?
----------------------------------------------------------------------------------------------
+I'm seeing weird behavior (including but not limited to packages not installing their users properly)
+-----------------------------------------------------------------------------------------------------
+
+This is often caused by SELinux.  Try disabling SELinux or putting it in
+permissive mode and see if the weird behavior goes away.
+
+My script runs every time I run a *state.highstate*. Why?
+---------------------------------------------------------
 
 You are probably using :mod:`cmd.run <salt.states.cmd.run>` rather than
 :mod:`cmd.wait <salt.states.cmd.wait>`. A :mod:`cmd.wait
@@ -34,13 +42,13 @@ arguments).
 More details can be found in the docmentation for the :mod:`cmd
 <salt.states.cmd>` states.
 
-When I run :mod:`test.ping <salt.modules.test.ping>`, why don't the Minions that aren't responding return anything? Returning ``False`` would be helpful.
----------------------------------------------------------------------------------------------------------------------------------------------------------
+When I run *test.ping*, why don't the Minions that aren't responding return anything? Returning ``False`` would be helpful.
+---------------------------------------------------------------------------------------------------------------------------
 
-The reason for this is because the Master tells Minions to run
-commands/functions, and listens for the return data, printing it to the screen
-when it is received. If it doesn't receive anything back, it doesn't have
-anything to display for that Minion.
+When you run *test.ping* the Master tells Minions to run commands/functions,
+and listens for the return data, printing it to the screen when it is received.
+If it doesn't receive anything back, it doesn't have anything to display for
+that Minion.
 
 There are a couple options for getting information on Minions that are not
 responding. One is to use the verbose (``-v``) option when you run salt
@@ -65,6 +73,24 @@ If the Minion id is not configured explicitly (using the :conf_minion:`id`
 parameter), Salt will determine the id based on the hostname. Exactly how this
 is determined varies a little between operating systems and is described in
 detail :ref:`here <minion-id-generation>`.
+
+I'm trying to manage packages/services but I get an error saying that the state is not available. Why?
+------------------------------------------------------------------------------------------------------
+
+Salt detects the Minion's operating system and assigns the correct package or
+service management module based on what is detected. However, for certain custom
+spins and OS derivatives this detection fails. In cases like this, an issue
+should be opened on our tracker_, with the following information:
+
+1. The output of the following command:
+
+   .. code-block:: bash
+
+    salt <minion_id> grains.items | grep os
+
+2. The contents of ``/etc/lsb-release``, if present on the Minion.
+
+.. _tracker: https://github.com/saltstack/salt/issues
 
 I'm using gitfs and my custom modules/states/etc are not syncing. Why?
 ----------------------------------------------------------------------
@@ -105,3 +131,21 @@ PATH using a :mod:`file.symlink <salt.states.file.symlink>` state.
     /usr/bin/foo:
       file.symlink:
         - target: /usr/local/bin/foo
+
+Can I run different versions of Salt on my Master and Minion?
+-------------------------------------------------------------
+
+As of release 0.17.1 backwards compatibility was broken (specifically for
+0.17.1 trying to interface with older releases) due to a protocol change for
+security purposes. The Salt team continues to emphasize backwards compatiblity
+as an important feature and plans to support it to the best of our ability to
+do so.
+
+Does Salt support backing up managed files?
+-------------------------------------------
+
+Yes. Salt provides an easy to use addition to your file.managed states that
+allow you to back up files via :doc:`backup_mode </ref/states/backup_mode>`,
+backup_mode can be configured on a per state basis, or in the minion config
+(note that if set in the minion config this would simply be the default
+method to use, you still need to specify that the file should be backed up!).

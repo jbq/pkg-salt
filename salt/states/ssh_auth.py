@@ -1,16 +1,27 @@
 # -*- coding: utf-8 -*-
 '''
-Control of entries in SSH authorized_key files.
-===============================================
+Control of entries in SSH authorized_key files
+==============================================
 
 The information stored in a user's SSH authorized key file can be easily
 controlled via the ssh_auth state. Defaults can be set by the enc, options,
 and comment keys. These defaults can be overridden by including them in the
 name.
 
+Since the YAML specification limits the length of simple keys to 1024
+characters, and since SSH keys are often longer than that, you may have
+to use a YAML 'explicit key', as demonstrated in the second example below.
+
 .. code-block:: yaml
 
     AAAAB3NzaC1kc3MAAACBAL0sQ9fJ5bYTEyY==:
+      ssh_auth:
+        - present
+        - user: root
+        - enc: ssh-dss
+
+    ? AAAAB3NzaC1kc3MAAACBAL0sQ9fJ5bYTEyY==...
+    :
       ssh_auth:
         - present
         - user: root
@@ -43,7 +54,7 @@ import re
 import sys
 
 
-def _present_test(user, name, enc, comment, options, source, config, env):
+def _present_test(user, name, enc, comment, options, source, config):
     '''
     Run checks for "present"
     '''
@@ -53,7 +64,7 @@ def _present_test(user, name, enc, comment, options, source, config, env):
                 user,
                 source,
                 config,
-                env)
+                saltenv=__env__)
         if keys:
             comment = ''
             for key, status in keys.items():
@@ -157,7 +168,6 @@ def present(
                 options or [],
                 source,
                 config,
-                kwargs.get('__env__', 'base')
                 )
         return ret
 
@@ -166,7 +176,7 @@ def present(
                 user,
                 source,
                 config,
-                kwargs.get('__env__', 'base'))
+                saltenv=__env__)
     else:
         # check if this is of form {options} {enc} {key} {comment}
         sshre = re.compile(r'^(.*?)\s?((?:ssh\-|ecds)[\w-]+\s.+)$')
@@ -260,7 +270,11 @@ def absent(name,
            'comment': ''}
 
     # Get just the key
-    name = name.split(' ')[0]
+    keydata = name.split(' ')
+    if len(keydata) > 1:
+        name = keydata[1]
+    else:
+        name = keydata[0]
 
     if __opts__['test']:
         check = __salt__['ssh.check_key'](

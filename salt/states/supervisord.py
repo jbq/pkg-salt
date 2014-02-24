@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 '''
-Interaction with the Supervisor daemon.
-=======================================
+Interaction with the Supervisor daemon
+======================================
 
 .. code-block:: yaml
 
@@ -11,7 +11,7 @@ Interaction with the Supervisor daemon.
         - require:
           - pkg: supervisor
         - watch:
-          - file.managed: /etc/nginx/sites-enabled/wsgi_server.conf
+          - file: /etc/nginx/sites-enabled/wsgi_server.conf
 '''
 
 # Import python libs
@@ -72,13 +72,14 @@ def running(name,
         path to supervisorctl config file
 
     bin_env
-        path to supervisorctl bin or path to virtualenv with supervisor installed
+        path to supervisorctl bin or path to virtualenv with supervisor
+        installed
 
     '''
     ret = {'name': name, 'result': True, 'comment': '', 'changes': {}}
 
     salt.utils.warn_until(
-        (0, 18),
+        'Hydrogen',
         'Please remove \'runas\' support at this stage. \'user\' support was '
         'added in 0.17.0',
         _dont_call_warnings=True
@@ -106,7 +107,16 @@ def running(name,
         conf_file=conf_file,
         bin_env=bin_env
     )
-    needs_update = name not in all_processes
+
+    # parse process groups
+    process_groups = []
+    for proc in all_processes:
+        if ':' in proc:
+            process_groups.append(proc[:proc.index(':') + 1])
+    process_groups = list(set(process_groups))
+
+    # determine if this process/group needs loading
+    needs_update = name not in all_processes and name not in process_groups
 
     if __opts__['test']:
         ret['result'] = None
@@ -151,9 +161,34 @@ def running(name,
         if '{0}: updated'.format(name) in result:
             just_updated = True
 
-    if name in all_processes and not _is_stopped_state(all_processes[name]['state']):
+    is_stopped = None
+
+    process_type = None
+    if name in process_groups:
+        process_type = 'group'
+
+        # check if any processes in this group are stopped
+        is_stopped = False
+        for proc in all_processes:
+            if proc.startswith(name) \
+                    and _is_stopped_state(all_processes[proc]['state']):
+                is_stopped = True
+                break
+
+    elif name in all_processes:
+        process_type = 'service'
+
+        if _is_stopped_state(all_processes[name]['state']):
+            is_stopped = True
+        else:
+            is_stopped = False
+
+    if is_stopped is False:
         if restart and not just_updated:
-            comment = 'Restarting service: {0}'.format(name)
+            comment = 'Restarting{0}: {1}'.format(
+                process_type is not None and ' {0}'.format(process_type) or '',
+                name
+            )
             log.debug(comment)
             result = __salt__['supervisord.restart'](
                 name,
@@ -164,15 +199,25 @@ def running(name,
             ret.update(_check_error(result, comment))
             changes.append(comment)
         elif just_updated:
-            comment = 'Not starting updated service: {0}'.format(name)
+            comment = 'Not starting updated{0}: {1}'.format(
+                process_type is not None and ' {0}'.format(process_type) or '',
+                name
+            )
             result = comment
             ret.update({'comment': comment})
         else:
-            comment = 'Not starting already running service: {0}'.format(name)
+            comment = 'Not starting already running{0}: {1}'.format(
+                process_type is not None and ' {0}'.format(process_type) or '',
+                name
+            )
             result = comment
             ret.update({'comment': comment})
+
     elif not just_updated:
-        comment = 'Starting service: {0}'.format(name)
+        comment = 'Starting{0}: {1}'.format(
+            process_type is not None and ' {0}'.format(process_type) or '',
+            name
+        )
         changes.append(comment)
         log.debug(comment)
         result = __salt__['supervisord.start'](
@@ -184,6 +229,7 @@ def running(name,
 
         ret.update(_check_error(result, comment))
         log.debug(unicode(result))
+
     if ret['result'] and len(changes):
         ret['changes'][name] = ' '.join(changes)
     return ret
@@ -214,13 +260,14 @@ def dead(name,
         path to supervisorctl config file
 
     bin_env
-        path to supervisorctl bin or path to virtualenv with supervisor installed
+        path to supervisorctl bin or path to virtualenv with supervisor
+        installed
 
     '''
     ret = {'name': name, 'result': True, 'comment': '', 'changes': {}}
 
     salt.utils.warn_until(
-        (0, 18),
+        'Hydrogen',
         'Please remove \'runas\' support at this stage. \'user\' support was '
         'added in 0.17.0',
         _dont_call_warnings=True
@@ -250,13 +297,41 @@ def dead(name,
     else:
         comment = 'Stopping service: {0}'.format(name)
         log.debug(comment)
-        current_status = __salt__['supervisord.status'](
-            name=name,
-            user=user,
+
+        all_processes = __salt__['supervisord.status'](
+            user=runas,
             conf_file=conf_file,
             bin_env=bin_env
         )
-        if name not in current_status or _is_stopped_state(current_status[name]['state']):
+
+        # parse process groups
+        process_groups = []
+        for proc in all_processes:
+            if ':' in proc:
+                process_groups.append(proc[:proc.index(':') + 1])
+        process_groups = list(set(process_groups))
+
+        is_stopped = None
+
+        if name in process_groups:
+            # check if any processes in this group are stopped
+            is_stopped = False
+            for proc in all_processes:
+                if proc.startswith(name) \
+                        and _is_stopped_state(all_processes[proc]['state']):
+                    is_stopped = True
+                    break
+
+        elif name in all_processes:
+            if _is_stopped_state(all_processes[name]['state']):
+                is_stopped = True
+            else:
+                is_stopped = False
+        else:
+            # process name doesn't exist
+            ret['comment'] = "Service {0} doesn't exist".format(name)
+
+        if is_stopped is True:
             ret['comment'] = "Service {0} is not running".format(name)
         else:
             result = {name: __salt__['supervisord.stop'](

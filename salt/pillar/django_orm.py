@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
-Generate pillar data from Django models through the Django ORM
+Generate Pillar data from Django models through the Django ORM
 
 :maintainer: Micah Hausler <micah.hausler@gmail.com>
 :maturity: new
@@ -21,8 +21,8 @@ requirements installed.
           project_path: /path/to/project/
           settings_module: my_application.settings
           env_file: /path/to/env/file.sh
-          # Optional: If your project is not using the system python,\
-              add your virtualenv path here
+          # Optional: If your project is not using the system python,
+          # add your virtualenv path below.
           env: /path/to/virtualenv/
 
           django_app:
@@ -33,8 +33,9 @@ requirements installed.
               # Required: the model name
               Client:
 
-                # Required: model field to use as a name in the
-                # rendered pillar, should be unique
+                # Required: model field to use as the key in the rendered
+                # Pillar. Must be unique; must also be included in the
+                # ``fields`` list below.
                 name: shortname
 
                 # Optional:
@@ -42,6 +43,8 @@ requirements installed.
                 filter:  {'kw': 'args'}
 
                 # Required: a list of field names
+                # List items will be used as arguments to the .values() method.
+                # See Django's QuerySet documentation for how to use .values()
                 fields:
                   - field_1
                   - field_2
@@ -61,17 +64,36 @@ This would return pillar data that would look like
             field_1: data_from_field_1
             field_2: data_from_field_2
 
+As another example, data from multiple database tables can be fetched using
+Django's regular lookup syntax. Note, using ManyToManyFields will not currently
+work since the return from values() changes if a ManyToMany is present.
+
+.. code-block:: yaml
+
+    ext_pillar:
+      - django_orm:
+          pillar_name: djangotutorial
+          project_path: /path/to/mysite
+          settings_module: mysite.settings
+
+          django_app:
+            mysite.polls:
+              Choices:
+                name: poll__question
+                fields:
+                  - poll__question
+                  - poll__id
+                  - choice_text
+                  - votes
 
 Module Documentation
 ====================
 '''
 
-# Import python libs
 import logging
 import os
 import sys
 
-# Import salt libs
 import salt.exceptions
 
 HAS_VIRTUALENV = False
@@ -133,8 +155,11 @@ def ext_pillar(minion_id,
             if not os.path.isdir(path):
                 log.error('Virtualenv {0} not a directory!'.format(path))
                 return {}
-        # load the virtualenv
-        sys.path.append(virtualenv.path_locations(env)[1] + '/site-packages/')
+        # load the virtualenv first
+        sys.path.insert(0,
+                        os.path.join(
+                            virtualenv.path_locations(env)[1],
+                            'site-packages'))
 
     # load the django project
     sys.path.append(project_path)
@@ -179,30 +204,37 @@ def ext_pillar(minion_id,
 
                 pillar_for_model = django_pillar[app][model_orm.__name__] = {}
 
+                name_field = model_meta['name']
                 fields = model_meta['fields']
 
                 if 'filter' in model_meta.keys():
-                    qs = model_orm.objects.filter(**model_meta['filter'])
+                    qs = (model_orm.objects
+                        .filter(**model_meta['filter'])
+                        .values(*fields))
                 else:
-                    qs = model_orm.objects.all()
+                    qs = model_orm.objects.values(*fields)
 
-                # Loop through records for the queryset
                 for model in qs:
-                    django_pillar[app][model_orm.__name__][
-                            model.__dict__[
-                                model_meta['name']
-                            ]] = {}
+                    # Check that the human-friendly name given is valid (will
+                    # be able to pick up a value from the query) and unique
+                    # (since we're using it as the key in a dictionary)
+                    if not name_field in model:
+                        raise salt.exceptions.SaltException(
+                            "Name '{0}' not found in returned fields.".format(
+                                name_field))
 
-                    for field in fields:
-                        django_pillar[app][model_orm.__name__][
-                                        model.__dict__[
-                                            model_meta['name']
-                                        ]][field] = model.__dict__[field]
+                    if model[name_field] in pillar_for_model:
+                        raise salt.exceptions.SaltException(
+                            "Value for '{0}' is not unique: {0}".format(
+                                model[name_field]))
+
+                    pillar_for_model[model[name_field]] = model
 
         return {pillar_name: django_pillar}
-    except ImportError, e:
+    except ImportError as e:
         log.error('Failed to import library: {0}'.format(e.message))
         return {}
-    except Exception, e:
+    except Exception as e:
         log.error('Failed on Error: {0}'.format(e.message))
+        log.debug('django_orm traceback', exc_info=True)
         return {}
