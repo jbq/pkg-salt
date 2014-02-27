@@ -30,6 +30,10 @@ Files: salt/utils/ipaddr.py
 Copyright: 2007 Google Inc.
 License: Apache-2.0
 
+Files: salt/cloud/clouds/gce.py
+Copyright: 2013 Google Inc. All Rights Reserved
+License: Apache-2.0
+
 Files: doc/_ext/youtube.py
 Copyright: 2009 Chris Pickel <sfiera@gmail.com>
 License: BSD-2-clause
@@ -38,6 +42,11 @@ Files: doc/_static/book_open.png
        doc/_static/film_link.png
        doc/_static/page_white_acrobat.png
 Copyright: Mark James of <http://famfamfam.com/>
+License: CC-BY-3.0
+
+Files: doc/_themes/saltstack/static/img/glyphicons-halflings-white.png
+       doc/_themes/saltstack/static/img/glyphicons-halflings.png
+Copyright: 2010-2012 Jan Kovarik <glyphicons@gmail.com>
 License: CC-BY-3.0
 
 Files: doc/_themes/saltstack/static/js/vendor/jquery-1.9.1.js
@@ -65,7 +74,14 @@ Copyright: 2011-2012 Twitter, Inc.
 License: Apache-2.0
 
 
+Files: pkg/ebuild/salt-0.7.0.ebuild
+       pkg/ebuild/salt-0.8.7.ebuild
+Copyright: 1999-2011 Gentoo Foundation
+License: GPL-2
 
+Files: pkg/suse/salt.spec
+Copyright: 2013 SUSE LINUX Products GmbH, Nuernberg, Germany
+License: Apache-2.0
 
 
 
@@ -414,6 +430,24 @@ License: CC-BY-3.0
       granted under this License, such additional rights are deemed to
       be included in the License; this License is not intended to
       restrict the license of any rights under applicable law.
+
+License: GPL-2
+  This package is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+  .
+  This package is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+  .
+  You should have received a copy of the GNU General Public License
+  along with this package; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+  .
+  On Debian systems, the complete text of the GNU General
+  Public License can be found in `/usr/share/common-licenses/GPL-2'.
 
 License: MIT License
   Permission is hereby granted, free of charge, to any person obtaining a copy
