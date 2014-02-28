@@ -1,0 +1,29 @@
+Description: Fix to docs to enable building
+Author: Joe Healy <joehealy@gmail.com>
+Forwarded: yes
+
+--- a/doc/conf.py
++++ b/doc/conf.py
+@@ -55,6 +55,11 @@
+     'libcloud.compute.deployment',
+     'libcloud.compute.providers',
+     'libcloud.compute.types',
++    'libcloud.loadbalancer',
++    'libcloud.loadbalancer.types',
++    'libcloud.loadbalancer.providers',
++    'libcloud.common',
++    'libcloud.common.google',
+     # modules, renderers, states, returners, et al
+     'django',
+     'libvirt',
+--- a/salt/states/file.py
++++ b/salt/states/file.py
+@@ -1129,7 +1129,7 @@
+         ``pillar['userdata']['deployer']['id_rsa']``. An example of this pillar
+         setup would be like so:
+ 
+-        .. code-block:: yaml:
++        .. code-block:: yaml
+ 
+             userdata:
+               deployer:
