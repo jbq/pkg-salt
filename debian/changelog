@@ -1,3 +1,13 @@
+salt (2014.1.0+ds-1) unstable; urgency=medium
+
+  * [d5adf7f] Removed windows binary
+  * [7c0cc71] Imported Upstream version 2014.1.0+ds
+  * [12c1810] Updated debian/copyright for new files
+  * [fee767d] Updated patches for 2014.1
+  * [409559a] Added salt-cloud
+
+ -- Joe Healy <joehealy@gmail.com>  Fri, 28 Feb 2014 16:02:44 +1100
+
 salt (0.17.5+ds-1) unstable; urgency=medium
 
   * [af8c595] Added repack script to fix source issue. Closes: 736783
