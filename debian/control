@@ -199,3 +199,17 @@ Description: additional documentation for salt, the distributed remote execution
  .
  This particular package provides the HTML documentation for
  salt.
+
+Package: salt-cloud
+Architecture: all
+Depends: ${python:Depends},
+         ${misc:Depends},
+         salt-common (= ${source:Version}),
+         python-libcloud,
+         sshpass
+Suggests: python-botocore
+Recommends: python-netaddr
+Description: public cloud VM management system
+ provision virtual machines on various public clouds via a cleanly
+ controlled profile and mapping system.
+
