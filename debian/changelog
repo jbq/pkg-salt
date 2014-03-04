@@ -1,3 +1,12 @@
+salt (2014.1.0+ds-1~bpo70+1) squeeze-backports-sloppy; urgency=medium
+
+  * Rebuild for wheezy-backports.
+  * [73a8257] Removal of upstart and systemd support
+  * [8657d02] Building of minifed js and css files
+  * [180dc80] Updating of package dependencies for squeeze
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 04 Mar 2014 17:05:53 +1100
+
 salt (2014.1.0+ds-1) unstable; urgency=medium
 
   * [d5adf7f] Removed windows binary
