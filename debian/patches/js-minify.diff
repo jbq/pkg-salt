@@ -1,0 +1,19 @@
+Description: Build minified js and css files
+Author: Joe Healy <joehealy@gmail.com>
+Forwarded: no
+
+--- a/doc/Makefile
++++ b/doc/Makefile
+@@ -68,6 +68,12 @@
+ 
+ html: translations
+ 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
++	@echo "Minifying js files"
++	yui-compressor $(BUILDDIR)/html/_static/js/vendor/modernizr-2.6.2-respond-1.1.0.js > $(BUILDDIR)/html/_static/js/vendor/modernizr-2.6.2-respond-1.1.0.min.js
++	yui-compressor $(BUILDDIR)/html/_static/js/vendor/bootstrap.js > $(BUILDDIR)/html/_static/js/vendor/bootstrap.min.js
++	@echo "Minifying css files"
++	yui-compressor $(BUILDDIR)/html/_static/css/bootstrap.css > _build/html/_static/css/bootstrap.min.css
++	yui-compressor $(BUILDDIR)/html/_static/css/bootstrap-responsive.css > _build/html/_static/css/bootstrap-responsive.min.css
+ 	@echo
+ 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
+ 
