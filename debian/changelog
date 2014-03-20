@@ -1,3 +1,10 @@
+salt (2014.1.1+ds-1) unstable; urgency=medium
+
+  * [1b25dba] Removed renaming of js file in repack script as upstream fixed
+  * [a5ee734] Imported Upstream version 2014.1.1+ds
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 20 Mar 2014 23:11:07 +1100
+
 salt (2014.1.0+ds-1) unstable; urgency=medium
 
   * [d5adf7f] Removed windows binary
