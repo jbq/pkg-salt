@@ -63,7 +63,7 @@ def _get_tree(repo, short):
     Return a git.Tree object if the branch/tag/SHA is found, otherwise False
     '''
     for ref in repo.refs:
-        if isinstance(ref, git.RemoteReference):
+        if isinstance(ref, (git.RemoteReference, git.TagReference)):
             parted = ref.name.partition('/')
             refname = parted[2] if parted[2] else parted[0]
             if short == refname:
@@ -302,9 +302,19 @@ def find_file(path, short='base', **kwargs):
     destdir = os.path.dirname(dest)
     hashdir = os.path.dirname(blobshadest)
     if not os.path.isdir(destdir):
-        os.makedirs(destdir)
+        try:
+            os.makedirs(destdir)
+        except OSError:
+            # Path exists and is a file, remove it and retry
+            os.remove(destdir)
+            os.makedirs(destdir)
     if not os.path.isdir(hashdir):
-        os.makedirs(hashdir)
+        try:
+            os.makedirs(hashdir)
+        except OSError:
+            # Path exists and is a file, remove it and retry
+            os.remove(hashdir)
+            os.makedirs(hashdir)
     repos = init()
     if 'index' in kwargs:
         try:
