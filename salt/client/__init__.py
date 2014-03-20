@@ -67,7 +67,7 @@ def condition_kwarg(arg, kwarg):
     '''
     Return a single arg structure for the publisher to safely use
     '''
-    if isinstance(kwarg, dict):
+    if isinstance(kwarg, dict) and kwarg:
         kw_ = {'__kwarg__': True}
         for key, val in kwarg.items():
             kw_[key] = val
@@ -676,6 +676,7 @@ class LocalClient(object):
                                                 pub_data['minions'],
                                                 timeout,
                                                 tgt,
+                                                expr_form,
                                                 **kwargs):
                 yield fn_ret
 

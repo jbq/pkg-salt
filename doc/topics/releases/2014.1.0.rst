@@ -2,7 +2,14 @@
 Salt 2014.1.0 Release Notes - Codename Hydrogen
 ===============================================
 
-:release: 2014-02-03
+.. note::
+
+   Due to a change in master to minion communication, 2014.1.0 minions are not
+   compatible with older-version masters.  Please upgrade masters first.
+   More info on backwards-compatibility policy :doc:`here
+   </topics/installation/index>`, under the "Upgrading Salt" subheading.
+
+:release: 2014-02-24
 
 The 2014.1.0 release of Salt is a major release which not only increases
 stability but also brings new capabilities in virtualization, cloud

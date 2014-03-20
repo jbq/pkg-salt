@@ -208,12 +208,31 @@ class Master(SMaster):
                 br, loc = opts_dict['git'].strip().split()
                 pillargitfs.append(git_pillar.GitPillar(br, loc, self.opts))
 
+        # Clear remote fileserver backend env cache so it gets recreated during
+        # the first loop_interval
+        for backend in ('git', 'hg', 'svn'):
+            if backend in self.opts['fileserver_backend']:
+                env_cache = os.path.join(
+                    self.opts['cachedir'],
+                    '{0}fs'.format(backend),
+                    'envs.p'
+                )
+                if os.path.isfile(env_cache):
+                    log.debug('Clearing {0}fs env cache'.format(backend))
+                    try:
+                        os.remove(env_cache)
+                    except (IOError, OSError) as exc:
+                        log.critical(
+                            'Unable to clear env cache file {0}: {1}'
+                            .format(env_cache, exc)
+                        )
+
         old_present = set()
         while True:
             now = int(time.time())
             loop_interval = int(self.opts['loop_interval'])
             if self.opts['keep_jobs'] != 0 and (now - last) >= loop_interval:
-                cur = '{0:%Y%m%d%H}'.format(datetime.datetime.now())
+                cur = datetime.datetime.now()
 
                 if os.path.exists(jid_root):
                     for top in os.listdir(jid_root):
@@ -222,15 +241,30 @@ class Master(SMaster):
                             f_path = os.path.join(t_path, final)
                             jid_file = os.path.join(f_path, 'jid')
                             if not os.path.isfile(jid_file):
-                                continue
+                                # No jid file means corrupted cache entry, scrub it
+                                shutil.rmtree(f_path)
                             with salt.utils.fopen(jid_file, 'r') as fn_:
                                 jid = fn_.read()
                             if len(jid) < 18:
                                 # Invalid jid, scrub the dir
                                 shutil.rmtree(f_path)
-                            elif int(cur) - int(jid[:10]) > \
-                                    self.opts['keep_jobs']:
-                                shutil.rmtree(f_path)
+                            else:
+                                # Parse the jid into a proper datetime object.  We only
+                                # parse down to the minute, since keep_jobs is measured
+                                # in hours, so a minute difference is not important
+                                try:
+                                    jidtime = datetime.datetime(int(jid[0:4]),
+                                                                int(jid[4:6]),
+                                                                int(jid[6:8]),
+                                                                int(jid[8:10]),
+                                                                int(jid[10:12]))
+                                except ValueError as e:
+                                    # Invalid jid, scrub the dir
+                                    shutil.rmtree(f_path)
+                                difference = cur - jidtime
+                                hours_difference = difference.seconds / 3600.0
+                                if hours_difference > self.opts['keep_jobs']:
+                                    shutil.rmtree(f_path)
 
             if self.opts.get('publish_session'):
                 if now - rotate >= self.opts['publish_session']:
@@ -459,15 +493,19 @@ class Publisher(multiprocessing.Process):
         pull_uri = 'ipc://{0}'.format(
             os.path.join(self.opts['sock_dir'], 'publish_pull.ipc')
         )
+        salt.utils.check_ipc_path_max_len(pull_uri)
+
         # Start the minion command publisher
         log.info('Starting the Salt Publisher on {0}'.format(pub_uri))
         pub_sock.bind(pub_uri)
-        pull_sock.bind(pull_uri)
-        # Restrict access to the socket
-        os.chmod(
-            os.path.join(self.opts['sock_dir'], 'publish_pull.ipc'),
-            448
-        )
+
+        # Securely create socket
+        log.info('Starting the Salt Puller on {0}'.format(pull_uri))
+        old_umask = os.umask(0177)
+        try:
+            pull_sock.bind(pull_uri)
+        finally:
+            os.umask(old_umask)
 
         try:
             while True:
@@ -647,7 +685,6 @@ class MWorker(multiprocessing.Process):
         log.info('Worker binding to socket {0}'.format(w_uri))
         try:
             socket.connect(w_uri)
-
             while True:
                 try:
                     package = socket.recv()
@@ -1634,7 +1671,13 @@ class AESFuncs(object):
         # Run the func
         if hasattr(self, func):
             try:
+                start = time.time()
                 ret = getattr(self, func)(load)
+                log.trace(
+                        'Master function call {0} took {1} seconds'.format(
+                            func, time.time() - start
+                            )
+                        )
             except Exception:
                 ret = ''
                 log.error(

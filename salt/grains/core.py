@@ -515,7 +515,7 @@ def _virtual(osdata):
         if isdir('/proc/vz'):
             if os.path.isfile('/proc/vz/version'):
                 grains['virtual'] = 'openvzhn'
-            else:
+            elif os.path.isfile('/proc/vz/veinfo'):
                 grains['virtual'] = 'openvzve'
         elif isdir('/proc/sys/xen') or isdir('/sys/bus/xen') or isdir('/proc/xen'):
             if os.path.isfile('/proc/xen/xsd_kva'):
@@ -744,6 +744,9 @@ _OS_FAMILY_MAP = {
     'Solaris': 'Solaris',
     'SmartOS': 'Solaris',
     'OpenIndiana Development': 'Solaris',
+    'OpenIndiana': 'Solaris',
+    'OpenSolaris Development': 'Solaris',
+    'OpenSolaris': 'Solaris',
     'Arch ARM': 'Arch',
     'ALT': 'RedHat',
     'Trisquel': 'Debian',
@@ -903,16 +906,20 @@ def os_data():
             with salt.utils.fopen('/etc/release', 'r') as fp_:
                 rel_data = fp_.read()
                 try:
-                    release_re = r'(Solaris|OpenIndiana(?: Development)?)' \
-                                 r'\s+(\d+ \d+\/\d+|oi_\S+)?'
-                    osname, osrelease = re.search(release_re,
-                                                  rel_data).groups()
+                    release_re = re.compile(
+                        r'((?:Open)?Solaris|OpenIndiana) (Development)?'
+                        r'\s*(\d+ \d+\/\d+|oi_\S+|snv_\S+)?'
+                    )
+                    osname, development, osrelease = \
+                        release_re.search(rel_data).groups()
                 except AttributeError:
                     # Set a blank osrelease grain and fallback to 'Solaris'
                     # as the 'os' grain.
                     grains['os'] = grains['osfullname'] = 'Solaris'
                     grains['osrelease'] = ''
                 else:
+                    if development is not None:
+                        osname = ''.join((osname, development))
                     grains['os'] = grains['osfullname'] = osname
                     grains['osrelease'] = osrelease
 
@@ -1172,6 +1179,16 @@ def saltversion():
     #   saltversion
     from salt.version import __version__
     return {'saltversion': __version__}
+
+
+def zmqversion():
+    '''
+    Return the zeromq version
+    '''
+    # Provides:
+    #   zmqversion
+    import zmq
+    return {'zmqversion': zmq.zmq_version()}
 
 
 def saltversioninfo():

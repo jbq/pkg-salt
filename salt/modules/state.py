@@ -412,7 +412,7 @@ def sls(mods,
                 pass
     except (IOError, OSError):
         msg = 'Unable to write to highstate cache file {0}. Do you have permissions?'
-        log.error(msg.format(fp_))
+        log.error(msg.format(cfn))
     return ret
 
 
@@ -702,6 +702,7 @@ def single(fun, name, test=None, queue=False, **kwargs):
         __context__['retcode'] = 1
         return err
 
+    st_._mod_init(kwargs)
     ret = {'{0[state]}_|-{0[__id__]}_|-{0[name]}_|-{0[fun]}'.format(kwargs):
             st_.call(kwargs)}
     _set_retcode(ret)

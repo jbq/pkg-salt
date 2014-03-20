@@ -736,9 +736,12 @@ class Minion(object):
             )
         else:
             process = threading.Thread(
-                target=target, args=(instance, self.opts, data)
+                target=target, args=(instance, self.opts, data),
+                name=data['jid']
             )
         process.start()
+        if not sys.platform.startswith('win'):
+            process.join()
 
     @classmethod
     def _thread_return(cls, minion_instance, opts, data):
@@ -750,13 +753,13 @@ class Minion(object):
         # multiprocessing communication.
         if not minion_instance:
             minion_instance = cls(opts)
+        fn_ = os.path.join(minion_instance.proc_dir, data['jid'])
         if opts['multiprocessing']:
-            fn_ = os.path.join(minion_instance.proc_dir, data['jid'])
             salt.utils.daemonize_if(opts)
-            sdata = {'pid': os.getpid()}
-            sdata.update(data)
-            with salt.utils.fopen(fn_, 'w+b') as fp_:
-                fp_.write(minion_instance.serial.dumps(sdata))
+        sdata = {'pid': os.getpid()}
+        sdata.update(data)
+        with salt.utils.fopen(fn_, 'w+b') as fp_:
+            fp_.write(minion_instance.serial.dumps(sdata))
         ret = {'success': False}
         function_name = data['fun']
         if function_name in minion_instance.functions:
@@ -1067,11 +1070,10 @@ class Minion(object):
         self._running = False
         exit(0)
 
-    # Main Minion Tune In
-    def tune_in(self):
+    def _pre_tune(self):
         '''
-        Lock onto the publisher. This is the main event loop for the minion
-        :rtype : None
+        Set the minion running flag and issue the appropriate warnings if
+        the minion cannot be started or is already running
         '''
         if self._running is None:
             self._running = True
@@ -1105,6 +1107,15 @@ class Minion(object):
                 ),
                 exc_info=err
             )
+
+    # Main Minion Tune In
+    def tune_in(self):
+        '''
+        Lock onto the publisher. This is the main event loop for the minion
+        :rtype : None
+        '''
+
+        self._pre_tune()
 
         # Properly exit if a SIGTERM is signalled
         signal.signal(signal.SIGTERM, self.clean_die)
@@ -1359,6 +1370,7 @@ class Minion(object):
         management of the event bus assuming that these are handled outside
         the tune_in sequence
         '''
+        self._pre_tune()
         self.context = zmq.Context()
         self.poller = zmq.Poller()
         self.socket = self.context.socket(zmq.SUB)

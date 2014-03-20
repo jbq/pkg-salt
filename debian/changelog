@@ -1,11 +1,15 @@
-salt (2014.1.0+ds-1~bpo60+1) squeeze-backports-sloppy; urgency=medium
+salt (2014.1.1+ds-1~bpo60+1) squeeze-backports-sloppy; urgency=medium
 
   * Rebuild for wheezy-backports.
-  * [73a8257] Removal of upstart and systemd support
-  * [8657d02] Building of minifed js and css files
-  * [180dc80] Updating of package dependencies for squeeze
 
- -- Joe Healy <joehealy@gmail.com>  Tue, 04 Mar 2014 17:05:53 +1100
+ -- Joe Healy <joehealy@gmail.com>  Fri, 21 Mar 2014 00:27:24 +1100
+
+salt (2014.1.1+ds-1) unstable; urgency=medium
+
+  * [1b25dba] Removed renaming of js file in repack script as upstream fixed
+  * [a5ee734] Imported Upstream version 2014.1.1+ds
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 20 Mar 2014 23:11:07 +1100
 
 salt (2014.1.0+ds-1) unstable; urgency=medium
 
