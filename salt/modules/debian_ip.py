@@ -1091,12 +1091,15 @@ def _write_file_routes(iface, data, folder, pattern):
     return filename
 
 
-def _write_file_network(data, filename):
+def _write_file_network(data, filename, create=False):
     '''
     Writes a file to disk
+    If file does not exist, only create if create
+    argument is True
     '''
-    if not os.path.exists(filename):
-        msg = '{0} cannot be written. {0} does not exist'
+    if not os.path.exists(filename) and not create:
+        msg = '{0} cannot be written. {0} does not exist\
+                and create is set to False'
         msg = msg.format(filename)
         log.error(msg)
         raise AttributeError(msg)
@@ -1261,7 +1264,7 @@ def build_interface(iface, iface_type, enabled, **settings):
     if iface_type in ['eth', 'bond', 'bridge', 'slave', 'vlan']:
         opts = _parse_settings_eth(settings, iface_type, enabled, iface)
 
-    if settings['test']:
+    if 'test' in settings and settings['test']:
         return _read_temp_ifaces(iface, opts[iface])
 
     ifcfg = _write_file_ifaces(iface, opts[iface])
@@ -1470,11 +1473,27 @@ def build_network_settings(**settings):
         return _read_temp(network)
 
     # Write settings
-    _write_file_network(network, _DEB_NETWORKING_FILE)
+    _write_file_network(network, _DEB_NETWORKING_FILE, True)
 
-    sline = opts['hostname'].split('.', 1)
+    # Ubuntu has moved away from /etc/default/networking
+    # beginning with the 12.04 release so we disable or enable
+    # the networking related services on boot
+    if __grains__['osfullname'] == 'Ubuntu':
+        osmajor = __grains__['osrelease'].split('.')[0]
+        if int(osmajor) >= 12:
+            if opts['networking'] == 'yes':
+                service_cmd = 'service.enable'
+            else:
+                service_cmd = 'service.disable'
+
+            if __salt__['service.available']("NetworkManager"):
+                __salt__[service_cmd]("NetworkManager")
+
+            if __salt__['service.available']("networking"):
+                __salt__[service_cmd]("networking")
 
     # Write hostname to /etc/hostname
+    sline = opts['hostname'].split('.', 1)
     hostname = "{0}\n" . format(sline[0])
     _write_file_network(hostname, _DEB_HOSTNAME_FILE)
 

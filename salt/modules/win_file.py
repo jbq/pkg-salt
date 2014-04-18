@@ -5,6 +5,7 @@ data
 
 :depends:   - win32api
             - win32con
+            - win32file
             - win32security
             - ntsecuritycon
 '''
@@ -19,6 +20,13 @@ import tempfile  # do not remove. Used in salt.modules.file.__clean_tmp
 import itertools  # same as above, do not remove, it's used in __clean_tmp
 import contextlib  # do not remove, used in imported file.py functions
 import difflib  # do not remove, used in imported file.py functions
+import errno  # do not remove, used in imported file.py functions
+import shutil  # do not remove, used in imported file.py functions
+import re  # do not remove, used in imported file.py functions
+import sys  # do not remove, used in imported file.py functions
+import fileinput  # do not remove, used in imported file.py functions
+import salt.utils.atomicfile  # do not remove, used in imported file.py functions
+import salt._compat  # do not remove, used in imported file.py functions
 from salt.exceptions import CommandExecutionError, SaltInvocationError
 # pylint: enable=W0611
 
@@ -27,21 +35,21 @@ try:
     import win32security
     import win32file
     from pywintypes import error as pywinerror
-    import ntsecuritycon as con  # pylint: disable=W0611
     HAS_WINDOWS_MODULES = True
 except ImportError:
     HAS_WINDOWS_MODULES = False
 
 # Import salt libs
 import salt.utils
-from salt.modules.file import (check_hash,  # pylint: disable=W0611
+from salt.modules.file import (check_hash,  # pylint: disable=W0611,E0611
         directory_exists, get_managed, mkdir, makedirs, makedirs_perms,
         check_managed, check_perms, patch, remove, source_list, sed_contains,
         touch, append, contains, contains_regex, contains_regex_multiline,
-        contains_glob, patch, uncomment, sed, find, psed, get_sum, check_hash,
-        get_hash, comment, manage_file, file_exists, get_diff, get_managed,
-        __clean_tmp, check_managed, check_file_meta, _binary_replace,
-        contains_regex)
+        contains_glob, uncomment, sed, find, psed, get_sum, _get_bkroot,
+        get_hash, comment, manage_file, file_exists, get_diff, list_backups,
+        __clean_tmp, check_file_meta, _binary_replace, restore_backup,
+        access, copy, readdir, rmdir, truncate, replace, delete_backup,
+        search, _get_flags, extract_hash, _error)
 
 from salt.utils import namespaced_function as _namespaced_function
 
@@ -59,8 +67,24 @@ def __virtual__():
         if HAS_WINDOWS_MODULES:
             global check_perms, get_managed, makedirs_perms, manage_file
             global source_list, mkdir, __clean_tmp, makedirs, file_exists
-            global check_managed, check_file_meta, remove, append
+            global check_managed, check_file_meta, remove, append, _error
+            global directory_exists, patch, sed_contains, touch, contains
+            global contains_regex, contains_regex_multiline, contains_glob
+            global sed, find, psed, get_sum, check_hash, get_hash, delete_backup
+            global uncomment, comment, get_diff, _get_flags, extract_hash
+            global access, copy, readdir, rmdir, truncate, replace, search
+            global _binary_replace, _get_bkroot, list_backups, restore_backup
 
+            replace = _namespaced_function(replace, globals())
+            search = _namespaced_function(search, globals())
+            _get_flags = _namespaced_function(_get_flags, globals())
+            _binary_replace = _namespaced_function(_binary_replace, globals())
+            _error = _namespaced_function(_error, globals())
+            _get_bkroot = _namespaced_function(_get_bkroot, globals())
+            list_backups = _namespaced_function(list_backups, globals())
+            restore_backup = _namespaced_function(restore_backup, globals())
+            delete_backup = _namespaced_function(delete_backup, globals())
+            extract_hash = _namespaced_function(extract_hash, globals())
             remove = _namespaced_function(remove, globals())
             append = _namespaced_function(append, globals())
             check_perms = _namespaced_function(check_perms, globals())
@@ -74,9 +98,30 @@ def __virtual__():
             mkdir = _namespaced_function(mkdir, globals())
             file_exists = _namespaced_function(file_exists, globals())
             __clean_tmp = _namespaced_function(__clean_tmp, globals())
+            directory_exists = _namespaced_function(directory_exists, globals())
+            patch = _namespaced_function(patch, globals())
+            sed_contains = _namespaced_function(sed_contains, globals())
+            touch = _namespaced_function(touch, globals())
+            contains = _namespaced_function(contains, globals())
+            contains_regex = _namespaced_function(contains_regex, globals())
+            contains_regex_multiline = _namespaced_function(contains_regex_multiline, globals())
+            contains_glob = _namespaced_function(contains_glob, globals())
+            sed = _namespaced_function(sed, globals())
+            find = _namespaced_function(find, globals())
+            psed = _namespaced_function(psed, globals())
+            get_sum = _namespaced_function(get_sum, globals())
+            check_hash = _namespaced_function(check_hash, globals())
+            get_hash = _namespaced_function(get_hash, globals())
+            uncomment = _namespaced_function(uncomment, globals())
+            comment = _namespaced_function(comment, globals())
+            get_diff = _namespaced_function(get_diff, globals())
+            access = _namespaced_function(access, globals())
+            copy = _namespaced_function(copy, globals())
+            readdir = _namespaced_function(readdir, globals())
+            rmdir = _namespaced_function(rmdir, globals())
+            truncate = _namespaced_function(truncate, globals())
 
             return __virtualname__
-        log.warn(salt.utils.required_modules_error(__file__, __doc__))
     return False
 
 
