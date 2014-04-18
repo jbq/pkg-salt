@@ -35,6 +35,7 @@ from salt.utils import context
 from salt._compat import string_types
 from salt.template import compile_template, compile_template_str
 from salt.exceptions import SaltRenderError, SaltReqTimeoutError, SaltException
+from salt.utils.odict import OrderedDict, DefaultOrderedDict
 
 log = logging.getLogger(__name__)
 
@@ -603,10 +604,11 @@ class State(object):
         Refresh all the modules
         '''
         log.debug('Refreshing modules...')
-        # In case a package has been installed into the current python
-        # process 'site-packages', the 'site' module needs to be reloaded in
-        # order for the newly installed package to be importable.
-        reload(site)
+        if self.opts['grains'].get('os') != 'MacOS':
+            # In case a package has been installed into the current python
+            # process 'site-packages', the 'site' module needs to be reloaded in
+            # order for the newly installed package to be importable.
+            reload(site)
         self.load_modules()
         self.functions['saltutil.refresh_modules']()
 
@@ -1351,9 +1353,14 @@ class State(object):
             # that's not found in cdata, we look for what we're being passed in
             # the original data, namely, the special dunder __env__. If that's
             # not found we default to 'base'
-            if cdata['kwargs'].get('env', None) is not None:
+            if 'saltenv' in low:
+                inject_globals['__env__'] = low['saltenv']
+            elif isinstance(cdata['kwargs'].get('env', None), string_types):
                 # User is using a deprecated env setting which was parsed by
-                # format_call
+                # format_call.
+                # We check for a string type since module functions which
+                # allow setting the OS environ also make use of the "env"
+                # keyword argument, which is not a string
                 inject_globals['__env__'] = cdata['kwargs']['env']
             elif '__env__' in low:
                 # The user is passing an alternative environment using __env__
@@ -1663,10 +1670,12 @@ class State(object):
                 ret = self.call(low, chunks, running)
             running[tag] = ret
         elif status == 'pre':
-            running[tag] = {'changes': {},
-                            'result': True,
-                            'comment': 'No changes detected',
-                            '__run_num__': self.__run_num}
+            pre_ret = {'changes': {},
+                       'result': True,
+                       'comment': 'No changes detected',
+                       '__run_num__': self.__run_num}
+            running[tag] = pre_ret
+            self.pre[tag] = pre_ret
             self.__run_num += 1
         else:
             if low.get('__prereq__'):
@@ -1878,9 +1887,9 @@ class BaseHighState(object):
         '''
         Gather the top files
         '''
-        tops = collections.defaultdict(list)
-        include = collections.defaultdict(list)
-        done = collections.defaultdict(list)
+        tops = DefaultOrderedDict(list)
+        include = DefaultOrderedDict(list)
+        done = DefaultOrderedDict(list)
         # Gather initial top files
         if self.opts['environment']:
             tops[self.opts['environment']] = [
@@ -1948,7 +1957,7 @@ class BaseHighState(object):
         '''
         Cleanly merge the top files
         '''
-        top = collections.defaultdict(dict)
+        top = DefaultOrderedDict(OrderedDict)
         for ctops in tops.values():
             for ctop in ctops:
                 for saltenv, targets in ctop.items():
@@ -2141,6 +2150,14 @@ class BaseHighState(object):
                         env_key, inc_sls = inc_sls.popitem()
                     else:
                         env_key = saltenv
+
+                    if env_key not in self.avail:
+                        msg = ('Nonexistant saltenv {0!r} found in include '
+                               'of {1!r} within SLS \'{2}:{3}\''
+                               .format(env_key, inc_sls, saltenv, sls))
+                        log.error(msg)
+                        errors.append(msg)
+                        continue
 
                     if inc_sls.startswith('.'):
                         p_comps = sls.split('.')
@@ -2361,20 +2378,27 @@ class BaseHighState(object):
         for saltenv, states in matches.items():
             for sls_match in states:
                 statefiles = fnmatch.filter(self.avail[saltenv], sls_match)
+
+                # if we did not found any sls in the fileserver listing, this
+                # may be because the sls was generated or added later, we can
+                # try to directly execute it, and if it fails, anyway it will
+                # return the former error
                 if not statefiles:
-                    # No matching sls file was found!  Output an error
-                    all_errors.append(
-                        'No matching sls found for {0!r} in env {1!r}'.format(
-                            sls_match, saltenv
-                        )
-                    )
+                    statefiles = [sls_match]
+
                 for sls in statefiles:
                     r_env = '{0}:{1}'.format(saltenv, sls)
                     if r_env in mods:
                         continue
-                    state, errors = self.render_state(sls, saltenv, mods, matches)
+                    state, errors = self.render_state(
+                        sls, saltenv, mods, matches)
                     if state:
                         self.merge_included_states(highstate, state, errors)
+                    for i, error in enumerate(errors[:]):
+                        if 'is not available on the salt master' in error:
+                            errors[i] = (
+                                'No matching sls found for {0!r} '
+                                'in env {1!r}'.format(sls_match, saltenv))
                     all_errors.extend(errors)
 
         self.clean_duplicate_extends(highstate)
@@ -2615,7 +2639,7 @@ class MasterHighState(HighState):
     def __init__(self, master_opts, minion_opts, grains, id_,
                  saltenv=None,
                  env=None):
-        if env is not None:
+        if isinstance(env, string_types):
             salt.utils.warn_until(
                 'Boron',
                 'Passing a salt environment should be done using \'saltenv\' '

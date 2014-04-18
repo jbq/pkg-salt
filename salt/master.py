@@ -20,7 +20,6 @@ try:
     import pwd
 except ImportError:  # This is in case windows minion is importing
     pass
-import getpass
 import resource
 import subprocess
 import multiprocessing
@@ -128,7 +127,7 @@ class SMaster(object):
         acl_users = set(self.opts['client_acl'].keys())
         if self.opts.get('user'):
             acl_users.add(self.opts['user'])
-        acl_users.add(getpass.getuser())
+        acl_users.add(salt.utils.get_user())
         for user in pwd.getpwall():
             users.append(user.pw_name)
         for user in acl_users:
@@ -241,34 +240,39 @@ class Master(SMaster):
                             f_path = os.path.join(t_path, final)
                             jid_file = os.path.join(f_path, 'jid')
                             if not os.path.isfile(jid_file):
-                                # No jid file means corrupted cache entry, scrub it
-                                shutil.rmtree(f_path)
-                            with salt.utils.fopen(jid_file, 'r') as fn_:
-                                jid = fn_.read()
-                            if len(jid) < 18:
-                                # Invalid jid, scrub the dir
+                                # No jid file means corrupted cache entry,
+                                # scrub it
                                 shutil.rmtree(f_path)
                             else:
-                                # Parse the jid into a proper datetime object.  We only
-                                # parse down to the minute, since keep_jobs is measured
-                                # in hours, so a minute difference is not important
-                                try:
-                                    jidtime = datetime.datetime(int(jid[0:4]),
-                                                                int(jid[4:6]),
-                                                                int(jid[6:8]),
-                                                                int(jid[8:10]),
-                                                                int(jid[10:12]))
-                                except ValueError as e:
+                                with salt.utils.fopen(jid_file, 'r') as fn_:
+                                    jid = fn_.read()
+                                if len(jid) < 18:
                                     # Invalid jid, scrub the dir
                                     shutil.rmtree(f_path)
-                                difference = cur - jidtime
-                                hours_difference = difference.seconds / 3600.0
-                                if hours_difference > self.opts['keep_jobs']:
-                                    shutil.rmtree(f_path)
+                                else:
+                                    # Parse the jid into a proper datetime
+                                    # object. We only parse down to the minute,
+                                    # since keep_jobs is measured in hours, so
+                                    # a minute difference is not important
+                                    try:
+                                        jidtime = datetime.datetime(int(jid[0:4]),
+                                                                    int(jid[4:6]),
+                                                                    int(jid[6:8]),
+                                                                    int(jid[8:10]),
+                                                                    int(jid[10:12]))
+                                    except ValueError as e:
+                                        # Invalid jid, scrub the dir
+                                        shutil.rmtree(f_path)
+                                    difference = cur - jidtime
+                                    hours_difference = difference.seconds / 3600.0
+                                    if hours_difference > self.opts['keep_jobs']:
+                                        shutil.rmtree(f_path)
 
             if self.opts.get('publish_session'):
                 if now - rotate >= self.opts['publish_session']:
-                    salt.crypt.dropfile(self.opts['cachedir'])
+                    salt.crypt.dropfile(
+                            self.opts['cachedir'],
+                            self.opts['user'])
                     rotate = now
             if self.opts.get('search'):
                 if now - last >= self.opts['search_index_interval']:
@@ -394,7 +398,7 @@ class Master(SMaster):
         '''
         self._pre_flight()
         log.info(
-            'salt-master is starting as user \'{0}\''.format(getpass.getuser())
+            'salt-master is starting as user {0!r}'.format(salt.utils.get_user())
         )
 
         enable_sigusr1_handler()
@@ -1264,6 +1268,12 @@ class AESFuncs(object):
             return False
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return False
+        mods = set()
+        for func in self.mminion.functions.values():
+            mods.add(func.__module__)
+        for mod in mods:
+            sys.modules[mod].__grains__ = load['grains']
+
         pillar = salt.pillar.Pillar(
                 self.opts,
                 load['grains'],
@@ -1283,6 +1293,8 @@ class AESFuncs(object):
                             {'grains': load['grains'],
                              'pillar': data})
                             )
+        for mod in mods:
+            sys.modules[mod].__grains__ = self.opts['grains']
         return data
 
     def _minion_event(self, load):
@@ -1335,7 +1347,7 @@ class AESFuncs(object):
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return False
         if load['jid'] == 'req':
-        # The minion is returning a standalone job, request a jobid
+            # The minion is returning a standalone job, request a jobid
             load['jid'] = salt.utils.prep_jid(
                     self.opts['cachedir'],
                     self.opts['hash_type'],
@@ -2548,7 +2560,7 @@ class ClearFuncs(object):
                         'Authentication failure of type "user" occurred.'
                     )
                     return ''
-            elif clear_load['user'] == getpass.getuser():
+            elif clear_load['user'] == salt.utils.get_user():
                 if clear_load.pop('key') != self.key.get(clear_load['user']):
                     log.warning(
                         'Authentication failure of type "user" occurred.'
@@ -2586,7 +2598,7 @@ class ClearFuncs(object):
                     )
                     return ''
         else:
-            if clear_load.pop('key') != self.key[getpass.getuser()]:
+            if clear_load.pop('key') != self.key[salt.utils.get_user()]:
                 log.warning(
                     'Authentication failure of type "other" occurred.'
                 )

@@ -1,8 +1,9 @@
-salt (2014.1.1+ds-1~bpo60+1) squeeze-backports-sloppy; urgency=medium
+salt (2014.1.3+ds-1) unstable; urgency=medium
 
-  * Rebuild for wheezy-backports.
+  * [07ff82c] Imported Upstream version 2014.1.3+ds
+  * [20cbcd6] Kill off all salt-master processes when stopping/restarting
 
- -- Joe Healy <joehealy@gmail.com>  Fri, 21 Mar 2014 00:27:24 +1100
+ -- Joe Healy <joehealy@gmail.com>  Fri, 18 Apr 2014 14:30:42 +1000
 
 salt (2014.1.1+ds-1) unstable; urgency=medium
 
