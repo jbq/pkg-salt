@@ -35,7 +35,6 @@ import os
 import glob
 import time
 import copy
-import getpass
 import logging
 from datetime import datetime
 
@@ -140,7 +139,7 @@ class LocalClient(object):
         '''
         Determine the current user running the salt command
         '''
-        user = getpass.getuser()
+        user = salt.utils.get_user()
         # if our user is root, look for other ways to figure out
         # who we are
         if (user == 'root' or user == self.opts['user']) and 'SUDO_USER' in os.environ:
@@ -187,13 +186,12 @@ class LocalClient(object):
         timeout = self.opts['gather_job_timeout']
 
         arg = [jid]
-        arg = condition_kwarg(arg, kwargs)
         pub_data = self.run_job(tgt,
                                 'saltutil.find_job',
                                 arg=arg,
                                 expr_form=tgt_type,
                                 timeout=timeout,
-                                **kwargs)
+                               )
 
         if not pub_data:
             return pub_data
