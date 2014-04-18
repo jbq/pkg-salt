@@ -6,7 +6,6 @@ Routines to set up a minion
 # Import python libs
 from __future__ import print_function
 import logging
-import getpass
 import multiprocessing
 import fnmatch
 import copy
@@ -159,7 +158,6 @@ def parse_args_and_kwargs(func, args, data=None):
     invalid_kwargs = []
 
     for arg in args:
-        # support old yamlify syntax
         if isinstance(arg, string_types):
             arg_name, arg_value = salt.utils.parse_kwarg(arg)
             if arg_name:
@@ -179,7 +177,10 @@ def parse_args_and_kwargs(func, args, data=None):
             for key, val in arg.iteritems():
                 if key == '__kwarg__':
                     continue
-                kwargs[key] = val
+                if isinstance(val, string_types):
+                    kwargs[key] = yamlify_arg(val)
+                else:
+                    kwargs[key] = val
             continue
         _args.append(yamlify_arg(arg))
     if argspec.keywords and isinstance(data, dict):
@@ -202,28 +203,40 @@ def yamlify_arg(arg):
     if not isinstance(arg, string_types):
         return arg
     try:
-        original_arg = str(arg)
-        if isinstance(arg, string_types):
-            if '#' in arg:
-                # Don't yamlify this argument or the '#' and everything after
-                # it will be interpreted as a comment.
-                return arg
-            if '\n' not in arg:
-                arg = yaml.safe_load(arg)
+        # Explicit late import to avoid circular import. DO NOT MOVE THIS.
+        import salt.utils.yamlloader as yamlloader
+        original_arg = arg
+        if '#' in arg:
+            # Don't yamlify this argument or the '#' and everything after
+            # it will be interpreted as a comment.
+            return arg
+        if arg == 'None':
+            arg = None
+        elif '\n' not in arg:
+            arg = yamlloader.load(arg, Loader=yamlloader.CustomLoader)
+
         if isinstance(arg, dict):
             # dicts must be wrapped in curly braces
-            if (isinstance(original_arg, string_types) and
-                    not original_arg.startswith('{')):
+            if not original_arg.startswith('{'):
                 return original_arg
             else:
                 return arg
-        elif isinstance(arg, (int, list, string_types)):
+
+        elif arg is None or isinstance(arg, (int, list, float, string_types)):
             # yaml.safe_load will load '|' as '', don't let it do that.
             if arg == '' and original_arg in ('|',):
                 return original_arg
             # yaml.safe_load will treat '#' as a comment, so a value of '#'
             # will become None. Keep this value from being stomped as well.
             elif arg is None and original_arg.strip().startswith('#'):
+                return original_arg
+            elif arg is None and original_arg.strip() == '':
+                # Because YAML loads empty strings as None, we return the original string
+                # >>> import yaml
+                # >>> yaml.load('') is None
+                # True
+                # >>> yaml.load('      ') is None
+                # True
                 return original_arg
             else:
                 return arg
@@ -380,7 +393,10 @@ class MultiMinion(object):
         #
         # Start with the publish socket
         self.context = zmq.Context()
-        id_hash = hashlib.md5(self.opts['id']).hexdigest()
+        hash_type = getattr(hashlib, self.opts.get('hash_type', 'md5'))
+        id_hash = hash_type(self.opts['id']).hexdigest()
+        if self.opts.get('hash_type', 'md5') == 'sha256':
+            id_hash = id_hash[:10]
         epub_sock_path = os.path.join(
             self.opts['sock_dir'],
             'minion_event_{0}_pub.ipc'.format(id_hash)
@@ -604,7 +620,7 @@ class Minion(object):
 
     def _fire_master(self, data=None, tag=None, events=None, pretag=None):
         '''
-        Fire an event on the master
+        Fire an event on the master, or drop message if unable to send.
         '''
         load = {'id': self.opts['id'],
                 'cmd': '_minion_event',
@@ -619,9 +635,16 @@ class Minion(object):
             return
         sreq = salt.payload.SREQ(self.opts['master_uri'])
         try:
-            sreq.send('aes', self.crypticle.dumps(load))
+            result = sreq.send('aes', self.crypticle.dumps(load))
+            try:
+                data = self.crypticle.loads(result)
+            except AuthenticationError:
+                log.info("AES key changed, re-authenticating")
+                # We can't decode the master's response to our event,
+                # so we will need to re-authenticate.
+                self.authenticate()
         except Exception:
-            pass
+            log.info("fire_master failed: {0}".format(traceback.format_exc()))
 
     def _handle_payload(self, payload):
         '''
@@ -796,6 +819,7 @@ class Minion(object):
                 )
                 log.debug(msg, exc_info=True)
                 ret['return'] = '{0}: {1}'.format(msg, exc)
+                ret['out'] = 'nested'
             except CommandExecutionError as exc:
                 log.error(
                     'A command in {0!r} had a problem: {1}'.format(
@@ -805,6 +829,7 @@ class Minion(object):
                     exc_info=log.isEnabledFor(logging.DEBUG)
                 )
                 ret['return'] = 'ERROR: {0}'.format(exc)
+                ret['out'] = 'nested'
             except SaltInvocationError as exc:
                 log.error(
                     'Problem executing {0!r}: {1}'.format(
@@ -816,6 +841,7 @@ class Minion(object):
                 ret['return'] = 'ERROR executing {0!r}: {1}'.format(
                     function_name, exc
                 )
+                ret['out'] = 'nested'
             except TypeError as exc:
                 trb = traceback.format_exc()
                 aspec = salt.utils.get_function_argspec(
@@ -828,12 +854,15 @@ class Minion(object):
                                                        aspec)
                 log.warning(msg, exc_info=log.isEnabledFor(logging.DEBUG))
                 ret['return'] = msg
+                ret['out'] = 'nested'
             except Exception:
                 msg = 'The minion function caused an exception'
                 log.warning(msg, exc_info=log.isEnabledFor(logging.DEBUG))
                 ret['return'] = '{0}: {1}'.format(msg, traceback.format_exc())
+                ret['out'] = 'nested'
         else:
             ret['return'] = '{0!r} is not available.'.format(function_name)
+            ret['out'] = 'nested'
 
         ret['jid'] = data['jid']
         ret['fun'] = data['fun']
@@ -934,13 +963,21 @@ class Minion(object):
                     'id': self.opts['id']}
             for key, value in ret.items():
                 load[key] = value
-        try:
-            oput = self.functions[fun].__outputter__
-        except (KeyError, AttributeError, TypeError):
-            pass
+
+        if 'out' in ret:
+            if isinstance(ret['out'], string_types):
+                load['out'] = ret['out']
+            else:
+                log.error('Invalid outputter {0}. This is likely a bug.'
+                          .format(ret['out']))
         else:
-            if isinstance(oput, string_types):
-                load['out'] = oput
+            try:
+                oput = self.functions[fun].__outputter__
+            except (KeyError, AttributeError, TypeError):
+                pass
+            else:
+                if isinstance(oput, string_types):
+                    load['out'] = oput
         try:
             ret_val = sreq.send('aes', self.crypticle.dumps(load))
         except SaltReqTimeoutError:
@@ -1094,7 +1131,7 @@ class Minion(object):
             log.info(
                 '{0} is starting as user \'{1}\''.format(
                     self.__class__.__name__,
-                    getpass.getuser()
+                    salt.utils.get_user()
                 )
             )
         except Exception as err:
@@ -1126,7 +1163,10 @@ class Minion(object):
         # Prepare the minion event system
         #
         # Start with the publish socket
-        id_hash = hashlib.md5(self.opts['id']).hexdigest()
+        hash_type = getattr(hashlib, self.opts.get('hash_type', 'md5'))
+        id_hash = hash_type(self.opts['id']).hexdigest()
+        if self.opts.get('hash_type', 'md5') == 'sha256':
+            id_hash = id_hash[:10]
         epub_sock_path = os.path.join(
             self.opts['sock_dir'],
             'minion_event_{0}_pub.ipc'.format(id_hash)

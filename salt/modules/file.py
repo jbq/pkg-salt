@@ -17,7 +17,6 @@ import difflib
 import errno
 import fileinput
 import fnmatch
-import getpass
 import hashlib
 import itertools
 import logging
@@ -219,7 +218,7 @@ def user_to_uid(user):
         salt '*' file.user_to_uid root
     '''
     if not user:
-        user = getpass.getuser()
+        user = salt.utils.get_user()
     try:
         return pwd.getpwnam(user).pw_uid
     except KeyError:
@@ -964,17 +963,19 @@ def replace(path,
 
     # Avoid TypeErrors by forcing repl to be a string
     repl = str(repl)
-    for line in fileinput.input(path,
-                                inplace=not dry_run,
-                                backup=False if dry_run else backup,
-                                bufsize=bufsize,
-                                mode='rb'):
+    fi_file = fileinput.input(path,
+                              inplace=not dry_run,
+                              backup=False if dry_run else backup,
+                              bufsize=bufsize,
+                              mode='rb')
+    for line in fi_file:
 
         if search_only:
             # Just search; bail as early as a match is found
             result = re.search(cpattern, line)
 
             if result:
+                fi_file.close()  # close file handle before returning
                 return True
         else:
             result = re.sub(cpattern, repl, line, count)
@@ -1143,7 +1144,7 @@ def blockreplace(path,
         elif append_if_not_found:
             # Make sure we have a newline at the end of the file
             if 0 != len(new_file):
-                if not new_file[-1].ends_with('\n'):
+                if not new_file[-1].endswith('\n'):
                     new_file[-1] += '\n'
             # add the markers and content at the end of file
             new_file.append(marker_start + '\n')
@@ -2170,7 +2171,7 @@ def extract_hash(hash_fn, hash_type='md5', file_name=''):
     return source_sum
 
 
-def check_perms(name, ret, user, group, mode):
+def check_perms(name, ret, user, group, mode, follow_symlinks=False):
     '''
     Check the permissions on files and chown if needed
 
@@ -2179,6 +2180,9 @@ def check_perms(name, ret, user, group, mode):
     .. code-block:: bash
 
         salt '*' file.check_perms /etc/sudoers '{}' root root 400
+
+    .. versionchanged:: 2014.1.2
+        ``follow_symlinks`` option added
     '''
     if not ret:
         ret = {'name': name,
@@ -2192,7 +2196,7 @@ def check_perms(name, ret, user, group, mode):
 
     # Check permissions
     perms = {}
-    cur = stats(name, follow_symlinks=False)
+    cur = stats(name, follow_symlinks=follow_symlinks)
     if not cur:
         raise CommandExecutionError('{0} does not exist'.format(name))
     perms['luser'] = cur['user']
@@ -2233,7 +2237,9 @@ def check_perms(name, ret, user, group, mode):
                 ret['result'] = False
 
     if user:
-        if user != get_user(name):
+        if isinstance(user, int):
+            user = uid_to_user(user)
+        if user != get_user(name, follow_symlinks=follow_symlinks):
             if __opts__['test'] is True:
                 ret['changes']['user'] = user
             else:
@@ -2243,7 +2249,9 @@ def check_perms(name, ret, user, group, mode):
         elif 'cuser' in perms:
             ret['changes']['user'] = user
     if group:
-        if group != get_group(name):
+        if isinstance(group, int):
+            group = gid_to_group(group)
+        if group != get_group(name, follow_symlinks=follow_symlinks):
             if __opts__['test'] is True:
                 ret['changes']['group'] = group
             else:
