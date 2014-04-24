@@ -1,3 +1,4 @@
+remove_externalip_grain
 missing_locale_dir
 0175_releasenotes
 js-minify.diff
