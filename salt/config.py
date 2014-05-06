@@ -27,6 +27,7 @@ import salt.utils
 import salt.utils.network
 import salt.pillar
 import salt.syspaths
+import salt.utils.validate.path
 
 import sys
 #can't use salt.utils.is_windows, because config.py is included from salt.utils
@@ -383,7 +384,7 @@ DEFAULT_MASTER_OPTS = {
     'nodegroups': {},
     'cython_enable': False,
     'enable_gpu_grains': False,
-    # XXX: Remove 'key_logfile' support in 0.18.0
+    # XXX: Remove 'key_logfile' support in 2014.1.0
     'key_logfile': os.path.join(salt.syspaths.LOGS_DIR, 'key'),
     'verify_env': True,
     'permissive_pki_access': False,
@@ -585,7 +586,7 @@ def load_config(path, env_var, default_path=None):
                     ifile.readline()  # skip first line
                     out.write(ifile.read())
 
-    if os.path.isfile(path):
+    if salt.utils.validate.path.is_readable(path):
         opts = _read_conf_file(path)
         opts['conf_file'] = path
         return opts
@@ -663,7 +664,7 @@ def minion_config(path,
         # argument was then removed in `9d893e4` and `**kwargs` was then added
         # in `5d60f77` in order not to break backwards compatibility.
         #
-        # Showing a deprecation for 0.17.0 and 0.18.0 should be enough for any
+        # Showing a deprecation for 0.17.0 and 2014.1.0 should be enough for any
         # api calls to be updated in order to stop it's use.
         salt.utils.warn_until(
             'Helium',
@@ -1775,7 +1776,7 @@ def apply_minion_config(overrides=None,
         # argument was then removed in `9d893e4` and `**kwargs` was then added
         # in `5d60f77` in order not to break backwards compatibility.
         #
-        # Showing a deprecation for 0.17.0 and 0.18.0 should be enough for any
+        # Showing a deprecation for 0.17.0 and 2014.1.0 should be enough for any
         # api calls to be updated in order to stop it's use.
         salt.utils.warn_until(
             'Helium',
