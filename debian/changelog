@@ -1,3 +1,12 @@
+salt (2014.1.4+ds-1~bpo60+1) squeeze-backports-sloppy; urgency=medium
+
+  * Rebuild for squeeze-backports-sloppy.
+  * [5be7496] Updated packages for squeeze
+  * [015a818] Removal of systemd for squeeze
+  * [b7583e0] fixing of docs to build minified files
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 06 May 2014 22:41:39 +1000
+
 salt (2014.1.4+ds-1) unstable; urgency=medium
 
   * [a9b0074] Imported Upstream version 2014.1.4+ds
