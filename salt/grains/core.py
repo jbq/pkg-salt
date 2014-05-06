@@ -136,7 +136,7 @@ def _linux_gpu_data():
     '''
     lspci = salt.utils.which('lspci')
     if not lspci:
-        log.info(
+        log.debug(
             'The `lspci` binary is not available on the system. GPU grains '
             'will not be available.'
         )
@@ -510,8 +510,11 @@ def _virtual(osdata):
     sysctl = salt.utils.which('sysctl')
     if osdata['kernel'] in choices:
         if os.path.isfile('/proc/1/cgroup'):
-            if ':/lxc/' in salt.utils.fopen('/proc/1/cgroup', 'r').read():
-                grains['virtual_subtype'] = 'LXC'
+            try:
+                if ':/lxc/' in salt.utils.fopen('/proc/1/cgroup', 'r').read():
+                    grains['virtual_subtype'] = 'LXC'
+            except IOError:
+                pass
         if isdir('/proc/vz'):
             if os.path.isfile('/proc/vz/version'):
                 grains['virtual'] = 'openvzhn'
@@ -919,7 +922,7 @@ def os_data():
                     grains['osrelease'] = ''
                 else:
                     if development is not None:
-                        osname = ''.join((osname, development))
+                        osname = ' '.join((osname, development))
                     grains['os'] = grains['osfullname'] = osname
                     grains['osrelease'] = osrelease
 
@@ -1222,9 +1225,9 @@ def _dmidecode_data(regex_dict):
     elif salt.utils.which('smbios'):
         out = __salt__['cmd.run']('smbios')
     else:
-        log.info(
-            'The `dmidecode` binary is not available on the system. GPU grains '
-            'will not be available.'
+        log.debug(
+            'The `dmidecode` binary is not available on the system. GPU '
+            'grains will not be available.'
         )
         return ret
 
