@@ -1,4 +1,12 @@
-=======
+salt (2014.1.4+ds-2trusty1) trusty; urgency=medium
+
+  * [2c9238e] Updated dependencies and build for trusty
+  * [59a9c88] Update of ubuntu packaging files from upstream
+  * [8b2aadb] Fix for salt issues #11274 and #10967
+  * [3f697a1] Added /etc/default/salt-minion file to pick up env vars
+
+ -- Joe Healy <joehealy@gmail.com>  Sat, 17 May 2014 00:27:08 +1000
+
 salt (2014.1.4+ds-2) unstable; urgency=medium
 
   * [8716b5d] Fix to salt-ssh to not require python-zmq. Closes: 748092
