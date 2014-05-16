@@ -80,7 +80,7 @@ def build_minion_target(options, vm_name):
     return target
 
 
-def generate_vm_name(platform):
+def generate_vm_name(options):
     '''
     Generate a random enough vm name
     '''
@@ -90,7 +90,7 @@ def generate_vm_name(platform):
         random_part = hashlib.md5(
             str(random.randint(1, 100000000))).hexdigest()[:6]
 
-    return 'ZJENKINS-{0}-{1}'.format(platform, random_part)
+    return '{0}-{1}-{2}'.format(options.vm_prefix, options.platform, random_part)
 
 
 def delete_vm(options):
@@ -105,7 +105,7 @@ def delete_vm(options):
         cmd,
         shell=True,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
         stream_stds=True
     )
     proc.poll_and_read_until_finish()
@@ -119,7 +119,7 @@ def echo_parseable_environment(options):
     output = []
 
     if options.platform:
-        name = generate_vm_name(options.platform)
+        name = generate_vm_name(options)
         output.extend([
             'JENKINS_SALTCLOUD_VM_PLATFORM={0}'.format(options.platform),
             'JENKINS_SALTCLOUD_VM_NAME={0}'.format(name)
@@ -281,7 +281,7 @@ def download_remote_logs(options):
                 remote_log,
                 '{0}{1}'.format(
                     os.path.basename(remote_log),
-                    remote_log.endswith('.log') and '' or '.log'
+                    '' if remote_log.endswith('.log') else '.log'
                 )
             )
         ])
@@ -315,7 +315,7 @@ def run(opts):
     '''
     vm_name = os.environ.get(
         'JENKINS_SALTCLOUD_VM_NAME',
-        generate_vm_name(opts.platform)
+        generate_vm_name(opts)
     )
 
     if opts.download_remote_reports:
@@ -342,7 +342,7 @@ def run(opts):
         cmd,
         shell=True,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
         stream_stds=True
     )
     proc.poll_and_read_until_finish()
@@ -374,7 +374,7 @@ def run(opts):
             cmd,
             shell=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
         )
         stdout, _ = proc.communicate()
 
@@ -393,15 +393,21 @@ def run(opts):
                 delete_vm(opts)
             sys.exit(retcode)
 
-        version_info = json.loads(stdout.strip())
-        if not version_info[vm_name].endswith(opts.bootstrap_salt_commit[:7]):
-            print('The boostrapped minion version commit does not match the desired commit:')
-            print(' {0!r} does not end with {1!r}'.format(version_info[vm_name], opts.bootstrap_salt_commit[:7]))
-            sys.stdout.flush()
-            if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
-                delete_vm(opts)
-            sys.exit(retcode)
-        print('matches!')
+        try:
+            version_info = json.loads(stdout.strip())
+            if opts.bootstrap_salt_commit[:7] not in version_info[vm_name]:
+                print('\n\nATTENTION!!!!\n')
+                print('The boostrapped minion version commit does not contain the desired commit:')
+                print(' {0!r} does not contain {1!r}'.format(version_info[vm_name], opts.bootstrap_salt_commit[:7]))
+                print('\n\n')
+                sys.stdout.flush()
+                #if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
+                #    delete_vm(opts)
+                #sys.exit(retcode)
+            else:
+                print('matches!')
+        except ValueError:
+            print('Failed to load any JSON from {0!r}'.format(stdout.strip()))
 
     # Run preparation SLS
     time.sleep(3)
@@ -420,7 +426,7 @@ def run(opts):
         cmd,
         shell=True,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
     )
     stdout, _ = proc.communicate()
 
@@ -484,7 +490,7 @@ def run(opts):
             cmd,
             shell=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
         )
         stdout, _ = proc.communicate()
         sys.stdout.flush()
@@ -504,15 +510,18 @@ def run(opts):
                 delete_vm(opts)
             sys.exit(retcode)
 
-        remotes_info = json.loads(stdout.strip())
-        if remotes_info is None or remotes_info[vm_name] is None or opts.test_git_url not in remotes_info[vm_name]:
-            print('The cloned repository remote is not the desired one:')
-            print(' {0!r} is not in {1}'.format(opts.test_git_url, remotes_info))
-            sys.stdout.flush()
-            if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
-                delete_vm(opts)
-            sys.exit(retcode)
-        print('matches!')
+        try:
+            remotes_info = json.loads(stdout.strip())
+            if remotes_info is None or remotes_info[vm_name] is None or opts.test_git_url not in remotes_info[vm_name]:
+                print('The cloned repository remote is not the desired one:')
+                print(' {0!r} is not in {1}'.format(opts.test_git_url, remotes_info))
+                sys.stdout.flush()
+                if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
+                    delete_vm(opts)
+                sys.exit(retcode)
+            print('matches!')
+        except ValueError:
+            print('Failed to load any JSON from {0!r}'.format(stdout.strip()))
 
     if opts.test_git_commit is not None:
         time.sleep(1)
@@ -527,7 +536,7 @@ def run(opts):
             cmd,
             shell=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
         )
         stdout, _ = proc.communicate()
         sys.stdout.flush()
@@ -547,15 +556,18 @@ def run(opts):
                 delete_vm(opts)
             sys.exit(retcode)
 
-        revision_info = json.loads(stdout.strip())
-        if revision_info[vm_name][7:] != opts.test_git_commit[7:]:
-            print('The cloned repository commit is not the desired one:')
-            print(' {0!r} != {1!r}'.format(revision_info[vm_name][:7], opts.test_git_commit[:7]))
-            sys.stdout.flush()
-            if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
-                delete_vm(opts)
-            sys.exit(retcode)
-        print('matches!')
+        try:
+            revision_info = json.loads(stdout.strip())
+            if revision_info[vm_name][7:] != opts.test_git_commit[7:]:
+                print('The cloned repository commit is not the desired one:')
+                print(' {0!r} != {1!r}'.format(revision_info[vm_name][:7], opts.test_git_commit[:7]))
+                sys.stdout.flush()
+                if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
+                    delete_vm(opts)
+                sys.exit(retcode)
+            print('matches!')
+        except ValueError:
+            print('Failed to load any JSON from {0!r}'.format(stdout.strip()))
 
     # Run tests here
     time.sleep(3)
@@ -573,7 +585,7 @@ def run(opts):
         cmd,
         shell=True,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
     )
     stdout, _ = proc.communicate()
 
@@ -613,6 +625,11 @@ def parse():
     Parse the CLI options
     '''
     parser = optparse.OptionParser()
+    parser.add_option(
+        '--vm-prefix',
+        default=os.environ.get('JENKINS_VM_NAME_PREFIX', 'ZJENKINS'),
+        help='The bootstrapped machine name prefix'
+    )
     parser.add_option(
         '-w', '--workspace',
         default=os.path.abspath(
