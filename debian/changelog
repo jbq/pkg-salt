@@ -1,12 +1,15 @@
-salt (2014.1.3+ds-2~bpo60+1) squeeze-backports-sloppy; urgency=medium
+salt (2014.1.4+ds-2) unstable; urgency=medium
 
-  * Rebuild for wheezy-backports.
-  * [73a8257] Removal of upstart and systemd support
-  * [8657d02] Building of minifed js and css files
-  * [180dc80] Updating of package dependencies for squeeze
-  * [832d8a0] Fixed version
+  * [8716b5d] Fix to salt-ssh to not require python-zmq. Closes: 748092
 
- -- Joe Healy <joehealy@gmail.com>  Thu, 24 Apr 2014 17:50:00 +1000
+ -- Joe Healy <joehealy@gmail.com>  Thu, 15 May 2014 16:28:11 +1000
+
+salt (2014.1.4+ds-1) unstable; urgency=medium
+
+  * [a9b0074] Imported Upstream version 2014.1.4+ds
+  * [fd38419] Removed patch for removing externalip grain
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 06 May 2014 21:03:13 +1000
 
 salt (2014.1.3+ds-2) unstable; urgency=medium
 

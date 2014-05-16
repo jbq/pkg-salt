@@ -1211,11 +1211,7 @@ def managed(name,
 
     if not replace and os.path.exists(name):
         # Check and set the permissions if necessary
-        ret, perms = __salt__['file.check_perms'](name,
-                                                  ret,
-                                                  user,
-                                                  group,
-                                                  mode)
+        ret, _ = __salt__['file.check_perms'](name, ret, user, group, mode)
         if __opts__['test']:
             ret['comment'] = 'File {0} not updated'.format(name)
         elif not ret['changes'] and ret['result']:
@@ -1238,7 +1234,6 @@ def managed(name,
                 group,
                 mode,
                 template,
-                makedirs,
                 context,
                 defaults,
                 __env__,
@@ -1293,11 +1288,11 @@ def managed(name,
                 mode,
                 __env__,
                 backup,
+                makedirs,
                 template,
                 show_diff,
                 contents,
-                dir_mode
-            )
+                dir_mode)
         except Exception as exc:
             ret['changes'] = {}
             log.debug(traceback.format_exc())
@@ -1314,6 +1309,7 @@ def directory(name,
               clean=False,
               require=None,
               exclude_pat=None,
+              follow_symlinks=False,
               **kwargs):
     '''
     Ensure that a named directory is present and has the right perms
@@ -1369,6 +1365,13 @@ def directory(name,
     exclude_pat
         When 'clean' is set to True, exclude this pattern from removal list
         and preserve in the destination.
+
+    follow_symlinks : False
+        If the desired path is a symlink (or ``recurse`` is defined and a
+        symlink is encountered while recursing), follow it and check the
+        permissions of the directory/file to which the symlink points.
+
+        .. versionadded:: 2014.1.4
     '''
     # Remove trailing slash, if present
     if name[-1] == '/':
@@ -1433,7 +1436,12 @@ def directory(name,
         return _error(ret, 'Failed to create directory {0}'.format(name))
 
     # Check permissions
-    ret, perms = __salt__['file.check_perms'](name, ret, user, group, dir_mode)
+    ret, perms = __salt__['file.check_perms'](name,
+                                              ret,
+                                              user,
+                                              group,
+                                              dir_mode,
+                                              follow_symlinks)
 
     if recurse:
         if not isinstance(recurse, list):
@@ -1482,7 +1490,8 @@ def directory(name,
                         ret,
                         user,
                         group,
-                        file_mode)
+                        file_mode,
+                        follow_symlinks)
                 for dir_ in dirs:
                     full = os.path.join(root, dir_)
                     ret, perms = __salt__['file.check_perms'](
@@ -1490,7 +1499,8 @@ def directory(name,
                         ret,
                         user,
                         group,
-                        dir_mode)
+                        dir_mode,
+                        follow_symlinks)
 
     if clean:
         keep = _gen_keep_files(name, require)
@@ -2013,7 +2023,7 @@ def blockreplace(
     '''
     Maintain an edit in a file in a zone delimited by two line markers
 
-    .. versionadded:: 0.18.0
+    .. versionadded:: 2014.1.0
 
     A block of content delimited by comments can help you manage several lines
     entries without worrying about old entries removal. This can help you
@@ -2811,7 +2821,7 @@ def copy(name, source, force=False, makedirs=False):
     dname = os.path.dirname(name)
     if not os.path.isdir(dname):
         if makedirs:
-            os.makedirs(dname)
+            __salt__['file.makedirs'](dname)
         else:
             return _error(
                 ret,
@@ -2897,7 +2907,7 @@ def rename(name, source, force=False, makedirs=False):
     dname = os.path.dirname(name)
     if not os.path.isdir(dname):
         if makedirs:
-            os.makedirs(dname)
+            __salt__['file.makedirs'](dname)
         else:
             return _error(
                 ret,
@@ -3014,6 +3024,7 @@ def serialize(name,
               mode=None,
               env=None,
               backup='',
+              makedirs=False,
               show_diff=True,
               create=True,
               **kwargs):
@@ -3047,6 +3058,11 @@ def serialize(name,
 
     backup
         Overrides the default backup mode for this specific file.
+
+    makedirs
+        Create parent directories for destination file.
+
+        .. versionadded:: 2014.1.3
 
     show_diff
         If set to False, the diff will not be shown.
@@ -3142,6 +3158,7 @@ def serialize(name,
                                         mode=mode,
                                         saltenv=__env__,
                                         backup=backup,
+                                        makedirs=makedirs,
                                         template=None,
                                         show_diff=show_diff,
                                         contents=contents)
