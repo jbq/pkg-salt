@@ -1,3 +1,9 @@
+salt (2014.1.4+ds-2saucy2) saucy; urgency=medium
+
+  * [de13b30] Added /etc/default/salt-minion file to pick up env vars
+
+ -- Joe Healy <joehealy@gmail.com>  Sat, 17 May 2014 00:13:29 +1000
+
 salt (2014.1.4+ds-2saucy1) saucy; urgency=medium
 
   * [5703273] Update to dependencies for saucy
