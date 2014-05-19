@@ -1,2 +1,3 @@
 usr/lib/
 usr/bin/salt-call
+pkg/salt.ufw /etc/ufw/applications.d/
