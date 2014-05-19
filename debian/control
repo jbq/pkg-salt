@@ -2,11 +2,10 @@ Source: salt
 Section: admin
 Priority: extra
 Maintainer: Joe Healy <joehealy@gmail.com>
-Uploaders: Joe Healy <joehealy@gmail.com>
-Build-Depends: debhelper (>= 9.20120410~),
+Build-Depends: debhelper (>= 9),
                bash-completion,
                cython,
-               libzmq3-dev (>> 3.2.3+dfsg-1),
+               libzmq3-dev (>> 3.2.2),
                python | python-all | python-dev | python-all-dev,
                python-crypto,
                python-jinja2,
@@ -15,7 +14,7 @@ Build-Depends: debhelper (>= 9.20120410~),
                python-setuptools,
                python-sphinx (>= 1.0),
                python-yaml,
-               python-zmq (>= 13.1.0)
+               python-zmq (>= 13.0.0)
 Standards-Version: 3.9.5
 Homepage: http://saltstack.org/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-salt/salt.git
@@ -63,7 +62,7 @@ Depends: ${misc:Depends},
          python-m2crypto,
          python-crypto,
          msgpack-python,
-         python-zmq (>= 13.1.0)
+         python-zmq (>= 13.0.0)
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
  administer servers in a fast and efficient way.
@@ -91,7 +90,7 @@ Depends: ${misc:Depends},
          python-m2crypto,
          python-crypto,
          msgpack-python,
-         python-zmq (>= 13.1.0),
+         python-zmq (>= 13.0.0),
          dctrl-tools
 Recommends: dmidecode,
             debconf-utils
