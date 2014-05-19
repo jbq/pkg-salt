@@ -171,11 +171,7 @@ Description: remote manager to administer servers via salt
 Package: salt-doc
 Architecture: all
 Section: doc
-Depends: ${misc:Depends},
-	 libjs-sphinxdoc,
-	 libjs-modernizr,
-	 libjs-twitter-bootstrap,
-	 libjs-jquery
+Depends: ${misc:Depends}
 Description: additional documentation for salt, the distributed remote execution system
  salt is a powerful remote execution manager that can be used to
  administer servers in a fast and efficient way.
