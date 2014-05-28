@@ -1,8 +1,9 @@
 salt (2014.1.4+ds-2ubuntu3) precise; urgency=medium
 
   * [3692638] Added /etc/default/salt-minion file to pick up env vars
+  * [51b614b] Removed "su -c" from minion upstart script
 
- -- Joe Healy <joehealy@gmail.com>  Mon, 19 May 2014 23:10:22 +1000
+ -- Joe Healy <joehealy@gmail.com>  Thu, 29 May 2014 09:44:28 +1000
 
 salt (2014.1.4+ds-2ubuntu2) precise; urgency=medium
 
