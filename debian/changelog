@@ -1,3 +1,9 @@
+salt (2014.1.4+ds-2saucy4) saucy; urgency=medium
+
+  * [1c3b3a8] Removed "su -c" from minion upstart script
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 29 May 2014 09:28:40 +1000
+
 salt (2014.1.4+ds-2saucy3) saucy; urgency=medium
 
   * [45d295f] Re-added salt ufw config file
