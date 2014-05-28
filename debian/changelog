@@ -1,3 +1,9 @@
+salt (2014.1.4+ds-2trusty3) trusty; urgency=medium
+
+  * [fe659dc] Removed "su -c" from minion upstart script
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 29 May 2014 09:15:24 +1000
+
 salt (2014.1.4+ds-2trusty2) trusty; urgency=medium
 
   * [baa3877] Re-added salt ufw config file
