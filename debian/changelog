@@ -1,4 +1,4 @@
-salt (2014.1.4+ds-2trusty3ubuntu1) trusty; urgency=medium
+salt (2014.1.4+ds-2trusty4) trusty; urgency=medium
 
   * [35372f7] Fixed stale pyc issue for trusty as well (Upstream issue: 13305)
 
