@@ -1,3 +1,9 @@
+salt (2014.1.4+ds-2trusty3ubuntu1) trusty; urgency=medium
+
+  * [35372f7] Fixed stale pyc issue for trusty as well (Upstream issue: 13305)
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 10 Jun 2014 07:15:36 +1000
+
 salt (2014.1.4+ds-2trusty3) trusty; urgency=medium
 
   * [fe659dc] Removed "su -c" from minion upstart script
