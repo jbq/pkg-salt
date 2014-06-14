@@ -1,1 +1,10 @@
-../salt-minion.service
+[Unit]
+Description=The Salt Minion
+After=syslog.target network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/salt-minion
+
+[Install]
+WantedBy=multi-user.target
