@@ -12,14 +12,20 @@ import shlex
 import salt.utils
 from salt.state import STATE_INTERNAL_KEYWORDS as _STATE_INTERNAL_KEYWORDS
 from salt.exceptions import SaltException
+import salt.modules.cmdmod as salt_cmd
+HAS_CHECK = False
 
 
 def __virtual__():
     '''
     Only load the module if iptables is installed
     '''
+    global HAS_CHECK
+    if salt_cmd.run('iptables --help').find('--check'):
+        HAS_CHECK = True
+
     if salt.utils.which('iptables'):
-        return 'iptables'
+        return True
     return False
 
 
@@ -49,9 +55,9 @@ def _conf(family='ipv4'):
             return '/etc/iptables/iptables.rules'
     elif __grains__['os_family'] == 'Debian':
         if family == 'ipv6':
-            return '/etc/iptables/rules.v4'
-        else:
             return '/etc/iptables/rules.v6'
+        else:
+            return '/etc/iptables/rules.v4'
     elif __grains__['os'] == 'Gentoo':
         if family == 'ipv6':
             return '/var/lib/ip6tables/rules-save'
@@ -132,8 +138,9 @@ def build_rule(table=None, chain=None, command=None, position='', full=None, fam
         rule += '-p {0} '.format(kwargs['proto'])
 
     if 'match' in kwargs:
-        kwargs['match'].replace(' ', '')
-        for match in kwargs['match'].split(','):
+        if not isinstance(kwargs['match'], list):
+            kwargs['match'] = kwargs['match'].split(',')
+        for match in kwargs['match']:
             rule += '-m {0} '.format(match)
         del kwargs['match']
 
@@ -157,13 +164,13 @@ def build_rule(table=None, chain=None, command=None, position='', full=None, fam
         del kwargs['sport']
 
     if 'dports' in kwargs:
-        if not '-m multiport' in rule:
+        if '-m multiport' not in rule:
             rule += '-m multiport '
         rule += '--dports {0} '.format(kwargs['dports'])
         del kwargs['dports']
 
     if 'sports' in kwargs:
-        if not '-m multiport' in rule:
+        if '-m multiport' not in rule:
             rule += '-m multiport '
         rule += '--sports {0} '.format(kwargs['sports'])
         del kwargs['sports']
@@ -375,7 +382,7 @@ def check(table='filter', chain=None, rule=None, family='ipv4'):
     if not rule:
         return 'Error: Rule needs to be specified'
 
-    if __grains__['os_family'] == 'RedHat':
+    if HAS_CHECK is False:
         cmd = '{0}-save' . format(_iptables_cmd(family))
         out = __salt__['cmd.run'](cmd).find('-A {1} {2}'.format(
             table,

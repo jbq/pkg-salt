@@ -115,7 +115,10 @@ def resolve_dns(opts):
                     except SaltClientError:
                         pass
             else:
-                ret['master_ip'] = '127.0.0.1'
+                err = 'Master address: {0} could not be resolved and retry_dns is not set.  Invalid or unresolveable address.'.format(
+                    opts.get('master', 'Unknown'))
+                log.error(err)
+                raise SaltSystemExit(code=42, msg=err)
         except SaltSystemExit:
             err = 'Master address: {0} could not be resolved. Invalid or unresolveable address.'.format(
                 opts.get('master', 'Unknown'))
@@ -459,7 +462,7 @@ class MultiMinion(object):
         while True:
             for minion in minions.values():
                 if isinstance(minion, dict):
-                    continue
+                    minion = minion['minion']
                 if not hasattr(minion, 'schedule'):
                     continue
                 try:
@@ -978,6 +981,17 @@ class Minion(object):
             else:
                 if isinstance(oput, string_types):
                     load['out'] = oput
+        if self.opts['cache_jobs']:
+            # Local job cache has been enabled
+            fn_ = os.path.join(
+                self.opts['cachedir'],
+                'minion_jobs',
+                load['jid'],
+                'return.p')
+            jdir = os.path.dirname(fn_)
+            if not os.path.isdir(jdir):
+                os.makedirs(jdir)
+            salt.utils.fopen(fn_, 'w+b').write(self.serial.dumps(ret))
         try:
             ret_val = sreq.send('aes', self.crypticle.dumps(load))
         except SaltReqTimeoutError:
@@ -991,17 +1005,6 @@ class Minion(object):
             # The master AES key has changed, reauth
             self.authenticate()
             ret_val = sreq.send('aes', self.crypticle.dumps(load))
-        if self.opts['cache_jobs']:
-            # Local job cache has been enabled
-            fn_ = os.path.join(
-                self.opts['cachedir'],
-                'minion_jobs',
-                load['jid'],
-                'return.p')
-            jdir = os.path.dirname(fn_)
-            if not os.path.isdir(jdir):
-                os.makedirs(jdir)
-            salt.utils.fopen(fn_, 'w+b').write(self.serial.dumps(ret))
         return ret_val
 
     def _state_run(self):
@@ -1028,7 +1031,7 @@ class Minion(object):
         :return: None
         '''
         if '__update_grains' not in self.opts.get('schedule', {}):
-            if not 'schedule' in self.opts:
+            if 'schedule' not in self.opts:
                 self.opts['schedule'] = {}
             self.opts['schedule'].update({
                 '__update_grains':
@@ -1651,8 +1654,8 @@ class Syndic(Minion):
                         # Timeout reached
                         break
                     if salt.utils.is_jid(event['tag']) and 'return' in event['data']:
-                        if not event['tag'] in jids:
-                            if not 'jid' in event['data']:
+                        if event['tag'] not in jids:
+                            if 'jid' not in event['data']:
                                 # Not a job return
                                 continue
                             jids[event['tag']] = {}
@@ -1665,7 +1668,7 @@ class Syndic(Minion):
                         jids[event['tag']][event['data']['id']] = event['data']['return']
                     else:
                         # Add generic event aggregation here
-                        if not 'retcode' in event['data']:
+                        if 'retcode' not in event['data']:
                             raw_events.append(event)
                 if raw_events:
                     self._fire_master(events=raw_events, pretag=tagify(self.opts['id'], base='syndic'))
@@ -1797,14 +1800,6 @@ class Matcher(object):
             val,
             comps[1],
         ))
-
-    def exsel_match(self, tgt):
-        '''
-        Runs a function and return the exit code
-        '''
-        if tgt not in self.functions:
-            return False
-        return self.functions[tgt]()
 
     def pillar_match(self, tgt, delim=':'):
         '''
