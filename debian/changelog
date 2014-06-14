@@ -1,3 +1,11 @@
+salt (2014.1.5+ds-1) unstable; urgency=medium
+
+  * [17cddb2] Imported Upstream version 2014.1.5+ds
+  * [6fbecdc] Removed patch for 748092 as upstream have fixed issue.
+  * [a23be88] Minor doc patch fixed
+
+ -- Joe Healy <joehealy@gmail.com>  Sat, 14 Jun 2014 22:09:22 +1000
+
 salt (2014.1.4+ds-2) unstable; urgency=medium
 
   * [8716b5d] Fix to salt-ssh to not require python-zmq. Closes: 748092
