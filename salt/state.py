@@ -610,7 +610,8 @@ class State(object):
             # order for the newly installed package to be importable.
             reload(site)
         self.load_modules()
-        self.functions['saltutil.refresh_modules']()
+        if not self.opts.get('local', False) and self.opts.get('multiprocessing', True):
+            self.functions['saltutil.refresh_modules']()
 
     def check_refresh(self, data, ret):
         '''
@@ -1963,19 +1964,22 @@ class BaseHighState(object):
                 for saltenv, targets in ctop.items():
                     if saltenv == 'include':
                         continue
-                    for tgt in targets:
-                        if tgt not in top[saltenv]:
-                            top[saltenv][tgt] = ctop[saltenv][tgt]
-                            continue
-                        matches = []
-                        states = set()
-                        for comp in top[saltenv][tgt]:
-                            if isinstance(comp, dict):
-                                matches.append(comp)
-                            if isinstance(comp, string_types):
-                                states.add(comp)
-                        top[saltenv][tgt] = matches
-                        top[saltenv][tgt].extend(list(states))
+                    try:
+                        for tgt in targets:
+                            if tgt not in top[saltenv]:
+                                top[saltenv][tgt] = ctop[saltenv][tgt]
+                                continue
+                            matches = []
+                            states = set()
+                            for comp in top[saltenv][tgt]:
+                                if isinstance(comp, dict):
+                                    matches.append(comp)
+                                if isinstance(comp, string_types):
+                                    states.add(comp)
+                            top[saltenv][tgt] = matches
+                            top[saltenv][tgt].extend(list(states))
+                    except TypeError:
+                        raise SaltRenderError('Unable to render top file. No targets found.')
         return top
 
     def verify_tops(self, tops):
@@ -2045,6 +2049,7 @@ class BaseHighState(object):
         {'saltenv': ['state1', 'state2', ...]}
         '''
         matches = {}
+        # pylint: disable=cell-var-from-loop
         for saltenv, body in top.items():
             if self.opts['environment']:
                 if saltenv != self.opts['environment']:
@@ -2062,13 +2067,7 @@ class BaseHighState(object):
                     for item in data:
                         if isinstance(item, string_types):
                             matches[saltenv].append(item)
-        ext_matches = self.client.ext_nodes()
-        for saltenv in ext_matches:
-            if saltenv in matches:
-                matches[saltenv] = list(
-                    set(ext_matches[saltenv]).union(matches[saltenv]))
-            else:
-                matches[saltenv] = ext_matches[saltenv]
+        # pylint: enable=cell-var-from-loop
         return matches
 
     def load_dynamic(self, matches):
@@ -2078,7 +2077,8 @@ class BaseHighState(object):
         '''
         if not self.opts['autoload_dynamic_modules']:
             return
-        syncd = self.state.functions['saltutil.sync_all'](list(matches))
+        syncd = self.state.functions['saltutil.sync_all'](list(matches),
+                                                          refresh=False)
         if syncd['grains']:
             self.opts['grains'] = salt.loader.grains(self.opts)
             self.state.opts['pillar'] = self.state._gather_pillar()
@@ -2458,7 +2458,7 @@ class BaseHighState(object):
         '''
         Run the sequence to execute the salt highstate for this minion
         '''
-        #Check that top file exists
+        # Check that top file exists
         tag_name = 'no_|-states_|-states_|-None'
         ret = {tag_name: {
                 'result': False,
@@ -2477,10 +2477,13 @@ class BaseHighState(object):
                 with salt.utils.fopen(cfn, 'rb') as fp_:
                     high = self.serial.load(fp_)
                     return self.state.call_high(high)
-        #File exists so continue
+        # File exists so continue
         err = []
         try:
             top = self.get_top()
+        except SaltRenderError as err:
+            ret[tag_name]['comment'] = err.error
+            return ret
         except Exception:
             trb = traceback.format_exc()
             err.append(trb)
