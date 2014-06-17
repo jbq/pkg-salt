@@ -245,7 +245,7 @@ class CkMinions(object):
                         # Not a valid IPv4 address, no minions match
                         return []
                     else:
-                        if not expr in grains.get('ipv4', []):
+                        if expr not in grains.get('ipv4', []):
                             minions.remove(id_)
         return list(minions)
 
@@ -455,7 +455,6 @@ class CkMinions(object):
         '''
         ref = {'G': 'grain',
                'P': 'grain_pcre',
-               'X': 'exsel',
                'I': 'pillar',
                'L': 'list',
                'S': 'ipcidr',
@@ -464,7 +463,6 @@ class CkMinions(object):
         infinite = [
                 'node',
                 'ipcidr',
-                'exsel',
                 'pillar']
         if not self.opts.get('minion_data_cache', False):
             infinite.append('grain')
