@@ -205,7 +205,7 @@ Architecture: all
 Depends: ${python:Depends},
          ${misc:Depends},
          salt-common (= ${source:Version}),
-         python-libcloud,
+         python-libcloud (>= 0.14.1-1),
          sshpass
 Suggests: python-botocore
 Recommends: python-netaddr
