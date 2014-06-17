@@ -1,8 +1,9 @@
 salt (2014.1.5+ds-2) unstable; urgency=medium
 
-  * [55dac69] Added version requirement for salt-cloud. Closes: 741522
+  * [55dac69] Added version requirement for salt-cloud
+  * [7a00f9e] Clean up of build depends
 
- -- Joe Healy <joehealy@gmail.com>  Wed, 18 Jun 2014 06:35:54 +1000
+ -- Joe Healy <joehealy@gmail.com>  Wed, 18 Jun 2014 06:48:40 +1000
 
 salt (2014.1.5+ds-1) unstable; urgency=medium
 
