@@ -7,17 +7,9 @@ Uploaders: Joe Healy <joehealy@gmail.com>,
            Andriy Senkovych <jolly_roger@itblog.org.ua>
 Build-Depends: debhelper (>= 9.20120410~),
                bash-completion,
-               cython,
-               libzmq3-dev (>> 3.2.3+dfsg-1),
                python | python-all | python-dev | python-all-dev,
-               python-crypto,
-               python-jinja2,
-               python-m2crypto,
-               python-msgpack,
                python-setuptools,
                python-sphinx (>= 1.0),
-               python-yaml,
-               python-zmq (>= 13.1.0),
                dh-systemd (>= 1.4)
 Standards-Version: 3.9.5
 Homepage: http://saltstack.org/
