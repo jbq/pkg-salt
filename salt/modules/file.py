@@ -1019,7 +1019,7 @@ def replace(path,
             result = re.sub(cpattern, repl, line, count)
 
             # Identity check each potential change until one change is made
-            if has_changes is False and not result is line:
+            if has_changes is False and result is not line:
                 has_changes = True
 
             if show_changes:
@@ -1147,6 +1147,11 @@ def blockreplace(path,
                 if marker_end in line:
                     # end of block detected
                     in_block = False
+
+                    # Check for multi-line '\n' terminated content as split will
+                    # introduce an unwanted additional new line.
+                    if content[-1] == '\n':
+                        content = content[:-1]
 
                     # push new block content in file
                     for cline in content.split("\n"):

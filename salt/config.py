@@ -68,7 +68,6 @@ VALID_OPTS = {
     'file_roots': dict,
     'pillar_roots': dict,
     'hash_type': str,
-    'external_nodes': str,
     'disable_modules': list,
     'disable_returners': list,
     'whitelist_modules': list,
@@ -227,7 +226,6 @@ DEFAULT_MINION_OPTS = {
         'base': [salt.syspaths.BASE_PILLAR_ROOTS_DIR],
     },
     'hash_type': 'md5',
-    'external_nodes': '',
     'disable_modules': [],
     'disable_returners': [],
     'whitelist_modules': [],
@@ -351,7 +349,6 @@ DEFAULT_MASTER_OPTS = {
     'failhard': False,
     'state_top': 'top.sls',
     'master_tops': {},
-    'external_nodes': '',
     'order_masters': False,
     'job_cache': True,
     'ext_job_cache': '',
@@ -393,7 +390,7 @@ DEFAULT_MASTER_OPTS = {
     'win_repo_mastercachefile': os.path.join(salt.syspaths.BASE_FILE_ROOTS_DIR,
                                              'win', 'repo', 'winrepo.p'),
     'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'],
-    'syndic_wait': 1,
+    'syndic_wait': 5,
     'jinja_lstrip_blocks': False,
     'jinja_trim_blocks': False,
     'sign_pub_messages': False,
@@ -1829,7 +1826,7 @@ def apply_minion_config(overrides=None,
 
     prepend_root_dir(opts, prepend_root_dirs)
     if '__mine_interval' not in opts.get('schedule', {}):
-        if not 'schedule' in opts:
+        if 'schedule' not in opts:
             opts['schedule'] = {}
         opts['schedule'].update({
             '__mine_interval':
@@ -1989,9 +1986,9 @@ def client_config(path, env_var='SALT_CLIENT_CONFIG', defaults=None):
     # Update with the users salt dot file or with the environment variable
     opts.update(
         load_config(
-            os.path.expanduser('~/.salt'),
+            os.path.expanduser('~/.saltrc'),
             env_var,
-            os.path.expanduser('~/.salt')
+            os.path.expanduser('~/.saltrc')
         )
     )
     # Make sure we have a proper and absolute path to the token file

@@ -1,28 +1,10 @@
-salt (2014.1.4+ds-2saucy4) saucy; urgency=medium
+salt (2014.1.5+ds-1) unstable; urgency=medium
 
-  * [1c3b3a8] Removed "su -c" from minion upstart script
+  * [17cddb2] Imported Upstream version 2014.1.5+ds
+  * [6fbecdc] Removed patch for 748092 as upstream have fixed issue.
+  * [a23be88] Minor doc patch fixed
 
- -- Joe Healy <joehealy@gmail.com>  Thu, 29 May 2014 09:28:40 +1000
-
-salt (2014.1.4+ds-2saucy3) saucy; urgency=medium
-
-  * [45d295f] Re-added salt ufw config file
-
- -- Joe Healy <joehealy@gmail.com>  Mon, 19 May 2014 21:33:23 +1000
-
-salt (2014.1.4+ds-2saucy2) saucy; urgency=medium
-
-  * [de13b30] Added /etc/default/salt-minion file to pick up env vars
-
- -- Joe Healy <joehealy@gmail.com>  Sat, 17 May 2014 00:13:29 +1000
-
-salt (2014.1.4+ds-2saucy1) saucy; urgency=medium
-
-  * [5703273] Update to dependencies for saucy
-  * [00bdf3e] Update of ubuntu packaging files from upstream
-  * [a682264] Fix for salt issues #11274 and #10967
-
- -- Joe Healy <joehealy@gmail.com>  Fri, 16 May 2014 23:55:01 +1000
+ -- Joe Healy <joehealy@gmail.com>  Sat, 14 Jun 2014 22:09:22 +1000
 
 salt (2014.1.4+ds-2) unstable; urgency=medium
 

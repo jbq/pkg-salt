@@ -1,1 +1,10 @@
-../salt-syndic.service
+[Unit]
+Description=The Salt Master Server
+After=syslog.target network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/salt-syndic
+
+[Install]
+WantedBy=multi-user.target
