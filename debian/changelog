@@ -1,12 +1,15 @@
-salt (2014.1.5+ds-1~bpo60+1) squeeze-backports-sloppy; urgency=medium
+salt (2014.1.5+ds-3) unstable; urgency=medium
 
-  * Rebuild for squeeze-backports.
-  * [73a8257] Removal of upstart and systemd support
-  * [8657d02] Building of minifed js and css files
-  * [180dc80] Updating of package dependencies for squeeze
-  * [832d8a0] Fixed version
+  * [12bbc7b] Fix for grain detection on xen and openvz (Upstream issue 11877)
 
- -- Joe Healy <joehealy@gmail.com>  Tue, 17 Jun 2014 23:23:20 +1000
+ -- Joe Healy <joehealy@gmail.com>  Thu, 19 Jun 2014 04:21:24 +1000
+
+salt (2014.1.5+ds-2) unstable; urgency=medium
+
+  * [55dac69] Added version requirement for salt-cloud
+  * [7a00f9e] Clean up of build depends
+
+ -- Joe Healy <joehealy@gmail.com>  Wed, 18 Jun 2014 06:48:40 +1000
 
 salt (2014.1.5+ds-1) unstable; urgency=medium
 
