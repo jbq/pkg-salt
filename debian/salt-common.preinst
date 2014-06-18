@@ -4,7 +4,7 @@ set -e
 
 # if upgrading from old version then remove old pyc files
 if [ "$1" = upgrade ]; then
-    if dpkg --compare-versions $2 lt 2014.1.5+ds-1precise1; then
+    if dpkg --compare-versions $2 lt 2014.1.5+ds-1trusty1; then
 	echo Removing stale pyc files
         if [ -d /usr/lib/python2.7/dist-packages/salt/ ]; then
 	    echo Removing stale pyc files from /usr/lib/python2.7/dist-packages/salt/
