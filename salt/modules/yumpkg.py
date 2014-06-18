@@ -445,8 +445,14 @@ def check_db(*names, **kwargs):
         ret.setdefault(name, {})['found'] = name in avail
         if not ret[name]['found']:
             repoquery_cmd = repoquery_base + ' {0}'.format(name)
-            provides = set(x.name for x in _repoquery_pkginfo(repoquery_cmd))
-            ret[name]['suggestions'] = sorted(provides)
+            provides = sorted(
+                set(x.name for x in _repoquery_pkginfo(repoquery_cmd))
+            )
+            if name in provides:
+                # Package was not in avail but was found by the repoquery_cmd
+                ret[name]['found'] = True
+            else:
+                ret[name]['suggestions'] = provides
     return ret
 
 
@@ -1135,8 +1141,11 @@ def mod_repo(repo, basedir=None, **kwargs):
         salt '*' pkg.mod_repo reponame basedir=/path/to/dir enabled=1
         salt '*' pkg.mod_repo reponame baseurl= mirrorlist=http://host.com/
     '''
-    # Filter out '__pub' arguments
-    repo_opts = dict((x, kwargs[x]) for x in kwargs if not x.startswith('__'))
+    # Filter out '__pub' arguments, as well as saltenv
+    repo_opts = dict(
+        (x, kwargs[x]) for x in kwargs
+        if not x.startswith('__') and x not in ('saltenv',)
+    )
 
     if all(x in repo_opts for x in ('mirrorlist', 'baseurl')):
         raise SaltInvocationError(

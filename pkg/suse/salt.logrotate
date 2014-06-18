@@ -1,1 +1,23 @@
-../salt-common.logrotate
+/var/log/salt/master {
+	weekly
+	missingok
+	rotate 7
+	compress
+	notifempty
+}
+
+/var/log/salt/minion {
+	weekly
+	missingok
+	rotate 7
+	compress
+	notifempty
+}
+
+/var/log/salt/key {
+	weekly
+	missingok
+	rotate 7
+	compress
+	notifempty
+}
