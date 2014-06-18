@@ -1,11 +1,15 @@
-salt (2014.1.5+ds-1~bpo70+1) wheezy-backports; urgency=medium
+salt (2014.1.5+ds-3) unstable; urgency=medium
 
-  * Rebuild for wheezy-backports.
-  * [5be7496] Updated packages for squeeze
-  * [015a818] Removal of systemd for squeeze
-  * [b7583e0] fixing of docs to build minified files
+  * [12bbc7b] Fix for grain detection on xen and openvz (Upstream issue 11877)
 
- -- Joe Healy <joehealy@gmail.com>  Sat, 14 Jun 2014 22:27:35 +1000
+ -- Joe Healy <joehealy@gmail.com>  Thu, 19 Jun 2014 04:21:24 +1000
+
+salt (2014.1.5+ds-2) unstable; urgency=medium
+
+  * [55dac69] Added version requirement for salt-cloud
+  * [7a00f9e] Clean up of build depends
+
+ -- Joe Healy <joehealy@gmail.com>  Wed, 18 Jun 2014 06:48:40 +1000
 
 salt (2014.1.5+ds-1) unstable; urgency=medium
 
