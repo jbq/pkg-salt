@@ -4,9 +4,17 @@ set -e
 
 # if upgrading from old version then remove old pyc files
 if [ "$1" = upgrade ]; then
-    if dpkg --compare-versions $2 lt 2014.1.3+ds-1saucy2; then
+    if dpkg --compare-versions $2 lt 2014.1.5+ds-1saucy1; then
 	echo Removing stale pyc files
-        find /usr/lib/python2.7/dist-packages/salt/ -type f -name "*.pyc" -exec rm {} \;
+        if [ -d /usr/lib/python2.7/dist-packages/salt/ ]; then
+	    echo Removing stale pyc files from /usr/lib/python2.7/dist-packages/salt/
+            find /usr/lib/python2.7/dist-packages/salt/ -type f -name "*.pyc" -exec rm {} \;
+        fi
+        if [ -d /usr/lib/pymodules/python2.7/salt/ ]; then
+	    echo Removing stale pyc files from /usr/lib/pymodules/python2.7/salt/
+            find /usr/lib/pymodules/python2.7/salt/ -type f -name "*.pyc" -exec rm {} \;
+        fi
+        echo Done
     fi
 fi
 
