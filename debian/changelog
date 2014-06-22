@@ -1,11 +1,8 @@
-salt (2014.1.5+ds-3~bpo60+1) squeeze-backports-sloppy; urgency=medium
+salt (2014.1.5+ds-4) unstable; urgency=medium
 
-  * Rebuild for squeeze-backports-sloppy.
-  * [73a8257] Removal of upstart and systemd support
-  * [8657d02] Building of minifed js and css files
-  * [180dc80] Updating of package dependencies for squeeze
+  * [39e8303] Patch to remove spurious iptables --help output
 
- -- Joe Healy <joehealy@gmail.com>  Thu, 19 Jun 2014 04:51:30 +1000
+ -- Joe Healy <joehealy@gmail.com>  Sun, 22 Jun 2014 10:09:18 +1000
 
 salt (2014.1.5+ds-3) unstable; urgency=medium
 
