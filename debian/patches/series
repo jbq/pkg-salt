@@ -1,3 +1,6 @@
+readd_ext_nodes
+iptables--help_fix
+grain_fix_xen_openvz_detection
 missing_locale_dir
 0175_releasenotes
 remove_privacy_breaches

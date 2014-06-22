@@ -5,17 +5,15 @@ Maintainer: Joe Healy <joehealy@gmail.com>
 Uploaders: Joe Healy <joehealy@gmail.com>
 Build-Depends: debhelper (>= 9.20120410~),
                bash-completion,
-               cython,
-               libzmq3-dev (>> 3.2.3+dfsg-1),
                python | python-all | python-dev | python-all-dev,
-               python-crypto,
-               python-jinja2,
-               python-m2crypto,
-               python-msgpack,
                python-setuptools,
                python-sphinx (>= 1.0),
+<<<<<<< HEAD
                python-yaml,
                python-zmq (>= 13.1.0)
+=======
+               dh-systemd (>= 1.4)
+>>>>>>> master
 Standards-Version: 3.9.5
 Homepage: http://saltstack.org/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-salt/salt.git
@@ -202,7 +200,7 @@ Architecture: all
 Depends: ${python:Depends},
          ${misc:Depends},
          salt-common (= ${source:Version}),
-         python-libcloud,
+         python-libcloud (>= 0.14.1-1),
          sshpass
 Suggests: python-botocore
 Recommends: python-netaddr
