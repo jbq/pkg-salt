@@ -1,12 +1,8 @@
-salt (2014.1.5+ds-4~bpo70+1) wheezy-backports; urgency=medium
+salt (2014.1.5+ds-5) unstable; urgency=medium
 
-  * Rebuild for wheezy-backports.
-  * [5be7496] Updated packages for wheezy
-  * [015a818] Removal of systemd for wheezy
-  * [b7583e0] fixing of docs to build minified files
-  * [f5c2018] Removed explicit dependency on libcloud till it is backported
+  * [14ee714] Added stub for ext_nodes to re-enable comms with older minions
 
- -- Joe Healy <joehealy@gmail.com>  Sun, 22 Jun 2014 12:07:03 +1000
+ -- Joe Healy <joehealy@gmail.com>  Sun, 22 Jun 2014 20:45:41 +1000
 
 salt (2014.1.5+ds-4) unstable; urgency=medium
 
