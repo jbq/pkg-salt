@@ -1,0 +1,19 @@
+Description: Add stub for ext_nodes to enable highstates with minions older than 2014.1.5
+Origin: https://github.com/saltstack/salt/issues/13535#issuecomment-46736029
+
+--- a/salt/master.py
++++ b/salt/master.py
+@@ -950,6 +950,13 @@ class AESFuncs(object):
+             return False
+         return True
+
++    def _ext_nodes(self, load):
++        '''
++        Stub out until 2014.1.5 minion installed
++        '''
++        return {}
++
++
+     def _master_opts(self, load):
+         '''
+         Return the master options to the minion

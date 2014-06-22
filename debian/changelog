@@ -1,12 +1,8 @@
-salt (2014.1.5+ds-4~bpo60+1) squeeze-backports-sloppy; urgency=medium
+salt (2014.1.5+ds-5) unstable; urgency=medium
 
-  * Rebuild for squeeze-backports.
-  * [73a8257] Removal of upstart and systemd support
-  * [8657d02] Building of minifed js and css files
-  * [180dc80] Updating of package dependencies for squeeze
-  * [988bf18] Removed explicit dependency on libcloud till libcloud is backported
+  * [14ee714] Added stub for ext_nodes to re-enable comms with older minions
 
- -- Joe Healy <joehealy@gmail.com>  Sun, 22 Jun 2014 13:30:33 +1000
+ -- Joe Healy <joehealy@gmail.com>  Sun, 22 Jun 2014 20:45:41 +1000
 
 salt (2014.1.5+ds-4) unstable; urgency=medium
 
