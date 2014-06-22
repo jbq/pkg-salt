@@ -1,4 +1,4 @@
-salt (2014.1.5+ds-5ubuntu1) trusty; urgency=medium
+salt (2014.1.5+ds-5trusty1) trusty; urgency=medium
 
   * [2c9238e] Updated dependencies and build for trusty
   * [59a9c88] Update of ubuntu packaging files from upstream
