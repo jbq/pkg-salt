@@ -10,8 +10,9 @@ salt (2014.1.5+ds-5ubuntu1) trusty; urgency=medium
   * [7b29019] Also remove pyc files from /usr/lib/pymodules/python2.7/salt/
   * [6c99950] Fix to version in preinst script
   * [a46e0e0] Removed libcloud as explicit dependency until libcloud is backported
+  * [b29a1f3] Fix for build-deps
 
- -- Joe Healy <joehealy@gmail.com>  Mon, 23 Jun 2014 05:44:04 +1000
+ -- Joe Healy <joehealy@gmail.com>  Mon, 23 Jun 2014 05:47:26 +1000
 
 salt (2014.1.5+ds-5) unstable; urgency=medium
 
