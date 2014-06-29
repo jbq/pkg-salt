@@ -26,8 +26,7 @@ Depends: ${python:Depends},
          python-yaml,
          python-pkg-resources
 Recommends: lsb-release,
-            python-mako,
-            python-git
+            python-mako
 Suggests: salt-doc (= ${source:Version})
 Breaks: python-mako (<< 0.7.0)
 Description: shared libraries that salt requires for all packages
@@ -59,6 +58,7 @@ Depends: ${misc:Depends},
          python-crypto,
          python-msgpack,
          python-zmq (>= 13.1.0)
+Recommends: python-git
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
  administer servers in a fast and efficient way.
