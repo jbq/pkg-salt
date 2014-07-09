@@ -1,3 +1,11 @@
+salt (2014.1.6+ds-1) unstable; urgency=medium
+
+  * [a0fe230] Moved python-git recommendation to salt-master
+  * [25d5ac9] Imported Upstream version 2014.1.6+ds
+  * [3ad8e3a] Removed and updated patches for 2014.1.6
+
+ -- Joe Healy <joehealy@gmail.com>  Wed, 09 Jul 2014 09:48:28 +1000
+
 salt (2014.1.5+ds-5) unstable; urgency=medium
 
   * [14ee714] Added stub for ext_nodes to re-enable comms with older minions
