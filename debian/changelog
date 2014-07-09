@@ -1,12 +1,10 @@
-salt (2014.1.5+ds-5~bpo70+1) wheezy-backports; urgency=medium
+salt (2014.1.6+ds-1) unstable; urgency=medium
 
-  * Rebuild for wheezy-backports.
-  * [5be7496] Updated packages for wheezy
-  * [015a818] Removal of systemd for wheezy
-  * [b7583e0] fixing of docs to build minified files
-  * [f5c2018] Removed explicit dependency on libcloud till it is backported
+  * [a0fe230] Moved python-git recommendation to salt-master
+  * [25d5ac9] Imported Upstream version 2014.1.6+ds
+  * [3ad8e3a] Removed and updated patches for 2014.1.6
 
- -- Joe Healy <joehealy@gmail.com>  Sun, 22 Jun 2014 21:03:39 +1000
+ -- Joe Healy <joehealy@gmail.com>  Wed, 09 Jul 2014 09:48:28 +1000
 
 salt (2014.1.5+ds-5) unstable; urgency=medium
 

@@ -1,6 +1,4 @@
-readd_ext_nodes
-iptables--help_fix
-grain_fix_xen_openvz_detection
+fix_2014.1.6_releasenotes
 missing_locale_dir
 js-minify.diff
 0175_releasenotes
