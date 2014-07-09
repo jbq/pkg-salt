@@ -1,12 +1,10 @@
-salt (2014.1.5+ds-5~bpo60+1) squeeze-backport-sloppy; urgency=medium
+salt (2014.1.6+ds-1) unstable; urgency=medium
 
-  * Rebuild for wheezy-backports.
-  * [73a8257] Removal of upstart and systemd support
-  * [8657d02] Building of minifed js and css files
-  * [180dc80] Updating of package dependencies for squeeze
-  * [988bf18] Removed explicit dependency on libcloud till libcloud is backported
+  * [a0fe230] Moved python-git recommendation to salt-master
+  * [25d5ac9] Imported Upstream version 2014.1.6+ds
+  * [3ad8e3a] Removed and updated patches for 2014.1.6
 
- -- Joe Healy <joehealy@gmail.com>  Sun, 22 Jun 2014 21:16:05 +1000
+ -- Joe Healy <joehealy@gmail.com>  Wed, 09 Jul 2014 09:48:28 +1000
 
 salt (2014.1.5+ds-5) unstable; urgency=medium
 
