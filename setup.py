@@ -47,7 +47,7 @@ BOOTSTRAP_SCRIPT_DISTRIBUTED_VERSION = os.environ.get(
     'BOOTSTRAP_SCRIPT_VERSION',
     # If no bootstrap-script version was provided from the environment, let's
     # provide the one we define.
-    'v1.5.9'
+    'v2014.06.21'
 )
 
 # Store a reference to the executing platform
@@ -511,6 +511,7 @@ FREEZER_INCLUDES = [
     'fileinput',
     'email',
     'email.mime.*',
+    'sqlite3',
 ]
 
 if HAS_ZMQ and hasattr(zmq, 'pyzmq_version_info'):

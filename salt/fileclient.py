@@ -807,6 +807,21 @@ class LocalClient(Client):
 
         return self.file_list(saltenv)
 
+    def ext_nodes(self):
+        '''
+        Originally returned information via the external_nodes subsystem.
+        External_nodes was deprecated and removed in
+        2014.1.6 in favor of master_tops (which had been around since pre-0.17).
+             salt-call --local state.show_top
+        ends up here, but master_tops has not been extended to support
+        show_top in a completely local environment yet.  It's worth noting
+        that originally this fn started with
+            if 'external_nodes' not in opts: return {}
+        So since external_nodes is gone now, we are just returning the
+        empty dict.
+        '''
+        return {}
+
     def master_opts(self):
         '''
         Return the master opts data
@@ -820,8 +835,8 @@ class RemoteClient(Client):
     '''
     def __init__(self, opts):
         Client.__init__(self, opts)
-        channel = salt.transport.Channel.factory(self.opts)
-        if channel.ttype == 'zeromq':
+        self.channel = salt.transport.Channel.factory(self.opts)
+        if self.channel.ttype == 'zeromq':
             self.auth = salt.crypt.SAuth(opts)
         else:
             self.auth = ''
@@ -1112,6 +1127,31 @@ class RemoteClient(Client):
             channel = salt.transport.Channel.factory(
                     self.opts,
                     auth=self.auth)
+            return channel.send(load)
+        except SaltReqTimeoutError:
+            return ''
+
+    def _get_channel(self):
+        '''
+        Return the right channel
+        '''
+        if self.auth:
+            return self.channel
+
+        return salt.transport.Channel.factory(self.opts)
+
+    def ext_nodes(self):
+        '''
+        Return the metadata derived from the external nodes system on the
+        master.
+        '''
+        load = {'cmd': '_ext_nodes',
+                'id': self.opts['id'],
+                'opts': self.opts}
+        if self.auth:
+            load['tok'] = self.auth.gen_token('salt')
+        try:
+            channel = self._get_channel()
             return channel.send(load)
         except SaltReqTimeoutError:
             return ''
