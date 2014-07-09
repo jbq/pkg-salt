@@ -1,14 +1,10 @@
-salt (2014.1.5+ds-5saucy1) saucy; urgency=medium
+salt (2014.1.6+ds-1) unstable; urgency=medium
 
-  * [5703273] Update to dependencies for saucy
-  * [00bdf3e] Update of ubuntu packaging files from upstream
-  * [a682264] Fix for salt issues #11274 and #10967
-  * [de13b30] Added /etc/default/salt-minion file to pick up env vars
-  * [45d295f] Re-added salt ufw config file
-  * [1c3b3a8] Removed "su -c" from minion upstart script
-  * [cf0d6f3] Updated script to remove .pyc files from /usr/lib/pymodules/python2.7/salt/
+  * [a0fe230] Moved python-git recommendation to salt-master
+  * [25d5ac9] Imported Upstream version 2014.1.6+ds
+  * [3ad8e3a] Removed and updated patches for 2014.1.6
 
- -- Joe Healy <joehealy@gmail.com>  Mon, 23 Jun 2014 05:52:52 +1000
+ -- Joe Healy <joehealy@gmail.com>  Wed, 09 Jul 2014 09:48:28 +1000
 
 salt (2014.1.5+ds-5) unstable; urgency=medium
 
