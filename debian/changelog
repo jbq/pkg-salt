@@ -1,3 +1,9 @@
+salt (2014.1.7+ds-1) unstable; urgency=medium
+
+  * [00e814e] Imported Upstream version 2014.1.7+ds
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 10 Jul 2014 09:41:31 +1000
+
 salt (2014.1.6+ds-1) unstable; urgency=medium
 
   * [a0fe230] Moved python-git recommendation to salt-master
