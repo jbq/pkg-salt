@@ -1,12 +1,20 @@
-salt (2014.1.6+ds-1~bpo70+1) wheezy-backports; urgency=medium
+salt (2014.1.10+ds-1) unstable; urgency=medium
 
-  * Rebuild for wheezy-backports.
-  * [5be7496] Updated packages for wheezy
-  * [015a818] Removal of systemd for wheezy
-  * [b7583e0] fixing of docs to build minified files
-  * [f5c2018] Removed explicit dependency on libcloud till it is backported
+  * [ff6185d] Imported Upstream version 2014.1.10+ds
 
- -- Joe Healy <joehealy@gmail.com>  Wed, 09 Jul 2014 10:19:48 +1000
+ -- Joe Healy <joehealy@gmail.com>  Tue, 05 Aug 2014 23:20:17 +1000
+
+salt (2014.1.7+ds-2) unstable; urgency=medium
+
+  * [f04fd3a] Load intersphinx data from filesystem. Closes: 755026
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 22 Jul 2014 10:49:40 +1000
+
+salt (2014.1.7+ds-1) unstable; urgency=medium
+
+  * [00e814e] Imported Upstream version 2014.1.7+ds
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 10 Jul 2014 09:41:31 +1000
 
 salt (2014.1.6+ds-1) unstable; urgency=medium
 
