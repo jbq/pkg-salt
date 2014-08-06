@@ -1,3 +1,13 @@
+salt (2014.1.10+ds-1~bpo70+1) wheezy-backports; urgency=medium
+
+  * Rebuild for wheezy-backports.
+  * [5be7496] Updated packages for wheezy
+  * [015a818] Removal of systemd for wheezy
+  * [b7583e0] fixing of docs to build minified files
+  * [f5c2018] Removed explicit dependency on libcloud till it is backported
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 05 Aug 2014 23:45:42 +1000
+
 salt (2014.1.10+ds-1) unstable; urgency=medium
 
   * [ff6185d] Imported Upstream version 2014.1.10+ds
