@@ -1,0 +1,16 @@
+Description: Prevent network access during build (See https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=755026
+Author: Joe Healy <joehealy@gmail.com>
+Forwarded: no
+
+--- a/doc/conf.py
++++ b/doc/conf.py
+@@ -105,8 +105,7 @@
+ 
+ # ----- Intersphinx Settings ------------------------------------------------>
+ intersphinx_mapping = {
+-        'python2': ('http://docs.python.org/2', None),
+-        'python3': ('http://docs.python.org/3', None)
++        'python2': ('http://docs.python.org/2', '/usr/share/doc/python2.7/html/objects.inv')
+ }
+ # <---- Intersphinx Settings -------------------------------------------------
+ 
