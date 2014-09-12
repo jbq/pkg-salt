@@ -1294,7 +1294,7 @@ def patch(originalfile, patchfile, options='', dry_run=False):
             dry_run_opt = ' --dry-run'
     else:
         dry_run_opt = ''
-    cmd = 'patch {0}{1} {2} {3}'.format(
+    cmd = 'patch {0}{1} "{2}" "{3}"'.format(
         options, dry_run_opt, originalfile, patchfile)
     return __salt__['cmd.run_all'](cmd)
 
@@ -2815,7 +2815,7 @@ def makedirs_(path,
     '''
     # walk up the directory structure until we find the first existing
     # directory
-    dirname = os.path.normpath(os.path.dirname(path))
+    dirname = os.path.normpath(os.path.join(os.path.dirname(path), ''))
 
     if os.path.isdir(dirname):
         # There's nothing for us to do
