@@ -1,18 +1,27 @@
-salt (2014.1.7+ds-1trusty1) trusty; urgency=medium
+salt (2014.1.11+ds-2) unstable; urgency=medium
 
-  * [2c9238e] Updated dependencies and build for trusty
-  * [59a9c88] Update of ubuntu packaging files from upstream
-  * [8b2aadb] Fix for salt issues #11274 and #10967
-  * [3f697a1] Added /etc/default/salt-minion file to pick up env vars
-  * [baa3877] Re-added salt ufw config file
-  * [fe659dc] Removed "su -c" from minion upstart script
-  * [35372f7] Fixed stale pyc issue for trusty as well (Upstream issue: 13305)
-  * [7b29019] Also remove pyc files from /usr/lib/pymodules/python2.7/salt/
-  * [6c99950] Fix to version in preinst script
-  * [a46e0e0] Removed libcloud as explicit dependency until libcloud is backported
-  * [b29a1f3] Fix for build-deps
+  * [fa6cb29] Added 2014.1.11 release notes
 
- -- Joe Healy <joehealy@gmail.com>  Thu, 10 Jul 2014 10:22:52 +1000
+ -- Joe Healy <joehealy@gmail.com>  Fri, 26 Sep 2014 13:58:18 +1000
+
+salt (2014.1.11+ds-1) unstable; urgency=medium
+
+  * [d0fbbd5] Imported Upstream version 2014.1.11+ds
+  * [edd6667] Fixed minor copyright issues picked up by lintian
+
+ -- Joe Healy <joehealy@gmail.com>  Fri, 26 Sep 2014 13:31:11 +1000
+
+salt (2014.1.10+ds-1) unstable; urgency=medium
+
+  * [ff6185d] Imported Upstream version 2014.1.10+ds
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 05 Aug 2014 23:20:17 +1000
+
+salt (2014.1.7+ds-2) unstable; urgency=medium
+
+  * [f04fd3a] Load intersphinx data from filesystem. Closes: 755026
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 22 Jul 2014 10:49:40 +1000
 
 salt (2014.1.7+ds-1) unstable; urgency=medium
 
