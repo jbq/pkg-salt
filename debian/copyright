@@ -5,6 +5,7 @@ Source: https://github.com/saltstack/salt
   The relationship between source and minified js libraries is not clear in
   the upstream sources. The debian/repack script repacks the archive to make
   this clear.
+
 Files: *
 Copyright: 2013 SaltStack Team
 License: Apache-2.0
@@ -20,11 +21,11 @@ License: Apache-2.0
 
 Files: debian/repack
 Copyright: 2013-2014 Ben Finney <ben+debian@benfinney.id.au>
-License: MIT License
+License: MIT-License
 
 Files: salt/auth/pam.py
 Copyright: 2007 Chris AtLee <chris@atlee.ca>
-License: MIT License
+License: MIT-License
 
 Files: salt/utils/ipaddr.py
 Copyright: 2007 Google Inc.
@@ -51,7 +52,7 @@ License: CC-BY-3.0
 
 Files: doc/_themes/saltstack/static/js/vendor/jquery-1.9.1.js
 Copyright: 2005-2012 jQuery Foundation, Inc and other contributors
-License: MIT License
+License: MIT-License
 
 
 
@@ -61,7 +62,7 @@ Copyright: © 2009-2012, Faruk Ates
 	   © 2009-2012, Paul Irish
 	   © 2009-2012, Alex Sexton
 	   Ralph Holzmann, ralphholzmann[at]gmail.com
-License: MIT License and BSD-2-clause, and WTFPL or MIT License or BSD-2-clause
+License: MIT-License and BSD-2-clause, and WTFPL or MIT-License or BSD-2-clause
 Comment: Files include yepnope1.5.4 which is authored by Alex Sexton
 	 and Ralph Holzmann.
 
@@ -449,7 +450,7 @@ License: GPL-2
   On Debian systems, the complete text of the GNU General
   Public License can be found in `/usr/share/common-licenses/GPL-2'.
 
-License: MIT License
+License: MIT-License
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
   in the Software without restriction, including without limitation the rights
