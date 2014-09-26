@@ -1,3 +1,18 @@
+salt (2014.1.11+ds-2trusty1) trusty; urgency=medium
+
+  * [2c9238e] Updated dependencies and build for trusty
+  * [59a9c88] Update of ubuntu packaging files from upstream
+  * [8b2aadb] Fix for salt issues #11274 and #10967
+  * [3f697a1] Added /etc/default/salt-minion file to pick up env vars
+  * [baa3877] Re-added salt ufw config file
+  * [fe659dc] Removed "su -c" from minion upstart script
+  * [35372f7] Fixed stale pyc issue for trusty as well (Upstream issue: 13305)
+  * [7b29019] Also remove pyc files from /usr/lib/pymodules/python2.7/salt/
+  * [a46e0e0] Removed libcloud as explicit dependency until libcloud is backported
+  * [b29a1f3] Fix for build-deps
+
+ -- Joe Healy <joehealy@gmail.com>  Fri, 26 Sep 2014 15:05:10 +1000
+
 salt (2014.1.11+ds-2) unstable; urgency=medium
 
   * [fa6cb29] Added 2014.1.11 release notes
