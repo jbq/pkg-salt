@@ -1,3 +1,13 @@
+salt (2014.1.11+ds-2~bpo70+1) wheezy-backports; urgency=medium
+
+  * Rebuild for wheezy-backports.
+  * [5be7496] Updated packages for squeeze
+  * [015a818] Removal of systemd for squeeze
+  * [b7583e0] fixing of docs to build minified files
+  * [f5c2018] Removed explicit dependency on libcloud till it is backported
+
+ -- Joe Healy <joehealy@gmail.com>  Fri, 26 Sep 2014 14:06:51 +1000
+
 salt (2014.1.11+ds-2) unstable; urgency=medium
 
   * [fa6cb29] Added 2014.1.11 release notes
