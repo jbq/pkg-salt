@@ -23,6 +23,7 @@ Depends: ${python:Depends},
          ${shlibs:Depends},
          python,
          python-jinja2,
+         python-apt,
          python-yaml,
          python-pkg-resources
 Recommends: lsb-release,
