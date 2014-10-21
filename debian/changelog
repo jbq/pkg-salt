@@ -1,3 +1,14 @@
+salt (2014.1.13+ds-1~bpo70+1) squeeze-backports-sloppy; urgency=medium
+
+  * Rebuild for squeeze-backports-sloppy.
+  * [73a8257] Removal of upstart and systemd support
+  * [8657d02] Building of minifed js and css files
+  * [180dc80] Updating of package dependencies for squeeze
+  * [988bf18] Removed explicit dependency on libcloud till libcloud is backported
+  * [2207f2f] Set intersphinx to read from python2.6 docs
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 21 Oct 2014 21:13:10 +1100
+
 salt (2014.1.13+ds-1) unstable; urgency=medium
 
   * [448ac5b] Imported Upstream version 2014.1.13+ds
