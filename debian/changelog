@@ -1,4 +1,4 @@
-salt (2014.1.13+ds-1~bpo70+1) squeeze-backports-sloppy; urgency=medium
+salt (2014.1.13+ds-1~bpo60+1) squeeze-backports-sloppy; urgency=medium
 
   * Rebuild for squeeze-backports-sloppy.
   * [73a8257] Removal of upstart and systemd support
