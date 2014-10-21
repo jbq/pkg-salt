@@ -11,7 +11,7 @@ Build-Depends: debhelper (>= 9.20120410~),
                python-setuptools,
                python-sphinx (>= 1.0),
                yui-compressor
-Standards-Version: 3.9.5
+Standards-Version: 3.9.6
 Homepage: http://saltstack.org/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-salt/salt.git
 Vcs-Git: git://anonscm.debian.org/pkg-salt/salt.git
@@ -23,6 +23,7 @@ Depends: ${python:Depends},
          ${shlibs:Depends},
          python,
          python-jinja2,
+         python-apt,
          python-yaml,
          python-pkg-resources
 Recommends: lsb-release,
