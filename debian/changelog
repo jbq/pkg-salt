@@ -1,12 +1,11 @@
-salt (2014.1.11+ds-2~bpo70+1) wheezy-backports; urgency=medium
+salt (2014.1.13+ds-1) unstable; urgency=medium
 
-  * Rebuild for wheezy-backports.
-  * [5be7496] Updated packages for squeeze
-  * [015a818] Removal of systemd for squeeze
-  * [b7583e0] fixing of docs to build minified files
-  * [f5c2018] Removed explicit dependency on libcloud till it is backported
+  * [448ac5b] Imported Upstream version 2014.1.13+ds
+  * [9b5d860] Added python-apt as a dependency
+  * [c068fad] Removed patch for 2014.1.11 release notes as upstream added notes
+  * [4a22a13] Updated to standards version 3.9.6, no change needed
 
- -- Joe Healy <joehealy@gmail.com>  Fri, 26 Sep 2014 14:06:51 +1000
+ -- Joe Healy <joehealy@gmail.com>  Tue, 21 Oct 2014 00:30:37 +1100
 
 salt (2014.1.11+ds-2) unstable; urgency=medium
 
