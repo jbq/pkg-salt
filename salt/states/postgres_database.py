@@ -20,7 +20,7 @@ def __virtual__():
     '''
     Only load if the postgres module is present
     '''
-    return 'postgres_database' if 'postgres.user_exists' in __salt__ else False
+    return 'postgres.user_exists' in __salt__
 
 
 def present(name,
@@ -71,7 +71,7 @@ def present(name,
         System user all operations should be performed on behalf of
 
     db_user
-        database username if different from config or defaul
+        database username if different from config or default
 
     db_password
         user password if any password for a specified user

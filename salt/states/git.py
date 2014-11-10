@@ -18,10 +18,12 @@ authentication, it is also possible to pass private keys to use explicitly.
 # Import python libs
 import logging
 import os
+import os.path
 import shutil
 
 # Import salt libs
 import salt.utils
+from salt.exceptions import CommandExecutionError
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ def __virtual__():
     '''
     Only load if git is available
     '''
-    return 'git' if __salt__['cmd.has_exec']('git') else False
+    return __salt__['cmd.has_exec']('git')
 
 
 def latest(name,
@@ -40,6 +42,7 @@ def latest(name,
            user=None,
            force=None,
            force_checkout=False,
+           force_reset=False,
            submodules=False,
            mirror=False,
            bare=False,
@@ -109,6 +112,44 @@ def latest(name,
     unless
         A command to run as a check, only run the named command if the command
         passed to the ``unless`` option returns false
+
+    .. note::
+
+        Clashing ID declarations can be avoided when including different
+        branches from the same git repository in the same sls file by using the
+        ``name`` declaration.  The example below checks out the ``gh-pages``
+        and ``gh-pages-prod`` branches from the same repository into separate
+        directories.  The example also sets up the ``ssh_known_hosts`` ssh key
+        required to perform the git checkout.
+
+    .. code-block:: yaml
+
+        gitlab.example.com:
+          ssh_known_hosts:
+            - present
+            - user: root
+            - enc: ecdsa
+            - fingerprint: 4e:94:b0:54:c1:5b:29:a2:70:0e:e1:a3:51:ee:ee:e3
+
+        git-website-staging:
+          git.latest:
+            - name: git@gitlab.example.com:user/website.git
+            - rev: gh-pages
+            - target: /usr/share/nginx/staging
+            - identity: /root/.ssh/website_id_rsa
+            - require:
+                - pkg: git
+                - ssh_known_hosts: gitlab.example.com
+
+        git-website-prod:
+          git.latest:
+            - name: git@gitlab.example.com:user/website.git
+            - rev: gh-pages-prod
+            - target: /usr/share/nginx/prod
+            - identity: /root/.ssh/website_id_rsa
+            - require:
+                - pkg: git
+                - ssh_known_hosts: gitlab.example.com
     '''
     ret = {'name': name, 'result': True, 'comment': '', 'changes': {}}
 
@@ -145,9 +186,11 @@ def latest(name,
         runas = None
 
     run_check_cmd_kwargs = {'runas': user}
+    if 'shell' in __grains__:
+        run_check_cmd_kwargs['shell'] = __grains__['shell']
 
     # check if git.latest should be applied
-    cret = _run_check(
+    cret = mod_run_check(
         run_check_cmd_kwargs, onlyif, unless
     )
     if isinstance(cret, dict):
@@ -156,9 +199,8 @@ def latest(name,
 
     bare = bare or mirror
     check = 'refs' if bare else '.git'
-
-    if os.path.isdir(target) and os.path.isdir('{0}/{1}'.format(target,
-                                                                check)):
+    checkdir = os.path.join(target, check)
+    if os.path.isdir(target) and os.path.isdir(checkdir):
         # git pull is probably required
         log.debug(('target {0} is found, "git pull" '
                    'is probably required'.format(target)))
@@ -170,7 +212,7 @@ def latest(name,
             branch = __salt__['git.current_branch'](target, user=user)
             # We're only interested in the remote branch if a branch
             # (instead of a hash, for example) was provided for rev.
-            if len(branch) > 0 and branch == rev:
+            if branch != 'HEAD' and branch == rev:
                 remote_rev = __salt__['git.ls_remote'](target,
                                                        repository=name,
                                                        branch=branch, user=user,
@@ -225,13 +267,35 @@ def latest(name,
                                               user=user,
                                               identity=identity)
 
+                    if force_reset:
+                        __salt__['git.reset'](target,
+                                              opts="--hard",
+                                              user=user)
+
                     __salt__['git.checkout'](target,
                                              rev,
                                              force=force_checkout,
                                              user=user)
 
+                    if branch != 'HEAD':
+                        current_remote = __salt__['git.config_get'](target,
+                                                             'branch.{0}.remote'.format(rev),
+                                                             user=user)
+                        if current_remote != remote_name:
+                            if __opts__['test']:
+                                ret['changes'] = {'old': current_remote, 'new': remote_name}
+                                return _neutral_test(ret,
+                                                     ('Repository {0} update is probably required.'
+                                                      'Current remote is {1} should be {2}'.format(target, current_remote, remote_name)))
+                            log.debug('Setting branch {0} to upstream {1}'.format(rev, remote_name))
+                            __salt__['git.branch'](target,
+                                                   rev,
+                                                   opts='--set-upstream {0}/{1}'.format(remote_name, rev),
+                                                   user=user)
+                            ret['changes']['remote/{0}/{1}'.format(remote_name, rev)] = '{0} => {1}'.format(current_remote, remote_name)
+
                 # check if we are on a branch to merge changes
-                cmd = "git symbolic-ref -q HEAD > /dev/null"
+                cmd = "git symbolic-ref -q HEAD"
                 retcode = __salt__['cmd.retcode'](cmd, cwd=target, runas=user)
                 if 0 == retcode:
                     __salt__['git.fetch' if bare else 'git.pull'](target,
@@ -374,9 +438,9 @@ def present(name, bare=True, runas=None, user=None, force=False):
 
     # If the named directory is a git repo return True
     if os.path.isdir(name):
-        if bare and os.path.isfile('{0}/HEAD'.format(name)):
+        if bare and os.path.isfile(os.path.join(name, 'HEAD')):
             return ret
-        elif not bare and os.path.isdir('{0}/.git'.format(name)):
+        elif not bare and os.path.isdir(os.path.join(name, '.git')):
             return ret
         # Directory exists and is not a git repo, if force is set destroy the
         # directory and recreate, otherwise throw an error
@@ -410,6 +474,91 @@ def present(name, bare=True, runas=None, user=None, force=False):
     return ret
 
 
+def config(name,
+           value,
+           repo=None,
+           user=None,
+           is_global=False):
+    '''
+    .. versionadded:: 2014.7.0
+
+    Manage a git config setting for a user or repository
+
+    name
+        Name of the git config value to set
+
+    value
+        Value to set
+
+    repo : None
+        An optional location of a git repository for local operations
+
+    user : None
+        Optional name of a user as whom `git config` will be run
+
+    is_global : False
+        Whether or not to pass the `--global` option to `git config`
+
+    Local config example:
+
+    .. code-block:: yaml
+
+        mylocalrepo:
+          git.config:
+            - name: user.email
+            - value: fester@bestertester.net
+            - repo: file://my/path/to/repo
+
+    Global config example:
+
+    .. code-block:: yaml
+
+        mylocalrepo:
+          git.config:
+            - name: user.name
+            - value: Esther Bestertester
+            - user: ebestertester
+            - is_global: True
+    '''
+    ret = {'name': name,
+           'changes': {},
+           'result': True,
+           'comment': ''}
+
+    # get old value
+    try:
+        oval = __salt__['git.config_get'](setting_name=name,
+                                          cwd=repo,
+                                          user=user)
+    except CommandExecutionError:
+        oval = None
+
+    if value == oval:
+        ret['comment'] = 'No changes made'
+    else:
+        if __opts__['test']:
+            nval = value
+        else:
+            # set new value
+            __salt__['git.config_set'](setting_name=name,
+                                       setting_value=value,
+                                       cwd=repo,
+                                       user=user,
+                                       is_global=is_global)
+
+            # get new value
+            nval = __salt__['git.config_get'](setting_name=name,
+                                              cwd=repo,
+                                              user=user)
+
+        if oval is None:
+            oval = 'None'
+
+        ret['changes'][name] = '{0} => {1}'.format(oval, nval)
+
+    return ret
+
+
 def _fail(ret, comment):
     ret['result'] = False
     ret['comment'] = comment
@@ -422,7 +571,7 @@ def _neutral_test(ret, comment):
     return ret
 
 
-def _run_check(cmd_kwargs, onlyif, unless):
+def mod_run_check(cmd_kwargs, onlyif, unless):
     '''
     Execute the onlyif and unless logic.
     Return a result dict if:
@@ -433,11 +582,13 @@ def _run_check(cmd_kwargs, onlyif, unless):
     if onlyif:
         if __salt__['cmd.retcode'](onlyif, **cmd_kwargs) != 0:
             return {'comment': 'onlyif execution failed',
+                    'skip_watch': True,
                     'result': True}
 
     if unless:
         if __salt__['cmd.retcode'](unless, **cmd_kwargs) == 0:
             return {'comment': 'unless execution succeeded',
+                    'skip_watch': True,
                     'result': True}
 
     # No reason to stop, return True

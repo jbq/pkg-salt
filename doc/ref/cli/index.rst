@@ -16,7 +16,7 @@ environment variables ``SALT_MASTER_CONFIG`` and ``SALT_MINION_CONFIG``.
 
 .. seealso::
 
-    :doc:`/topics/configuration`
+    :doc:`Configuration </ref/configuration/index>`
 
 Using the Salt Command
 ======================
@@ -79,6 +79,9 @@ grains.item salt function:
 
     salt '*' grains.items
 
+more info on using targeting with grains can be found :ref:`here
+<targeting-grains>`.
+
 Targeting with Executions
 `````````````````````````
 
@@ -114,21 +117,27 @@ is used with ``G@`` as well as a regular expression with ``E@``. The
 ``webser*`` target does not need to be prefaced with a target type specifier
 because it is a glob.
 
+more info on using compound targeting can be found :ref:`here
+<targeting-compound>`.
+
 Node Group Targeting
 ````````````````````
 
 .. versionadded:: 0.9.5
 
-Often the convenience of having a predefined group of minions to execute
-targets on is desired. This can be accomplished with the new nodegroups
-feature. Nodegroups allow for predefined compound targets to be declared in
-the master configuration file:
+For certain cases, it can be convenient to have a predefined group of minions
+on which to execute commands. This can be accomplished using what are called
+:ref:`nodegroups <targeting-nodegroups>`. Nodegroups allow for predefined
+compound targets to be declared in the master configuration file, as a sort of
+shorthand for having to type out complicated compound expressions.
 
 .. code-block:: yaml
 
     nodegroups:
       group1: 'L@foo.domain.com,bar.domain.com,baz.domain.com and bl*.domain.com'
       group2: 'G@os:Debian and foo.domain.com'
+
+More info on using nodegroups can be found :ref:`here <targeting-nodegroups>`.
 
 Calling the Function
 --------------------
@@ -221,3 +230,69 @@ You may change the arguments separator using the ``--args-separator`` option:
 .. code-block:: bash
 
     salt --args-separator=:: '*' some.fun,test.echo params with , comma :: foo
+
+salt-call
+=========
+.. toctree::
+
+    salt-call
+
+salt
+====
+.. toctree::
+
+    salt
+
+salt-cloud
+==========
+.. toctree::
+
+    salt-cloud
+
+salt-cp
+=======
+.. toctree::
+
+    salt-cp
+
+salt-key
+========
+.. toctree::
+
+    salt-key
+
+salt-master
+===========
+.. toctree::
+
+    salt-master
+
+salt-minion
+===========
+.. toctree::
+
+    salt-minion
+
+salt-run
+========
+.. toctree::
+
+    salt-run
+
+salt-ssh
+========
+.. toctree::
+
+    salt-ssh
+
+salt-syndic
+===========
+.. toctree::
+
+    salt-syndic
+
+salt-api
+========
+.. toctree::
+
+    salt-api

@@ -5,30 +5,32 @@ import os
 import tempfile
 import json
 import datetime
-import textwrap
 import pprint
 
 # Import Salt Testing libs
+from tests.integration import ModuleCase
 from salttesting import skipIf, TestCase
 from salttesting.helpers import ensure_in_syspath
 ensure_in_syspath('../../')
 
 # Import salt libs
+import salt.loader
 import salt.utils
 from salt.exceptions import SaltRenderError
 from salt.utils import get_context
-from salt.utils.jinja import SaltCacheLoader, SerializerExtension
-from salt.utils.templates import (
-    JINJA,
-    render_jinja_tmpl,
+from salt.utils.jinja import (
+    SaltCacheLoader,
+    SerializerExtension,
+    ensure_sequence_filter
 )
+from salt.utils.templates import JINJA, render_jinja_tmpl
 from salt.utils.odict import OrderedDict
 
 # Import 3rd party libs
 import yaml
 from jinja2 import Environment, DictLoader, exceptions
 try:
-    import timelib
+    import timelib  # pylint: disable=W0611
     HAS_TIMELIB = True
 except ImportError:
     HAS_TIMELIB = False
@@ -129,7 +131,11 @@ class TestGetTemplate(TestCase):
             'file_client': 'local',
             'file_roots': {
                 'other': [os.path.join(TEMPLATES_DIR, 'files', 'test')]
-            }
+            },
+            'fileserver_backend': ['roots'],
+            'extension_modules': os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'extmods'),
         }
 
     def test_fallback(self):
@@ -177,7 +183,7 @@ class TestGetTemplate(TestCase):
 
     def test_macro_additional_log_for_generalexc(self):
         '''
-        If we failed in a macro because of eg a typeerror, get
+        If we failed in a macro because of e.g. a TypeError, get
         more output from trace.
         '''
         expected = r'''Jinja error:.*division.*
@@ -373,7 +379,7 @@ class TestGetTemplate(TestCase):
 
     def test_render_with_undefined_variable(self):
         template = "hello\n\n{{ foo }}\n\nfoo"
-        expected = r'Jinja variable \'foo\' is undefined;.*\n\n---\nhello\n\n{{ foo }}.*'
+        expected = r'Jinja variable \'foo\' is undefined'
         self.assertRaisesRegexp(
             SaltRenderError,
             expected,
@@ -384,7 +390,7 @@ class TestGetTemplate(TestCase):
 
     def test_render_with_undefined_variable_utf8(self):
         template = "hello\xed\x95\x9c\n\n{{ foo }}\n\nfoo"
-        expected = r'Jinja variable \'foo\' is undefined;.*\n\n---\nhello\xed\x95\x9c\n\n{{ foo }}.*'
+        expected = r'Jinja variable \'foo\' is undefined'
         self.assertRaisesRegexp(
             SaltRenderError,
             expected,
@@ -395,7 +401,7 @@ class TestGetTemplate(TestCase):
 
     def test_render_with_undefined_variable_unicode(self):
         template = u"hello\ud55c\n\n{{ foo }}\n\nfoo"
-        expected = r'Jinja variable \'foo\' is undefined;.*\n\n---\nhello\xed\x95\x9c\n\n{{ foo }}.*'
+        expected = r'Jinja variable \'foo\' is undefined'
         self.assertRaisesRegexp(
             SaltRenderError,
             expected,
@@ -510,6 +516,16 @@ class TestCustomExtensions(TestCase):
         with self.assertRaises(exceptions.TemplateNotFound):
             env.from_string('{% import_json "does not exists" as doc %}').render()
 
+    def test_load_text_template(self):
+        loader = DictLoader({'foo': 'Foo!'})
+        env = Environment(extensions=[SerializerExtension], loader=loader)
+
+        rendered = env.from_string('{% import_text "foo" as doc %}{{ doc }}').render()
+        self.assertEqual(rendered, u"Foo!")
+
+        with self.assertRaises(exceptions.TemplateNotFound):
+            env.from_string('{% import_text "does not exists" as doc %}').render()
+
     def test_catalog(self):
         loader = DictLoader({
             'doc1': '{bar: "my god is blue"}',
@@ -585,6 +601,30 @@ class TestCustomExtensions(TestCase):
                                                         ])
         self.assertEqual(rendered, u"[{'foo': 'bar'}, {'baz': 42}]")
 
+    def test_sequence(self):
+        env = Environment()
+        env.filters['sequence'] = ensure_sequence_filter
+
+        rendered = env.from_string('{{ data | sequence | length }}') \
+                      .render(data='foo')
+        self.assertEqual(rendered, '1')
+
+        rendered = env.from_string('{{ data | sequence | length }}') \
+                      .render(data=['foo', 'bar'])
+        self.assertEqual(rendered, '2')
+
+        rendered = env.from_string('{{ data | sequence | length }}') \
+                      .render(data=('foo', 'bar'))
+        self.assertEqual(rendered, '2')
+
+        rendered = env.from_string('{{ data | sequence | length }}') \
+                      .render(data=set(['foo', 'bar']))
+        self.assertEqual(rendered, '2')
+
+        rendered = env.from_string('{{ data | sequence | length }}') \
+                      .render(data={'foo': 'bar'})
+        self.assertEqual(rendered, '1')
+
     # def test_print(self):
     #     env = Environment(extensions=[SerializerExtension])
     #     source = '{% import_yaml "toto.foo" as docu %}'
@@ -597,7 +637,51 @@ class TestCustomExtensions(TestCase):
     #     return
 
 
+class TestDotNotationLookup(ModuleCase):
+    '''
+    Tests to call Salt functions via Jinja with various lookup syntaxes
+    '''
+    def setUp(self, *args, **kwargs):
+        functions = {
+            'mocktest.ping': lambda: True,
+            'mockgrains.get': lambda x: 'jerry',
+        }
+        render = salt.loader.render(self.minion_opts, functions)
+        self.jinja = render.get('jinja')
+
+    def render(self, tmpl_str, context=None):
+        return self.jinja(tmpl_str, context=context or {}, from_str=True).read()
+
+    def test_normlookup(self):
+        '''
+        Sanity-check the normal dictionary-lookup syntax for our stub function
+        '''
+        tmpl_str = '''Hello, {{ salt['mocktest.ping']() }}.'''
+
+        ret = self.render(tmpl_str)
+        self.assertEqual(ret, 'Hello, True.')
+
+    def test_dotlookup(self):
+        '''
+        Check calling a stub function using awesome dot-notation
+        '''
+        tmpl_str = '''Hello, {{ salt.mocktest.ping() }}.'''
+
+        ret = self.render(tmpl_str)
+        self.assertEqual(ret, 'Hello, True.')
+
+    def test_shadowed_dict_method(self):
+        '''
+        Check calling a stub function with a name that shadows a ``dict``
+        method name
+        '''
+        tmpl_str = '''Hello, {{ salt.mockgrains.get('id') }}.'''
+
+        ret = self.render(tmpl_str)
+        self.assertEqual(ret, 'Hello, jerry.')
+
 if __name__ == '__main__':
     from integration import run_tests
     run_tests(TestSaltCacheLoader, TestGetTemplate, TestCustomExtensions,
+            TestDotNotationLookup,
               needs_daemon=False)

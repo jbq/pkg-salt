@@ -17,9 +17,11 @@ from datetime import datetime
 # pylint: disable=E0611
 from distutils import log
 from distutils.cmd import Command
+from distutils.errors import DistutilsArgError
 from distutils.command.build import build
 from distutils.command.clean import clean
 from distutils.command.sdist import sdist
+from distutils.command.install_lib import install_lib
 # pylint: enable=E0611
 
 try:
@@ -64,6 +66,7 @@ if 'USE_SETUPTOOLS' in os.environ or 'setuptools' in sys.modules:
         from setuptools import setup
         from setuptools.command.install import install
         from setuptools.command.sdist import sdist
+        from setuptools.command.egg_info import egg_info
         WITH_SETUPTOOLS = True
     except ImportError:
         WITH_SETUPTOOLS = False
@@ -76,7 +79,7 @@ if WITH_SETUPTOOLS is False:
     # pylint: enable=E0611
     warnings.filterwarnings(
         'ignore',
-        'Unknown distribution option: \'(tests_require|install_requires|zip_safe)\'',
+        'Unknown distribution option: \'(extras_require|tests_require|install_requires|zip_safe)\'',
         UserWarning,
         'distutils.dist'
     )
@@ -91,21 +94,20 @@ try:
 except ImportError:
     HAS_ESKY = False
 
-SALT_VERSION = os.path.join(
-    os.path.abspath(SETUP_DIRNAME), 'salt', 'version.py'
-)
+SALT_VERSION = os.path.join(os.path.abspath(SETUP_DIRNAME), 'salt', 'version.py')
+SALT_VERSION_HARDCODED = os.path.join(os.path.abspath(SETUP_DIRNAME), 'salt', '_version.py')
+SALT_REQS = os.path.join(os.path.abspath(SETUP_DIRNAME), '_requirements.txt')
+SALT_ZEROMQ_REQS = os.path.join(os.path.abspath(SETUP_DIRNAME), 'zeromq-requirements.txt')
+SALT_CLOUD_REQS = os.path.join(os.path.abspath(SETUP_DIRNAME), 'cloud-requirements.txt')
+SALT_RAET_REQS = os.path.join(os.path.abspath(SETUP_DIRNAME), 'raet-requirements.txt')
+SALT_SYSPATHS = os.path.join(os.path.abspath(SETUP_DIRNAME), 'salt', 'syspaths.py')
 
-SALT_VERSION_HARDCODED = os.path.join(
-    os.path.abspath(SETUP_DIRNAME), 'salt', '_version.py'
-)
-
-SALT_REQS = os.path.join(
-    os.path.abspath(SETUP_DIRNAME), 'requirements.txt'
-)
-
-SALT_SYSPATHS = os.path.join(
-    os.path.abspath(SETUP_DIRNAME), 'salt', 'syspaths.py'
-)
+# Salt SSH Packaging Detection
+PACKAGED_FOR_SALT_SSH_FILE = os.path.join(os.path.abspath(SETUP_DIRNAME), '.salt-ssh-package')
+if '--ssh-packaging' in sys.argv:
+    with open(PACKAGED_FOR_SALT_SSH_FILE, 'w+') as fp_:
+        fp_.write(' ')
+PACKAGED_FOR_SALT_SSH = os.path.isfile(PACKAGED_FOR_SALT_SSH_FILE)
 
 # pylint: disable=W0122
 exec(compile(open(SALT_VERSION).read(), SALT_VERSION, 'exec'))
@@ -113,6 +115,22 @@ exec(compile(open(SALT_SYSPATHS).read(), SALT_SYSPATHS, 'exec'))
 # pylint: enable=W0122
 
 
+# ----- Helper Functions -------------------------------------------------------------------------------------------->
+def _parse_requirements_file(requirements_file):
+    parsed_requirements = []
+    with open(requirements_file) as rfh:
+        for line in rfh.readlines():
+            line = line.strip()
+            if not line or line.startswith(('#', '-r')):
+                continue
+            if IS_WINDOWS_PLATFORM and 'libcloud' in line:
+                continue
+            parsed_requirements.append(line)
+    return parsed_requirements
+# <---- Helper Functions ---------------------------------------------------------------------------------------------
+
+
+# ----- Custom Distutils/Setuptools Commands ------------------------------------------------------------------------>
 class WriteSaltVersion(Command):
 
     description = 'Write salt\'s hardcoded version file'
@@ -140,8 +158,67 @@ class WriteSaltVersion(Command):
             # pylint: enable=E0602
 
 
+class WriteSaltSshPackaingFile(Command):
+
+    description = 'Write salt\'s ssh packaging file'
+
+    def initialize_options(self):
+        pass
+
+    def finalize_options(self):
+        pass
+
+    def run(self):
+        if not os.path.exists(PACKAGED_FOR_SALT_SSH_FILE):
+            # Write the salt-ssh packaging file
+            if getattr(self.distribution, 'salt_ssh_packaging_file', None) is None:
+                print 'This command is not meant to be called on it\'s own'
+                exit(1)
+
+            # pylint: disable=E0602
+            open(self.distribution.salt_ssh_packaging_file, 'w').write('Packaged for Salt-SSH\n')
+            # pylint: enable=E0602
+
+
+if WITH_SETUPTOOLS is True:
+    class EggInfo(egg_info):
+
+        def finalize_options(self):
+            if getattr(self.distribution, 'packaged_for_salt_ssh', PACKAGED_FOR_SALT_SSH):
+                self.distribution.metadata.name = 'salt-ssh'
+            egg_info.finalize_options(self)
+
+
 class Sdist(sdist):
+    user_options = sdist.user_options + [
+        ('ssh-packaging', None, 'Prepare the salt-ssh packaging')
+    ]
+    boolean_options = sdist.boolean_options + [
+        'ssh-packaging'
+    ]
+
+    def initialize_options(self):
+        sdist.initialize_options(self)
+        self.ssh_packaging = PACKAGED_FOR_SALT_SSH
+
+    def finalize_options(self):
+        sdist.finalize_options(self)
+        self.distribution.packaged_for_salt_ssh = self.ssh_packaging
+
     def make_release_tree(self, base_dir, files):
+        if self.ssh_packaging:
+            self.distribution.salt_ssh_packaging_file = PACKAGED_FOR_SALT_SSH_FILE
+            self.run_command('write-salt-ssh-packaging-file')
+            self.distribution.package_data.pop('salt.daemons.flo', None)
+            self.filelist.files.append(os.path.basename(PACKAGED_FOR_SALT_SSH_FILE))
+            self.distribution.metadata.name = 'salt-ssh'
+            self.distribution.data_files = [('share/man/man1',
+                                             ['doc/man/salt-ssh.1',
+                                              'doc/man/salt-run.1',
+                                              'doc/man/salt-call.1',
+                                              'doc/man/salt-cloud.1']),
+                                            ('share/man/man7', ['doc/man/salt.7'])]
+
         sdist.make_release_tree(self, base_dir, files)
 
         # Let's generate salt/_version.py to include in the sdist tarball
@@ -151,21 +228,21 @@ class Sdist(sdist):
         )
         self.run_command('write-salt-version')
 
+    def make_distribution(self):
+        sdist.make_distribution(self)
+        if self.ssh_packaging:
+            os.unlink(PACKAGED_FOR_SALT_SSH_FILE)
+
 
 class CloudSdist(Sdist):
-    user_options = sdist.user_options + [
-        ('skip-bootstrap-download', None,
-         '[DEPRECATED] Skip downloading the bootstrap-salt.sh script. This '
-         'can also be triggered by having `SKIP_BOOTSTRAP_DOWNLOAD=1` as an '
-         'environment variable.'),
+    user_options = Sdist.user_options + [
         ('download-bootstrap-script', None,
          'Download the latest stable bootstrap-salt.sh script. This '
          'can also be triggered by having `DOWNLOAD_BOOTSTRAP_SCRIPT=1` as an '
          'environment variable.')
 
     ]
-    boolean_options = sdist.boolean_options + [
-        'skip-bootstrap-download',
+    boolean_options = Sdist.boolean_options + [
         'download-bootstrap-script'
     ]
 
@@ -196,7 +273,6 @@ class CloudSdist(Sdist):
                     BOOTSTRAP_SCRIPT_DISTRIBUTED_VERSION
                 )
             )
-            req = urllib2.urlopen(url)
             deploy_path = os.path.join(
                 SETUP_DIRNAME,
                 'salt',
@@ -204,28 +280,45 @@ class CloudSdist(Sdist):
                 'deploy',
                 'bootstrap-salt.sh'
             )
-            if req.getcode() == 200:
-                try:
-                    log.info(
-                        'Updating bootstrap-salt.sh.'
-                        '\n\tSource:      {0}'
-                        '\n\tDestination: {1}'.format(
-                            url,
-                            deploy_path
+            log.info(
+                'Updating bootstrap-salt.sh.'
+                '\n\tSource:      {0}'
+                '\n\tDestination: {1}'.format(
+                    url,
+                    deploy_path
+                )
+            )
+
+            try:
+                import requests
+                req = requests.get(url)
+                if req.status_code == 200:
+                    script_contents = req.text.encode(req.encoding)
+                else:
+                    log.error(
+                        'Failed to update the bootstrap-salt.sh script. HTTP '
+                        'Error code: {0}'.format(
+                            req.status_code
                         )
                     )
-                    with open(deploy_path, 'w') as fp_:
-                        fp_.write(req.read())
-                except (OSError, IOError), err:
+            except ImportError:
+                req = urllib2.urlopen(url)
+
+                if req.getcode() == 200:
+                    script_contents = req.read()
+                else:
                     log.error(
-                        'Failed to write the updated script: {0}'.format(err)
+                        'Failed to update the bootstrap-salt.sh script. HTTP '
+                        'Error code: {0}'.format(
+                            req.getcode()
+                        )
                     )
-            else:
+            try:
+                with open(deploy_path, 'w') as fp_:
+                    fp_.write(script_contents)
+            except (OSError, IOError) as err:
                 log.error(
-                    'Failed to update the bootstrap-salt.sh script. HTTP '
-                    'Error code: {0}'.format(
-                        req.getcode()
-                    )
+                    'Failed to write the updated script: {0}'.format(err)
                 )
 
         # Let's the rest of the build command
@@ -236,12 +329,26 @@ class CloudSdist(Sdist):
             # Remove un-necessary scripts grabbed by MANIFEST.in
             for filename in self.filelist.files[:]:
                 if filename in ('scripts/salt',
+                                'scripts/salt-api',
                                 'scripts/salt-cloud',
+                                'scripts/salt-api',
                                 'scripts/salt-key',
                                 'scripts/salt-master',
                                 'scripts/salt-run',
                                 'scripts/salt-ssh',
                                 'scripts/salt-syndic'):
+                    self.filelist.files.pop(
+                        self.filelist.files.index(filename)
+                    )
+        elif self.distribution.packaged_for_salt_ssh:
+            # Remove un-necessary script from Salt-SSH package
+            for filename in self.filelist.files[:]:
+                if not filename.startswith('scripts/'):
+                    continue
+                if filename not in ('scripts/salt-ssh',
+                                    'scripts/salt-run',
+                                    'scripts/salt-call',
+                                    'scripts/salt-cloud'):
                     self.filelist.files.pop(
                         self.filelist.files.index(filename)
                     )
@@ -351,6 +458,9 @@ class Build(build):
 
 class Install(install):
     user_options = install.user_options + [
+        ('salt-transport=', None,
+         'The transport to prepare salt for. Choices are \'zeromq\' '
+         '\'raet\' or \'both\'. Defaults to \'zeromq\''),
         ('salt-root-dir=', None,
          'Salt\'s pre-configured root directory'),
         ('salt-config-dir=', None,
@@ -375,7 +485,14 @@ class Install(install):
 
     def initialize_options(self):
         install.initialize_options(self)
+        if not hasattr(self.distribution, 'install_requires'):
+            # Non setuptools installation
+            self.distribution.install_requires = _parse_requirements_file(SALT_REQS)
         # pylint: disable=E0602
+        if PACKAGED_FOR_SALT_SSH:
+            self.salt_transport = 'ssh'
+        else:
+            self.salt_transport = 'zeromq'
         self.salt_root_dir = ROOT_DIR
         self.salt_config_dir = CONFIG_DIR
         self.salt_cache_dir = CACHE_DIR
@@ -390,18 +507,43 @@ class Install(install):
 
     def finalize_options(self):
         install.finalize_options(self)
+        if PACKAGED_FOR_SALT_SSH and self.salt_transport != 'ssh':
+            raise DistutilsArgError('The only available transport for salt-ssh is \'ssh\'')
+
         for optname in ('root_dir', 'config_dir', 'cache_dir', 'sock_dir',
                         'srv_root_dir', 'base_file_roots_dir',
                         'base_pillar_roots_dir', 'base_master_roots_dir',
                         'logs_dir', 'pidfile_dir'):
             optvalue = getattr(self, 'salt_{0}'.format(optname))
             if not optvalue:
-                raise RuntimeError(
+                raise DistutilsArgError(
                     'The value of --salt-{0} needs a proper path value'.format(
                         optname.replace('_', '-')
                     )
                 )
             setattr(self.distribution, 'salt_{0}'.format(optname), optvalue)
+
+        if self.salt_transport not in ('zeromq', 'raet', 'both', 'ssh', 'none'):
+            raise DistutilsArgError(
+                'The value of --salt-transport needs be \'zeromq\', '
+                '\'raet\', \'both\' \'ssh\' or \'none\' not {0!r}'.format(
+                    self.salt_transport
+                )
+            )
+        elif self.salt_transport in ('ssh', 'none'):
+            for requirement in _parse_requirements_file(SALT_ZEROMQ_REQS):
+                if requirement not in self.distribution.install_requires:
+                    continue
+                self.distribution.install_requires.remove(requirement)
+        elif self.salt_transport in ('raet', 'both'):
+            self.distribution.install_requires.extend(
+                _parse_requirements_file(SALT_RAET_REQS)
+            )
+            if self.salt_transport == 'raet':
+                for requirement in _parse_requirements_file(SALT_ZEROMQ_REQS):
+                    if requirement not in self.distribution.install_requires:
+                        continue
+                    self.distribution.install_requires.remove(requirement)
 
     def run(self):
         # Let's set the running_salt_install attribute so we can add
@@ -414,20 +556,35 @@ class Install(install):
         install.run(self)
 
 
-NAME = 'salt'
+class InstallLib(install_lib):
+    def run(self):
+        executables = [
+                'salt/templates/git/ssh-id-wrapper',
+                'salt/templates/lxc/salt_tarball',
+                ]
+        install_lib.run(self)
+
+        # input and outputs match 1-1
+        inp = self.get_inputs()
+        out = self.get_outputs()
+        chmod = []
+
+        for idx, inputfile in enumerate(inp):
+            for executeable in executables:
+                if inputfile.endswith(executeable):
+                    chmod.append(idx)
+        for idx in chmod:
+            filename = out[idx]
+            os.chmod(filename, 0755)
+# <---- Custom Distutils/Setuptools Commands -------------------------------------------------------------------------
+
+if PACKAGED_FOR_SALT_SSH:
+    NAME = 'salt-ssh'
+else:
+    NAME = 'salt'
+
 VER = __version__  # pylint: disable=E0602
-DESC = ('Portable, distributed, remote execution and '
-        'configuration management system')
-
-REQUIREMENTS = []
-with open(SALT_REQS) as rfh:
-    for line in rfh.readlines():
-        if not line or line.startswith('#'):
-            continue
-        if IS_WINDOWS_PLATFORM and 'libcloud' in line:
-            continue
-        REQUIREMENTS.append(line.strip())
-
+DESC = 'Portable, distributed, remote execution and configuration management system'
 SETUP_KWARGS = {'name': NAME,
                 'version': VER,
                 'description': DESC,
@@ -440,7 +597,8 @@ SETUP_KWARGS = {'name': NAME,
                     'build': Build,
                     'sdist': Sdist,
                     'install': Install,
-                    'write-salt-version': WriteSaltVersion
+                    'write-salt-version': WriteSaltVersion,
+                    'write-salt-ssh-packaging-file': WriteSaltSshPackaingFile,
                 },
                 'classifiers': ['Programming Language :: Python',
                                 'Programming Language :: Cython',
@@ -458,72 +616,108 @@ SETUP_KWARGS = {'name': NAME,
                                 'Topic :: System :: Distributed Computing',
                                 ],
                 'packages': ['salt',
+                             'salt.auth',
                              'salt.cli',
                              'salt.client',
+                             'salt.client.raet',
                              'salt.client.ssh',
                              'salt.client.ssh.wrapper',
-                             'salt.ext',
-                             'salt.auth',
-                             'salt.wheel',
-                             'salt.tops',
-                             'salt.grains',
-                             'salt.modules',
-                             'salt.pillar',
-                             'salt.renderers',
-                             'salt.returners',
-                             'salt.runners',
-                             'salt.states',
-                             'salt.fileserver',
-                             'salt.search',
-                             'salt.templates',
-                             'salt.transport',
-                             'salt.output',
-                             'salt.utils',
-                             'salt.utils.decorators',
-                             'salt.utils.validate',
-                             'salt.roster',
-                             'salt.log',
-                             'salt.log.handlers',
-                             'salt.templates',
                              'salt.cloud',
                              'salt.cloud.clouds',
+                             'salt.daemons',
+                             'salt.daemons.flo',
+                             'salt.ext',
+                             'salt.fileserver',
+                             'salt.grains',
+                             'salt.log',
+                             'salt.log.handlers',
+                             'salt.modules',
+                             'salt.netapi',
+                             'salt.netapi.rest_cherrypy',
+                             'salt.netapi.rest_cherrypy.tools',
+                             'salt.netapi.rest_tornado',
+                             'salt.output',
+                             'salt.pillar',
+                             'salt.proxy',
+                             'salt.renderers',
+                             'salt.returners',
+                             'salt.roster',
+                             'salt.runners',
+                             'salt.search',
+                             'salt.states',
+                             'salt.tops',
+                             'salt.templates',
+                             'salt.transport',
+                             'salt.utils',
+                             'salt.utils.decorators',
+                             'salt.utils.openstack',
+                             'salt.utils.validate',
+                             'salt.utils.serializers',
+                             'salt.wheel',
                              ],
                 'package_data': {'salt.templates': [
                                     'rh_ip/*.jinja',
                                     'debian_ip/*.jinja',
-                                    'virt/*.jinja'
+                                    'virt/*.jinja',
+                                    'git/*',
+                                    'lxc/*',
                                     ],
+                                 'salt.daemons.flo': [
+                                    '*.flo'
+                                    ]
                                 },
                 'data_files': [('share/man/man1',
                                 ['doc/man/salt-cp.1',
                                  'doc/man/salt-call.1',
                                  'doc/man/salt-minion.1',
+                                 'doc/man/salt-unity.1',
                                  ]),
                                ('share/man/man7',
                                 ['doc/man/salt.7',
                                  ]),
                                ],
-                # Required for esky builds
-                'install_requires': REQUIREMENTS,
+                # Required for esky builds, ZeroMQ or RAET deps will be added
+                # at install time
+                'install_requires':
+                    _parse_requirements_file(SALT_REQS) +
+                    _parse_requirements_file(SALT_ZEROMQ_REQS),
+                'extras_require': {
+                    'RAET': _parse_requirements_file(SALT_RAET_REQS),
+                    'Cloud': _parse_requirements_file(SALT_CLOUD_REQS)
+                },
                 # The dynamic module loading in salt.modules makes this
                 # package zip unsafe. Required for esky builds
                 'zip_safe': False
                 }
 
+if PACKAGED_FOR_SALT_SSH:
+    SETUP_KWARGS['data_files'][0][1].extend([
+        'doc/man/salt-ssh.1',
+        'doc/man/salt-run.1',
+        'doc/man/salt-cloud.1',
+    ])
+
 if IS_WINDOWS_PLATFORM is False:
     SETUP_KWARGS['cmdclass']['sdist'] = CloudSdist
-    #SETUP_KWARGS['packages'].extend(['salt.cloud',
-    #                                 'salt.cloud.clouds'])
+    SETUP_KWARGS['cmdclass']['install_lib'] = InstallLib
+    # SETUP_KWARGS['packages'].extend(['salt.cloud',
+    #                                  'salt.cloud.clouds'])
     SETUP_KWARGS['package_data']['salt.cloud'] = ['deploy/*.sh']
+
     SETUP_KWARGS['data_files'][0][1].extend([
         'doc/man/salt-master.1',
         'doc/man/salt-key.1',
         'doc/man/salt.1',
+        'doc/man/salt-api.1',
         'doc/man/salt-syndic.1',
-        'doc/man/salt-run.1',
-        'doc/man/salt-ssh.1',
-        'doc/man/salt-cloud.1'
+        'doc/man/salt-unity.1',
     ])
+    if PACKAGED_FOR_SALT_SSH is False:
+        SETUP_KWARGS['data_files'][0][1].extend([
+            'doc/man/salt-ssh.1',
+            'doc/man/salt-run.1',
+            'doc/man/salt-cloud.1',
+        ])
 
 
 # bbfreeze explicit includes
@@ -545,8 +739,10 @@ FREEZER_INCLUDES = [
     'Cookie',
     'asyncore',
     'fileinput',
+    'sqlite3',
     'email',
     'email.mime.*',
+    'requests',
     'sqlite3',
 ]
 
@@ -591,13 +787,22 @@ elif sys.platform.startswith('sunos'):
     try:
         from bbfreeze.modulegraph.modulegraph import ModuleGraph
         mf = ModuleGraph(sys.path[:])
-        for arg in glob.glob("salt/modules/*.py"):
-                mf.run_script(arg)
+        for arg in glob.glob('salt/modules/*.py'):
+            mf.run_script(arg)
         for mod in mf.flatten():
-            if type(mod).__name__ != "Script" and mod.filename:
+            if type(mod).__name__ != 'Script' and mod.filename:
                 FREEZER_INCLUDES.append(str(os.path.basename(mod.identifier)))
     except ImportError:
         pass
+    # Include C extension that convinces esky to package up the libsodium C library
+    # This is needed for ctypes to find it in libnacl which is in turn needed for raet
+    # see pkg/smartos/esky/sodium_grabber{.c,_installer.py}
+    FREEZER_INCLUDES.extend([
+        'sodium_grabber',
+        'ioflo',
+        'raet',
+        'libnacl',
+    ])
 
 if HAS_ESKY:
     # if the user has the esky / bbfreeze libraries installed, add the
@@ -612,37 +817,70 @@ if HAS_ESKY:
     SETUP_KWARGS['options'] = OPTIONS
 
 if WITH_SETUPTOOLS:
-    SETUP_KWARGS['entry_points'] = {
-        'console_scripts': ['salt-call = salt.scripts:salt_call',
-                            'salt-cp = salt.scripts:salt_cp',
-                            'salt-minion = salt.scripts:salt_minion',
-                            ]
-    }
-    if IS_WINDOWS_PLATFORM is False:
-        SETUP_KWARGS['entry_points']['console_scripts'].extend([
-            'salt = salt.scripts:salt_main',
-            'salt-cloud = salt.scripts:salt_cloud',
-            'salt-key = salt.scripts:salt_key',
-            'salt-master = salt.scripts:salt_master',
-            'salt-run = salt.scripts:salt_run',
+    SETUP_KWARGS['cmdclass']['egg_info'] = EggInfo
+    if PACKAGED_FOR_SALT_SSH is False:
+        SETUP_KWARGS['entry_points'] = {
+            'console_scripts': ['salt-call = salt.scripts:salt_call',
+                                'salt-cp = salt.scripts:salt_cp',
+                                'salt-minion = salt.scripts:salt_minion',
+                                ]
+        }
+    else:
+        SETUP_KWARGS['entry_points'] = {'console_scripts': [
             'salt-ssh = salt.scripts:salt_ssh',
-            'salt-syndic = salt.scripts:salt_syndic',
-        ])
+            'salt-run = salt.scripts:salt_run',
+            'salt-call = salt.scripts:salt_call',
+            'salt-cloud = salt.scripts:salt_cloud',
+        ]}
+    if IS_WINDOWS_PLATFORM is False:
+        if PACKAGED_FOR_SALT_SSH:
+            SETUP_KWARGS['entry_points']['console_scripts'].extend([
+                'salt = salt.scripts:salt_main',
+                'salt-api = salt.scripts:salt_api',
+                'salt-key = salt.scripts:salt_key',
+                'salt-master = salt.scripts:salt_master',
+                'salt-syndic = salt.scripts:salt_syndic',
+            ])
+        else:
+            SETUP_KWARGS['entry_points']['console_scripts'].extend([
+                'salt = salt.scripts:salt_main',
+                'salt-api = salt.scripts:salt_api',
+                'salt-cloud = salt.scripts:salt_cloud',
+                'salt-key = salt.scripts:salt_key',
+                'salt-master = salt.scripts:salt_master',
+                'salt-run = salt.scripts:salt_run',
+                'salt-ssh = salt.scripts:salt_ssh',
+                'salt-syndic = salt.scripts:salt_syndic',
+            ])
 
     # Required for running the tests suite
     SETUP_KWARGS['dependency_links'] = [
         'https://github.com/saltstack/salt-testing/tarball/develop#egg=SaltTesting'
     ]
     SETUP_KWARGS['tests_require'] = ['SaltTesting']
-else:
+
+# When WITH_SETUPTOOLS is True, esky builds would fail to include the scripts,
+# and, if WITH_SETUPTOOLS is True, having scripts and console_scripts defined
+# does not, apparently, break the build, so, let's have both
+if PACKAGED_FOR_SALT_SSH is False:
     SETUP_KWARGS['scripts'] = ['scripts/salt-call',
                                'scripts/salt-cp',
                                'scripts/salt-minion',
+                               'scripts/salt-unity',
                                ]
 
-    if IS_WINDOWS_PLATFORM is False:
+if IS_WINDOWS_PLATFORM is False:
+    if PACKAGED_FOR_SALT_SSH:
+        SETUP_KWARGS['scripts'] = [
+            'scripts/salt-ssh',
+            'scripts/salt-run',
+            'scripts/salt-call',
+            'scripts/salt-cloud'
+        ]
+    else:
         SETUP_KWARGS['scripts'].extend([
             'scripts/salt',
+            'scripts/salt-api',
             'scripts/salt-cloud',
             'scripts/salt-key',
             'scripts/salt-master',
@@ -650,6 +888,15 @@ else:
             'scripts/salt-ssh',
             'scripts/salt-syndic',
         ])
+
+
+if PACKAGED_FOR_SALT_SSH:
+    SETUP_KWARGS.pop('extras_require')
+    for requirement in _parse_requirements_file(SALT_ZEROMQ_REQS):
+        if requirement not in SETUP_KWARGS['install_requires']:
+            continue
+        SETUP_KWARGS['install_requires'].remove(requirement)
+
 
 if __name__ == '__main__':
     setup(**SETUP_KWARGS)

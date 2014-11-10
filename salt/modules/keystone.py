@@ -111,7 +111,7 @@ def ec2_credentials_create(user_id=None, name=None,
                            tenant_id=None, tenant=None,
                            profile=None, **connection_args):
     '''
-    Create EC2-compatibile credentials for user per tenant
+    Create EC2-compatible credentials for user per tenant
 
     CLI Examples:
 
@@ -146,7 +146,7 @@ def ec2_credentials_create(user_id=None, name=None,
 def ec2_credentials_delete(user_id=None, name=None, access_key=None,
                            profile=None, **connection_args):
     '''
-    Delete EC2-compatibile credentials
+    Delete EC2-compatible credentials
 
     CLI Examples:
 
@@ -240,10 +240,18 @@ def endpoint_get(service, profile=None, **connection_args):
 
     .. code-block:: bash
 
-        salt '*' keystone.endpoint_get ec2
+        salt '*' keystone.endpoint_get nova
     '''
     kstone = auth(profile, **connection_args)
-    return kstone.service_catalog.url_for(service_type=service)
+    services = service_list(profile, **connection_args)
+    if service not in services:
+        return {'Error': 'Could not find the specified service'}
+    service_id = services[service]['id']
+    endpoints = endpoint_list(profile, **connection_args)
+    for endpoint in endpoints:
+        if endpoints[endpoint]['service_id'] == service_id:
+            return endpoints[endpoint]
+    return {'Error': 'Could not find endpoint for the specified service'}
 
 
 def endpoint_list(profile=None, **connection_args):
@@ -266,6 +274,50 @@ def endpoint_list(profile=None, **connection_args):
                             'publicurl': endpoint.publicurl,
                             'service_id': endpoint.service_id}
     return ret
+
+
+def endpoint_create(service, publicurl=None, internalurl=None, adminurl=None,
+                    region=None, profile=None, **connection_args):
+    '''
+    Create an endpoint for an Openstack service
+
+    CLI Examples:
+
+    .. code-block:: bash
+
+        salt '*' keystone.endpoint_create nova 'http://public/url'
+            'http://internal/url' 'http://adminurl/url' region
+    '''
+    kstone = auth(profile, **connection_args)
+    keystone_service = service_get(name=service, **connection_args)
+    if not keystone_service or 'Error' in keystone_service:
+        return {'Error': 'Could not find the specified service'}
+    kstone.endpoints.create(region=region,
+                            service_id=keystone_service[service]['id'],
+                            publicurl=publicurl,
+                            adminurl=adminurl,
+                            internalurl=internalurl)
+    return endpoint_get(service, **connection_args)
+
+
+def endpoint_delete(service, profile=None, **connection_args):
+    '''
+    Delete endpoints of an Openstack service
+
+    CLI Examples:
+
+    .. code-block:: bash
+
+        salt '*' keystone.endpoint_delete nova
+    '''
+    kstone = auth(profile, **connection_args)
+    endpoint = endpoint_get(service, profile, **connection_args)
+    if not endpoint or 'Error' in endpoint:
+        return {'Error': 'Could not find any endpoints for the service'}
+    kstone.endpoints.delete(endpoint['id'])
+    endpoint = endpoint_get(service, profile, **connection_args)
+    if not endpoint or 'Error' in endpoint:
+        return True
 
 
 def role_create(name, profile=None, **connection_args):
@@ -387,7 +439,7 @@ def service_delete(service_id=None, name=None, profile=None, **connection_args):
         salt '*' keystone.service_delete c965f79c4f864eaaa9c3b41904e67082
         salt '*' keystone.service_delete name=nova
     '''
-    kstone = auth(profile)
+    kstone = auth(profile, **connection_args)
     if name:
         service_id = service_get(name=name, profile=profile,
                                  **connection_args)[name]['id']
@@ -539,7 +591,7 @@ def tenant_list(profile=None, **connection_args):
     return ret
 
 
-def tenant_update(tenant_id=None, name=None, email=None,
+def tenant_update(tenant_id=None, name=None, description=None,
                   enabled=None, profile=None, **connection_args):
     '''
     Update a tenant's information (keystone tenant-update)
@@ -565,11 +617,11 @@ def tenant_update(tenant_id=None, name=None, email=None,
     tenant = kstone.tenants.get(tenant_id)
     if not name:
         name = tenant.name
-    if not email:
-        email = tenant.email
+    if not description:
+        description = tenant.description
     if enabled is None:
         enabled = tenant.enabled
-    kstone.tenants.update(tenant_id, name, email, enabled)
+    kstone.tenants.update(tenant_id, name, description, enabled)
 
 
 def token_get(profile=None, **connection_args):
@@ -779,9 +831,9 @@ def user_password_update(user_id=None, name=None, password=None,
 
     .. code-block:: bash
 
-        salt '*' keystone.user_delete c965f79c4f864eaaa9c3b41904e67082 password=12345
-        salt '*' keystone.user_delete user_id=c965f79c4f864eaaa9c3b41904e67082 password=12345
-        salt '*' keystone.user_delete name=nova password=12345
+        salt '*' keystone.user_password_update c965f79c4f864eaaa9c3b41904e67082 password=12345
+        salt '*' keystone.user_password_update user_id=c965f79c4f864eaaa9c3b41904e67082 password=12345
+        salt '*' keystone.user_password_update name=nova password=12345
     '''
     kstone = auth(profile, **connection_args)
     if name:

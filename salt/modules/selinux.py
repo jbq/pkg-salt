@@ -70,14 +70,14 @@ def getenforce():
 
         salt '*' selinux.getenforce
     '''
-    enforce = os.path.join(selinux_fs_path(), 'enforce')
     try:
+        enforce = os.path.join(selinux_fs_path(), 'enforce')
         with salt.utils.fopen(enforce, 'r') as _fp:
             if _fp.readline().strip() == '0':
                 return 'Permissive'
             else:
                 return 'Enforcing'
-    except (IOError, OSError) as exc:
+    except (IOError, OSError, AttributeError) as exc:
         msg = 'Could not read SELinux enforce file: {0}'
         raise CommandExecutionError(msg.format(str(exc)))
 
@@ -107,8 +107,12 @@ def setenforce(mode):
     else:
         return 'Invalid mode {0}'.format(mode)
     enforce = os.path.join(selinux_fs_path(), 'enforce')
-    with salt.utils.fopen(enforce, 'w') as _fp:
-        _fp.write(mode)
+    try:
+        with salt.utils.fopen(enforce, 'w') as _fp:
+            _fp.write(mode)
+    except (IOError, OSError) as exc:
+        msg = 'Could not write SELinux enforce file: {0}'
+        raise CommandExecutionError(msg.format(str(exc)))
     return getenforce()
 
 

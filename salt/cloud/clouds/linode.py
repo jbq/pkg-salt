@@ -7,6 +7,8 @@ The Linode cloud module is used to control access to the Linode VPS system
 
 Use of this module only requires the ``apikey`` parameter.
 
+:depends: libcloud >= 0.13.2
+
 Set up the cloud configuration at ``/etc/salt/cloud.providers`` or
 ``/etc/salt/cloud.providers.d/linode.conf``:
 
@@ -26,7 +28,11 @@ import pprint
 import logging
 
 # Import libcloud
-from libcloud.compute.base import NodeAuthPassword
+try:
+    from libcloud.compute.base import NodeAuthPassword
+    HAS_LIBCLOUD = True
+except ImportError:
+    HAS_LIBCLOUD = False
 
 # Import salt cloud libs
 import salt.config as config
@@ -50,6 +56,7 @@ list_nodes = namespaced_function(list_nodes, globals())
 list_nodes_full = namespaced_function(list_nodes_full, globals())
 list_nodes_select = namespaced_function(list_nodes_select, globals())
 show_instance = namespaced_function(show_instance, globals())
+get_node = namespaced_function(get_node, globals())
 
 
 # Only load in this module if the LINODE configurations are in place
@@ -57,6 +64,9 @@ def __virtual__():
     '''
     Set up the libcloud functions and check for Linode configurations.
     '''
+    if not HAS_LIBCLOUD:
+        return False
+
     if get_configured_provider() is False:
         return False
 
@@ -86,6 +96,15 @@ def get_conn():
     )
 
 
+def get_disk_size(vm_, size, swap):
+    '''
+    Return the size of of the root disk in MB
+    '''
+    return config.get_cloud_config_value(
+        'disk_size', vm_, __opts__, default=size.disk - swap
+    )
+
+
 def get_location(conn, vm_):
     '''
     Return the node location to use
@@ -109,6 +128,24 @@ def get_password(vm_):
     )
 
 
+def get_private_ip(vm_):
+    '''
+    Return True if a private ip address is requested
+    '''
+    return config.get_cloud_config_value(
+        'private_ip', vm_, __opts__, default=False
+    )
+
+
+def get_swap(vm_):
+    '''
+    Return the amount of swap space to use in MB
+    '''
+    return config.get_cloud_config_value(
+        'swap', vm_, __opts__, default=128
+    )
+
+
 def create(vm_):
     '''
     Create a single VM from a data dict
@@ -122,6 +159,7 @@ def create(vm_):
             'profile': vm_['profile'],
             'provider': vm_['provider'],
         },
+        transport=__opts__['transport']
     )
 
     log.info('Creating Cloud VM {0}'.format(vm_['name']))
@@ -131,8 +169,14 @@ def create(vm_):
         'image': get_image(conn, vm_),
         'size': get_size(conn, vm_),
         'location': get_location(conn, vm_),
-        'auth': NodeAuthPassword(get_password(vm_))
+        'auth': NodeAuthPassword(get_password(vm_)),
+        'ex_private': get_private_ip(vm_),
+        'ex_rsize': get_disk_size(vm_, get_size(conn, vm_), get_swap(vm_)),
+        'ex_swap': get_swap(vm_)
     }
+
+    if 'libcloud_args' in vm_:
+        kwargs.update(vm_['libcloud_args'])
 
     salt.utils.cloud.fire_event(
         'event',
@@ -141,7 +185,11 @@ def create(vm_):
         {'kwargs': {'name': kwargs['name'],
                     'image': kwargs['image'].name,
                     'size': kwargs['size'].name,
-                    'location': kwargs['location'].name}},
+                    'location': kwargs['location'].name,
+                    'ex_private': kwargs['ex_private'],
+                    'ex_rsize': kwargs['ex_rsize'],
+                    'ex_swap': kwargs['ex_swap']}},
+        transport=__opts__['transport']
     )
 
     try:
@@ -151,10 +199,10 @@ def create(vm_):
             'Error creating {0} on LINODE\n\n'
             'The following exception was thrown by libcloud when trying to '
             'run the initial deployment: \n{1}'.format(
-                vm_['name'], exc.message
+                vm_['name'], str(exc)
             ),
             # Show the traceback if the debug logging level is enabled
-            exc_info=log.isEnabledFor(logging.DEBUG)
+            exc_info_on_loglevel=logging.DEBUG
         )
         return False
 
@@ -166,6 +214,7 @@ def create(vm_):
     if config.get_cloud_config_value('deploy', vm_, __opts__) is True:
         deploy_script = script(vm_)
         deploy_kwargs = {
+            'opts': __opts__,
             'host': data.public_ips[0],
             'username': ssh_username,
             'password': get_password(vm_),
@@ -247,6 +296,7 @@ def create(vm_):
             'executing deploy script',
             'salt/cloud/{0}/deploying'.format(vm_['name']),
             {'kwargs': event_kwargs},
+            transport=__opts__['transport']
         )
 
         deployed = False
@@ -282,6 +332,7 @@ def create(vm_):
             'profile': vm_['profile'],
             'provider': vm_['provider'],
         },
+        transport=__opts__['transport']
     )
 
     return ret

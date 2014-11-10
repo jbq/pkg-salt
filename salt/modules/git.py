@@ -5,54 +5,18 @@ Support for the Git SCM
 
 # Import python libs
 import os
-import tempfile
-try:
-    import pipes
-    HAS_PIPES = True
-except ImportError:
-    HAS_PIPES = False
+import subprocess
 
 # Import salt libs
-from salt import utils, exceptions
+from salt import utils
+from salt.exceptions import SaltInvocationError, CommandExecutionError
 
 
 def __virtual__():
     '''
     Only load if git exists on the system
     '''
-    if not all((utils.which('git'), HAS_PIPES)):
-        return False
-    return 'git'
-
-
-def _git_ssh_helper(identity):
-    '''
-    Returns the path to a helper script which can be used in the GIT_SSH env
-    var to use a custom private key file.
-    '''
-    opts = {
-        'StrictHostKeyChecking': 'no',
-        'PasswordAuthentication': 'no',
-        'KbdInteractiveAuthentication': 'no',
-        'ChallengeResponseAuthentication': 'no',
-    }
-
-    helper = tempfile.NamedTemporaryFile(delete=False)
-
-    helper.writelines([
-        '#!/bin/sh\n',
-        'exec ssh {opts} -i {identity} $*\n'.format(
-            opts=' '.join('-o%s=%s' % (key, value)
-                          for key, value in opts.items()),
-            identity=identity,
-        )
-    ])
-
-    helper.close()
-
-    os.chmod(helper.name, 0755)
-
-    return helper.name
+    return True if utils.which('git') else False
 
 
 def _git_run(cmd, cwd=None, runas=None, identity=None, **kwargs):
@@ -66,27 +30,49 @@ def _git_run(cmd, cwd=None, runas=None, identity=None, **kwargs):
     env = {}
 
     if identity:
-        helper = _git_ssh_helper(identity)
+        stderrs = []
 
-        env = {
-            'GIT_SSH': helper
-        }
+        # if the statefile provides multiple identities, they need to be tried
+        # (but also allow a string instead of a list)
+        if not isinstance(identity, list):
+            # force it into a list
+            identity = [identity]
 
-    result = __salt__['cmd.run_all'](cmd,
-                                     cwd=cwd,
-                                     runas=runas,
-                                     env=env,
-                                     **kwargs)
+        # try each of the identities, independently
+        for id_file in identity:
+            env = {
+                'GIT_SSH': os.path.join(utils.templates.TEMPLATE_DIRNAME,
+                                        'git/ssh-id-wrapper'),
+                'GIT_IDENTITY': id_file
+            }
 
-    if identity:
-        os.unlink(helper)
+            result = __salt__['cmd.run_all'](cmd,
+                                             cwd=cwd,
+                                             runas=runas,
+                                             env=env,
+                                             **kwargs)
 
-    retcode = result['retcode']
+            # if the command was successful, no need to try additional IDs
+            if result['retcode'] == 0:
+                return result['stdout']
+            else:
+                stderrs.append(result['stderr'])
 
-    if retcode == 0:
-        return result['stdout']
+        # we've tried all IDs and still haven't passed, so error out
+        raise CommandExecutionError("\n\n".join(stderrs))
+
     else:
-        raise exceptions.CommandExecutionError(result['stderr'])
+        result = __salt__['cmd.run_all'](cmd,
+                                         cwd=cwd,
+                                         runas=runas,
+                                         env=env,
+                                         **kwargs)
+        retcode = result['retcode']
+
+        if retcode == 0:
+            return result['stdout']
+        else:
+            raise CommandExecutionError(result['stderr'])
 
 
 def _git_getdir(cwd, user=None):
@@ -121,8 +107,7 @@ def current_branch(cwd, user=None):
 
         salt '*' git.current_branch /path/to/repo
     '''
-    cmd = r'git branch | grep "^*\ " | cut -d " " -f 2 | ' + \
-        'grep -v "(detached"'
+    cmd = r'git rev-parse --abbrev-ref HEAD'
 
     return __salt__['cmd.run_stdout'](cmd, cwd=cwd, runas=user)
 
@@ -188,7 +173,7 @@ def clone(cwd, repository, opts=None, user=None, identity=None):
 
     if not opts:
         opts = ''
-    cmd = 'git clone {0} {1} {2}'.format(repository, cwd, opts)
+    cmd = 'git clone {0} {1!r} {2}'.format(repository, cwd, opts)
 
     return _git_run(cmd, runas=user, identity=identity)
 
@@ -499,7 +484,7 @@ def submodule(cwd, init=True, opts=None, user=None, identity=None):
 def status(cwd, user=None):
     '''
     Return the status of the repository. The returned format uses the status
-    codes of gits 'porcelain' output mode
+    codes of git's 'porcelain' output mode
 
     cwd
         The path to the Git repository
@@ -606,9 +591,10 @@ def commit(cwd, message, user=None, opts=None):
         salt '*' git.commit /path/to/git/repo 'The commit message'
     '''
 
-    if not opts:
-        opts = ''
-    cmd = 'git commit -m {0} {1}'.format(pipes.quote(message), opts)
+    cmd = subprocess.list2cmdline(['git', 'commit', '-m', message])
+    # add opts separately; they don't need to be quoted
+    if opts:
+        cmd = cmd + ' ' + opts
     return _git_run(cmd, cwd=cwd, runas=user)
 
 
@@ -702,7 +688,7 @@ def remote_get(cwd, remote='origin', user=None):
             return res
         else:
             return None
-    except exceptions.CommandExecutionError:
+    except CommandExecutionError:
         return None
 
 
@@ -732,6 +718,33 @@ def remote_set(cwd, name='origin', url=None, user=None):
     cmd = 'git remote add {0} {1}'.format(name, url)
     _git_run(cmd, cwd=cwd, runas=user)
     return remote_get(cwd=cwd, remote=name, user=None)
+
+
+def branch(cwd, rev, opts=None, user=None):
+    '''
+    Interacts with branches.
+
+    cwd
+        The path to the Git repository
+
+    rev
+        The branch/revision to be used in the command.
+
+    opts : None
+        Any additional options to add to the command line
+
+    user : None
+        Run git as a user other than what the minion runs as
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' git.branch mybranch --set-upstream-to=origin/mybranch
+    '''
+    cmd = 'git branch {0} {1}'.format(rev, opts)
+    _git_run(cmd, cwd=cwd, user=user)
+    return current_branch(cwd, user=user)
 
 
 def reset(cwd, opts=None, user=None):
@@ -786,19 +799,22 @@ def stash(cwd, opts=None, user=None):
     return _git_run('git stash {0}'.format(opts), cwd=cwd, runas=user)
 
 
-def config_set(cwd, setting_name, setting_value, user=None, is_global=False):
+def config_set(cwd=None, setting_name=None, setting_value=None, user=None, is_global=False):
     '''
     Set a key in the git configuration file (.git/config) of the repository or
     globally.
 
-    cwd
-        The path to the Git repository
+    cwd : None
+        Options path to the Git repository
 
-    setting_name
-        The name of the configuration key to set
+        .. versionchanged:: 2014.7.0
+            Made ``cwd`` optional
 
-    setting_value
-        The (new) value to set
+    setting_name : None
+        The name of the configuration key to set. Required.
+
+    setting_value : None
+        The (new) value to set. Required.
 
     user : None
         Run git as a user other than what the minion runs as
@@ -812,24 +828,34 @@ def config_set(cwd, setting_name, setting_value, user=None, is_global=False):
 
         salt '*' git.config_set /path/to/repo user.email me@example.com
     '''
+    if setting_name is None or setting_value is None:
+        raise TypeError
+    if cwd is None and not is_global:
+        raise SaltInvocationError('Either `is_global` must be set to True or '
+                                  'you must provide `cwd`')
+
     scope = '--local'
     if is_global:
         scope = '--global'
 
     _check_git()
 
-    return _git_run('git config {0} {1} {2}'.format(scope, setting_name, setting_value), cwd=cwd, runas=user)
+    return _git_run('git config {0} {1} {2}'.format(scope, setting_name, setting_value),
+                    cwd=cwd, runas=user)
 
 
-def config_get(cwd, setting_name, user=None):
+def config_get(cwd=None, setting_name=None, user=None):
     '''
-    Get a key from the git configuration file (.git/config) of the repository.
+    Get a key or keys from the git configuration file (.git/config).
 
-    cwd
-        The path to the Git repository
+    cwd : None
+        Optional path to a Git repository
 
-    setting_name
-        The name of the configuration key to get
+        .. versionchanged:: 2014.7.0
+            Made ``cwd`` optional
+
+    setting_name : None
+        The name of the configuration key to get. Required.
 
     user : None
         Run git as a user other than what the minion runs as
@@ -838,8 +864,11 @@ def config_get(cwd, setting_name, user=None):
 
     .. code-block:: bash
 
-        salt '*' git.config_get /path/to/repo user.email
+        salt '*' git.config_get setting_name=user.email
+        salt '*' git.config_get /path/to/repo user.name arthur
     '''
+    if setting_name is None:
+        raise TypeError
     _check_git()
 
     return _git_run('git config {0}'.format(setting_name), cwd=cwd, runas=user)

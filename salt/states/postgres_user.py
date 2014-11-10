@@ -28,9 +28,7 @@ def __virtual__():
     '''
     Only load if the postgres module is present
     '''
-    return 'postgres_user' if (
-        'postgres.user_exists' in __salt__
-    ) else False
+    return 'postgres.user_exists' in __salt__
 
 
 def present(name,
@@ -43,6 +41,7 @@ def present(name,
             inherit=None,
             login=None,
             password=None,
+            refresh_password=None,
             groups=None,
             runas=None,
             user=None,
@@ -90,9 +89,21 @@ def present(name,
 
             'md5{MD5OF({password}{role}}'
 
-        If encrypted is None or True, the password will be automaticly
+        If encrypted is None or True, the password will be automatically
         encrypted to the previous
         format if it is not already done.
+
+    refresh_password
+        Password refresh flag
+
+        Boolean attribute to specify whether to password comparison check
+        should be performed.
+
+        If refresh_password is None or False, the password will be automatically
+        updated without extra password change check.
+
+        This behaviour allows to execute in environments without superuser access
+        available, e.g. Amazon RDS for PostgreSQL
 
     groups
         A string of comma separated groups the user should be in
@@ -135,7 +146,7 @@ def present(name,
     # default to encrypted passwords
     if encrypted is not False:
         encrypted = postgres._DEFAULT_PASSWORDS_ENCRYPTION
-    # maybe encrypt if if not already and neccesary
+    # maybe encrypt if if not already and necessary
     password = postgres._maybe_encrypt_password(name,
                                                 password,
                                                 encrypted=encrypted)
@@ -170,15 +181,11 @@ def present(name,
     # check if user exists
     mode = 'create'
     user_attr = __salt__['postgres.role_get'](
-        name, return_password=True, **db_args)
+        name, return_password=not refresh_password, **db_args)
     if user_attr is not None:
         mode = 'update'
 
     # The user is not present, make it!
-    if __opts__['test']:
-        ret['result'] = None
-        ret['comment'] = 'User {0} is set to be {1}d'.format(name, mode)
-        return ret
     cret = None
     update = {}
     if mode == 'update':
@@ -206,9 +213,16 @@ def present(name,
             update['replication'] = replication
         if superuser is not None and user_attr['superuser'] != superuser:
             update['superuser'] = superuser
-        if password is not None and user_attr['password'] != password:
+        if password is not None and (refresh_password or user_attr['password'] != password):
             update['password'] = True
+
     if mode == 'create' or (mode == 'update' and update):
+        if __opts__['test']:
+            if update:
+                ret['changes'][name] = update
+            ret['result'] = None
+            ret['comment'] = 'User {0} is set to be {1}d'.format(name, mode)
+            return ret
         cret = __salt__['postgres.user_{0}'.format(mode)](
             username=name,
             createdb=createdb,
@@ -223,6 +237,7 @@ def present(name,
             **db_args)
     else:
         cret = None
+
     if cret:
         ret['comment'] = 'The user {0} has been {1}d'.format(name, mode)
         if update:

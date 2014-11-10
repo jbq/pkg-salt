@@ -27,7 +27,7 @@ Override these in the minion config
 -----------------------------------
 
 solr.cores
-    A list of core names eg ['core1','core2'].
+    A list of core names e.g. ['core1','core2'].
     An empty list indicates non-multicore setup.
 solr.baseurl
     The root level URL to access solr via HTTP
@@ -63,6 +63,7 @@ verbose : True
 # Import python Libs
 import json
 import os
+import urllib2
 
 # Import salt libs
 import salt.utils
@@ -196,7 +197,7 @@ def _format_url(handler, host=None, core_name=None, extra=None):
         The name of the solr core if using cores. Leave this blank if you
         are not using cores or if you want to check all cores.
     extra : list<str> ([])
-        A list of name value pairs in string format. eg ['name=value']
+        A list of name value pairs in string format. e.g. ['name=value']
 
     Return: str
         Fully formatted URL (http://<host>:<port>/solr/<handler>?wt=json&<extra>)
@@ -222,6 +223,28 @@ def _format_url(handler, host=None, core_name=None, extra=None):
                     host, port, baseurl, core_name, handler, "&".join(extra))
 
 
+def _auth(url):
+    '''
+    Install an auth handler for urllib2
+    '''
+    user = __salt__['config.get']('solr.user', False)
+    password = __salt__['config.get']('solr.passwd', False)
+    realm = __salt__['config.get']('solr.auth_realm', 'Solr')
+
+    if user and password:
+        basic = urllib2.HTTPBasicAuthHandler()
+        basic.add_password(
+            realm=realm, uri=url, user=user, passwd=password
+        )
+        digest = urllib2.HTTPDigestAuthHandler()
+        digest.add_password(
+            realm=realm, uri=url, user=user, passwd=password
+        )
+        urllib2.install_opener(
+            urllib2.build_opener(basic, digest)
+        )
+
+
 def _http_request(url, request_timeout=None):
     '''
     PRIVATE METHOD
@@ -237,6 +260,7 @@ def _http_request(url, request_timeout=None):
 
          {'success':boolean, 'data':dict, 'errors':list, 'warnings':list}
     '''
+    _auth(url)
     try:
 
         request_timeout = __salt__['config.option']('solr.request_timeout')
@@ -265,7 +289,7 @@ def _replication_request(command, host=None, core_name=None, params=None):
         not using cores or if you want to check all cores.
     params : list<str> ([])
         Any additional parameters you want to send. Should be a lsit of
-        strings in name=value format. eg ['name=value']
+        strings in name=value format. e.g. ['name=value']
 
     Return: dict<str, obj>::
 
@@ -1238,7 +1262,7 @@ def delta_import(handler, host=None, core_name=None, options=None, extra=None):
         be merged with __opts__
 
     extra : dict ([])
-        Extra name value pairs to pass to the handler. eg ["name=value"]
+        Extra name value pairs to pass to the handler. e.g. ["name=value"]
 
     Return : dict<str,obj>::
 
@@ -1260,7 +1284,7 @@ def delta_import(handler, host=None, core_name=None, options=None, extra=None):
     if not resp['success']:
         return resp
     options = _merge_options(options)
-    #if we're nuking data, and we're multi-core disable replication for safty
+    #if we're nuking data, and we're multi-core disable replication for safety
     if options['clean'] and _check_for_cores():
         resp = set_replication_enabled(False, host=host, core_name=core_name)
         if not resp['success']:

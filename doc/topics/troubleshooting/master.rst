@@ -77,7 +77,9 @@ As with any change to resource limits, it is best to stay logged into your
 current shell and open another shell to run ``ulimit -n`` again and verify that
 the changes were applied correctly. Additionally, if your master is running
 upstart, it may be necessary to specify the ``nofile`` limit in
-``/etc/default/salt-master`` if upstart isn't respecting your resource limits::
+``/etc/default/salt-master`` if upstart isn't respecting your resource limits:
+
+.. code-block:: text
 
     limit nofile 4096 4096
 
@@ -154,12 +156,39 @@ Then pass the signal to the master when it seems to be unresponsive:
 When filing an issue or sending questions to the mailing list for a problem
 with an unresponsive daemon, be sure to include this information if possible.
 
+
+Live Salt-Master Profiling
+==========================
+
+When faced with performance problems one can turn on master process profiling by
+sending it SIGUSR2.
+
+.. code-block:: bash
+
+    # killall -SIGUSR2 salt-master
+
+This will activate ``yappi`` profiler inside salt-master code, then after some
+time one must send SIGUSR2 again to stop profiling and save results to file. If
+run in foreground salt-master will report filename for the results, which are
+usually located under ``/tmp`` on Unix-based OSes and ``c:\temp`` on windows.
+
+Results can then be analyzed with `kcachegrind`_ or similar tool.
+
+.. _`kcachegrind`: http://kcachegrind.sourceforge.net/html/Home.html
+
+
 Commands Time Out or Do Not Return Output
 =========================================
 
 Depending on your OS (this is most common on Ubuntu due to apt-get) you may
 sometimes encounter times where your highstate, or other long running commands
-do not return output. This is most commonly due to the timeout being reached.
+do not return output. 
+
+.. note::
+    A number of timing issues were resolved in the 2014.1 release of Salt.
+    Upgrading to at least this version is strongly recommended if timeouts
+    persist.
+
 By default the timeout is set to 5 seconds. The timeout value can easily be
 increased by modifying the ``timeout`` line within your ``/etc/salt/master``
 configuration file.
@@ -169,8 +198,42 @@ Passing the -c Option to Salt Returns a Permissions Error
 =========================================================
 
 Using the ``-c`` option with the Salt command modifies the configuration
-directory. When the configuratio file is read it will still base data off of
+directory. When the configuration file is read it will still base data off of
 the ``root_dir`` setting. This can result in unintended behavior if you are
 expecting files such as ``/etc/salt/pki`` to be pulled from the location
 specified with ``-c``. Modify the ``root_dir`` setting to address this
 behavior.
+
+
+Salt Master Auth Flooding
+=========================
+
+In large installations, care must be taken not to overwhealm the master with
+authentication requests. Several options can be set on the master which
+mitigate the chances of an authentication flood from causing an interuption in
+service.
+
+.. note::
+    recon_default: 
+    
+    The average number of seconds to wait between reconnection attempts.
+
+    recon_max: 
+       The maximum number of seconds to wait between reconnection attempts.
+
+    recon_randomize:
+        A flag to indicate whether the recon_default value should be randomized.
+
+    acceptance_wait_time:
+        The number of seconds to wait for a reply to each authentication request.
+
+    random_reauth_delay: 
+        The range of seconds across which the minions should attempt to randomize
+        authentication attempts.
+
+    auth_timeout:
+        The total time to wait for the authentication process to complete, regardless
+        of the number of attempts.
+
+
+

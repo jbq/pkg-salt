@@ -35,14 +35,15 @@ def install(gems,           # pylint: disable=C0103
             runas=None,
             version=None,
             rdoc=False,
-            ri=False):      # pylint: disable=C0103
+            ri=False,
+            proxy=None):      # pylint: disable=C0103
     '''
     Installs one or several gems.
 
     gems
         The gems to install
     ruby : None
-        If RVM is installed, the ruby version and gemset to use.
+        If RVM or rbenv are installed, the ruby version and gemset to use.
     runas : None
         The user to run gem as.
     version : None
@@ -52,6 +53,9 @@ def install(gems,           # pylint: disable=C0103
         Generate RDoc documentation for the gem(s).
     ri : False
         Generate RI documentation for the gem(s).
+    proxy : None
+        Use the specified HTTP proxy server for all outgoing traffic.
+        Format: http://hostname[:port]
 
     CLI Example:
 
@@ -66,6 +70,8 @@ def install(gems,           # pylint: disable=C0103
         options += ' --no-rdoc'
     if not ri:
         options += ' --no-ri'
+    if proxy:
+        options += '-p {0}'.format(proxy)
 
     return _gem('install {gems} {options}'.format(gems=gems, options=options),
                 ruby,
@@ -79,7 +85,7 @@ def uninstall(gems, ruby=None, runas=None):
     gems
         The gems to uninstall.
     ruby : None
-        If RVM is installed, the ruby version and gemset to use.
+        If RVM or rbenv are installed, the ruby version and gemset to use.
     runas : None
         The user to run gem as.
 
@@ -99,7 +105,7 @@ def update(gems, ruby=None, runas=None):
     gems
         The gems to update.
     ruby : None
-        If RVM is installed, the ruby version and gemset to use.
+        If RVM or rbenv are installed, the ruby version and gemset to use.
     runas : None
         The user to run gem as.
 
@@ -119,7 +125,7 @@ def update_system(version='', ruby=None, runas=None):
     version : (newest)
         The version of rubygems to install.
     ruby : None
-        If RVM is installed, the ruby version and gemset to use.
+        If RVM or rbenv are installed, the ruby version and gemset to use.
     runas : None
         The user to run gem as.
 
@@ -140,7 +146,7 @@ def list_(prefix='', ruby=None, runas=None):
     prefix :
         Only list gems when the name matches this prefix.
     ruby : None
-        If RVM is installed, the ruby version and gemset to use.
+        If RVM or rbenv are installed, the ruby version and gemset to use.
     runas : None
         The user to run gem as.
 
@@ -172,7 +178,7 @@ def sources_add(source_uri, ruby=None, runas=None):
     source_uri
         The source URI to add.
     ruby : None
-        If RVM is installed, the ruby version and gemset to use.
+        If RVM or rbenv are installed, the ruby version and gemset to use.
     runas : None
         The user to run gem as.
 
@@ -193,7 +199,7 @@ def sources_remove(source_uri, ruby=None, runas=None):
     source_uri
         The source URI to remove.
     ruby : None
-        If RVM is installed, the ruby version and gemset to use.
+        If RVM or rbenv are installed, the ruby version and gemset to use.
     runas : None
         The user to run gem as.
 
@@ -212,7 +218,7 @@ def sources_list(ruby=None, runas=None):
     List the configured gem sources.
 
     ruby : None
-        If RVM is installed, the ruby version and gemset to use.
+        If RVM or rbenv are installed, the ruby version and gemset to use.
     runas : None
         The user to run gem as.
 

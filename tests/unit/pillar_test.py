@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
     :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
-    :copyright: © 2013 by the SaltStack Team, see AUTHORS for more details
-    :license: Apache 2.0, see LICENSE for more details.
 
 
     tests.unit.pillar_test
@@ -124,11 +122,11 @@ class PillarTestCase(TestCase):
         # glob match takes precedence
         self._setup_test_topfile_mocks(Matcher, get_file_client, 1, 2)
         pillar = salt.pillar.Pillar(opts, grains, 'mocked-minion', 'base')
-        self.assertEqual(pillar.compile_pillar({})['ssh'], 'bar')
+        self.assertEqual(pillar.compile_pillar()['ssh'], 'bar')
         # nodegroup match takes precedence
         self._setup_test_topfile_mocks(Matcher, get_file_client, 2, 1)
         pillar = salt.pillar.Pillar(opts, grains, 'mocked-minion', 'base')
-        self.assertEqual(pillar.compile_pillar({})['ssh'], 'foo')
+        self.assertEqual(pillar.compile_pillar()['ssh'], 'foo')
 
     def _setup_test_topfile_mocks(self, Matcher, get_file_client,
             nodegroup_order, glob_order):
@@ -173,3 +171,8 @@ ssh:
             }[sls]
 
         client.get_state.side_effect = get_state
+
+
+if __name__ == '__main__':
+    from integration import run_tests
+    run_tests(PillarTestCase, needs_daemon=False)

@@ -18,13 +18,17 @@ Pillar need something like::
         - saltversion
         - cpuarch
 
-and http://pypi.python.org/pypi/raven installed
+and https://pypi.python.org/pypi/raven installed
 
 The tags list (optional) specifies grains items that will be used as sentry tags, allowing tagging of events
 in the sentry ui.
 '''
 
+# Import Python libs
 import logging
+
+# Import Salt libs
+import salt.utils
 
 try:
     from raven import Client
@@ -50,6 +54,9 @@ def returner(ret):
     messages will be reported at info level.
     '''
     def connect_sentry(message, result):
+        '''
+        Connect to the Sentry server
+        '''
         pillar_data = __salt__['pillar.raw']()
         grains = __salt__['grains.items']()
         sentry_data = {
@@ -81,16 +88,31 @@ def returner(ret):
                 project=pillar_data['raven']['project'],
             )
         except KeyError as missing_key:
-            logger.error("Sentry returner need config '%s' in pillar",
-                         missing_key)
+            logger.error(
+                'Sentry returner need config {0!r} in pillar'.format(
+                    missing_key
+                )
+            )
         else:
             try:
                 client.capture('raven.events.Message', message=message, data=data, extra=sentry_data, tags=tags)
             except Exception as err:
-                logger.error("Can't send message to sentry: %s", err,
-                             exc_info=True)
+                logger.error(
+                    'Can\'t send message to sentry: {0}'.format(err),
+                    exc_info=True
+                )
 
     try:
         connect_sentry(ret['fun'], ret)
     except Exception as err:
-        logger.error("Can't run connect_sentry: %s", err, exc_info=True)
+        logger.error(
+            'Can\'t run connect_sentry: {0}'.format(err),
+            exc_info=True
+        )
+
+
+def prep_jid(nocache, passed_jid=None):  # pylint: disable=unused-argument
+    '''
+    Do any work necessary to prepare a JID, including sending a custom id
+    '''
+    return passed_jid if passed_jid is not None else salt.utils.gen_jid()
