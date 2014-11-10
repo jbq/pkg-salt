@@ -14,6 +14,7 @@ import pprint
 
 # Import salt libs
 import salt.client
+from salt.utils import print_cli
 
 
 class SaltCP(object):
@@ -60,7 +61,7 @@ class SaltCP(object):
             if os.path.isfile(fn_):
                 files.update(self._file_dict(fn_))
             elif os.path.isdir(fn_):
-                print(fn_ + ' is a directory, only files are supported.')
+                print_cli(fn_ + ' is a directory, only files are supported.')
                 #files.update(self._recurse_dir(fn_))
         return files
 
@@ -69,7 +70,7 @@ class SaltCP(object):
         Make the salt client call
         '''
         arg = [self._load_files(), self.opts['dest']]
-        local = salt.client.LocalClient(self.opts['conf_file'])
+        local = salt.client.get_local_client(self.opts['conf_file'])
         args = [self.opts['tgt'],
                 'cp.recv',
                 arg,

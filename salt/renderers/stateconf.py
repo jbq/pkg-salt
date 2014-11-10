@@ -37,6 +37,7 @@ from cStringIO import StringIO
 # Import salt libs
 import salt.utils
 from salt.exceptions import SaltRenderError
+from salt._compat import string_types
 
 __all__ = ['render']
 
@@ -45,7 +46,7 @@ log = logging.getLogger(__name__)
 
 __opts__ = {
     'stateconf_end_marker': r'#\s*-+\s*end of state config\s*-+',
-    # eg, something like "# --- end of state config --" works by default.
+    # e.g., something like "# --- end of state config --" works by default.
 
     'stateconf_start_state': '.start',
     # name of the state id for the generated start state.
@@ -185,7 +186,7 @@ def render(input, saltenv='base', sls='', argline='', **kws):
         ]
         try:
             name, rd_argline = (args[0] + ' ').split(' ', 1)
-            render_data = renderers[name]  # eg, the yaml renderer
+            render_data = renderers[name]  # e.g., the yaml renderer
             if implicit_require:
                 if name == 'yaml':
                     rd_argline = '-o ' + rd_argline
@@ -195,13 +196,13 @@ def render(input, saltenv='base', sls='', argline='', **kws):
                         'is used!'
                     )
             name, rt_argline = (args[1] + ' ').split(' ', 1)
-            render_template = renderers[name]  # eg, the mako renderer
+            render_template = renderers[name]  # e.g., the mako renderer
         except KeyError as err:
             raise SaltRenderError('Renderer: {0} is not available!'.format(err))
         except IndexError:
             raise INVALID_USAGE_ERROR
 
-        if isinstance(input, basestring):
+        if isinstance(input, string_types):
             with salt.utils.fopen(input, 'r') as ifile:
                 sls_templ = ifile.read()
         else:  # assume file-like
@@ -256,7 +257,7 @@ def rewrite_single_shorthand_state_decl(data):  # pylint: disable=C0103
         state.func: []
     '''
     for sid, states in data.items():
-        if isinstance(states, basestring):
+        if isinstance(states, string_types):
             data[sid] = {states: []}
 
 

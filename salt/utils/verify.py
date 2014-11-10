@@ -156,7 +156,7 @@ def verify_files(files, user):
         err = ('Failed to prepare the Salt environment for user '
                '{0}. The user is not available.\n').format(user)
         sys.stderr.write(err)
-        sys.exit(2)
+        sys.exit(os.EX_NOUSER)
     for fn_ in files:
         dirname = os.path.dirname(fn_)
         try:
@@ -197,14 +197,13 @@ def verify_env(dirs, user, permissive=False, pki_dir=''):
         err = ('Failed to prepare the Salt environment for user '
                '{0}. The user is not available.\n').format(user)
         sys.stderr.write(err)
-        sys.exit(2)
+        sys.exit(os.EX_NOUSER)
     for dir_ in dirs:
         if not dir_:
             continue
         if not os.path.isdir(dir_):
             try:
-                # 007 umask, so "other" perm bits will be reset to zeroes.
-                cumask = os.umask(0o007)
+                cumask = os.umask(18)  # 077
                 os.makedirs(dir_)
                 # If starting the process as root, chown the new dirs
                 if os.getuid() == 0:
@@ -227,32 +226,34 @@ def verify_env(dirs, user, permissive=False, pki_dir=''):
                 else:
                     # chown the file for the new user
                     os.chown(dir_, uid, gid)
-            for root, dirs, files in os.walk(dir_):
-                if 'jobs' in root:
+            for subdir in [a for a in os.listdir(dir_) if 'jobs' not in a]:
+                fsubdir = os.path.join(dir_, subdir)
+                if '{0}jobs'.format(os.path.sep) in fsubdir:
                     continue
-                for name in files:
-                    if name.startswith('.'):
-                        continue
-                    path = os.path.join(root, name)
-                    try:
+                for root, dirs, files in os.walk(fsubdir):
+                    for name in files:
+                        if name.startswith('.'):
+                            continue
+                        path = os.path.join(root, name)
+                        try:
+                            fmode = os.stat(path)
+                        except (IOError, OSError):
+                            pass
+                        if fmode.st_uid != uid or fmode.st_gid != gid:
+                            if permissive and fmode.st_gid in groups:
+                                pass
+                            else:
+                                # chown the file for the new user
+                                os.chown(path, uid, gid)
+                    for name in dirs:
+                        path = os.path.join(root, name)
                         fmode = os.stat(path)
-                    except (IOError, OSError):
-                        pass
-                    if fmode.st_uid != uid or fmode.st_gid != gid:
-                        if permissive and fmode.st_gid in groups:
-                            pass
-                        else:
-                            # chown the file for the new user
-                            os.chown(path, uid, gid)
-                for name in dirs:
-                    path = os.path.join(root, name)
-                    fmode = os.stat(path)
-                    if fmode.st_uid != uid or fmode.st_gid != gid:
-                        if permissive and fmode.st_gid in groups:
-                            pass
-                        else:
-                            # chown the file for the new user
-                            os.chown(path, uid, gid)
+                        if fmode.st_uid != uid or fmode.st_gid != gid:
+                            if permissive and fmode.st_gid in groups:
+                                pass
+                            else:
+                                # chown the file for the new user
+                                os.chown(path, uid, gid)
         # Allow the pki dir to be 700 or 750, but nothing else.
         # This prevents other users from writing out keys, while
         # allowing the use-case of 3rd-party software (like django)
@@ -340,7 +341,7 @@ def list_path_traversal(path):
     return out
 
 
-def check_path_traversal(path, user='root'):
+def check_path_traversal(path, user='root', skip_perm_errors=False):
     '''
     Walk from the root up to a directory and verify that the current
     user has access to read each directory. This is used for  making
@@ -359,8 +360,13 @@ def check_path_traversal(path, user='root'):
                 if user != current_user:
                     msg += ' Try running as user {0}.'.format(user)
                 else:
-                    msg += ' Please give {0} read permissions.'.format(user,
-                                                                       tpath)
+                    msg += ' Please give {0} read permissions.'.format(user)
+
+            # We don't need to bail on config file permission errors
+            # if the CLI
+            # process is run with the -a flag
+            if skip_perm_errors:
+                return
             # Propagate this exception up so there isn't a sys.exit()
             # in the middle of code that could be imported elsewhere.
             raise SaltClientError(msg)
@@ -455,3 +461,24 @@ def valid_id(opts, id_):
         return bool(clean_path(opts['pki_dir'], id_))
     except (AttributeError, KeyError) as e:
         return False
+
+
+def safe_py_code(code):
+    '''
+    Check a string to see if it has any potentially unsafe routines which
+    could be executed via python, this routine is used to improve the
+    safety of modules suct as virtualenv
+    '''
+    bads = (
+            'import',
+            ';',
+            'subprocess',
+            'eval',
+            'open',
+            'file',
+            'exec',
+            'input')
+    for bad in bads:
+        if code.count(bad):
+            return False
+    return True

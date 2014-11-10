@@ -25,17 +25,11 @@ __virtualname__ = 'user'
 
 
 def __virtual__():
-    if __grains__.get('kernel') != 'Darwin':
+    if (__grains__.get('kernel') != 'Darwin' or
+            __grains__['osrelease_info'] < (10, 7)):
         return False
-    return __virtualname__ if _osmajor() >= 10.7 else False
-
-
-def _osmajor():
-    if '_osmajor' not in __context__:
-        __context__['_osmajor'] = float(
-            '.'.join(str(__grains__['osrelease']).split('.')[0:2])
-        )
-    return __context__['_osmajor']
+    else:
+        return __virtualname__
 
 
 def _flush_dscl_cache():
@@ -49,7 +43,7 @@ def _dscl(cmd, ctype='create'):
     '''
     Run a dscl -create command
     '''
-    if _osmajor() < 10.8:
+    if __grains__['osrelease_info'] < (10, 8):
         source, noderoot = '.', ''
     else:
         source, noderoot = 'localhost', '/Local/Default'
@@ -116,7 +110,7 @@ def add(name,
     # Set random password, since without a password the account will not be
     # available. TODO: add shadow module
     randpass = ''.join(
-        random.choice(string.letters + string.digits) for x in xrange(20)
+        random.SystemRandom().choice(string.letters + string.digits) for x in xrange(20)
     )
     _dscl('/Users/{0} {1!r}'.format(name, randpass), ctype='passwd')
 
@@ -337,7 +331,7 @@ def chgroups(name, groups, append=False):
     if isinstance(groups, string_types):
         groups = groups.split(',')
 
-    bad_groups = any(salt.utils.contains_whitespace(x) for x in groups)
+    bad_groups = [x for x in groups if salt.utils.contains_whitespace(x)]
     if bad_groups:
         raise SaltInvocationError(
             'Invalid group name(s): {0}'.format(', '.join(bad_groups))

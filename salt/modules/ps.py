@@ -12,17 +12,16 @@ import time
 import datetime
 
 # Import salt libs
-from salt.exceptions import SaltInvocationError
+from salt.exceptions import SaltInvocationError, CommandExecutionError
 
 # Import third party libs
 try:
     import psutil
+
     HAS_PSUTIL = True
+    PSUTIL2 = psutil.version_info >= (2, 0)
 except ImportError:
     HAS_PSUTIL = False
-
-# Define the module's virtual name
-__virtualname__ = 'ps'
 
 
 def __virtual__():
@@ -37,8 +36,62 @@ def __virtual__():
     # most distributions have already moved to later versions (for example,
     # as of Dec. 2013 EPEL is on 0.6.1, Debian 7 is on 0.5.1, etc.).
     if psutil.version_info >= (0, 3, 0):
-        return __virtualname__
+        return True
     return False
+
+
+def _get_proc_cmdline(proc):
+    '''
+    Returns the cmdline of a Process instance.
+
+    It's backward compatible with < 2.0 versions of psutil.
+    '''
+    return proc.cmdline() if PSUTIL2 else proc.cmdline
+
+
+def _get_proc_create_time(proc):
+    '''
+    Returns the create_time of a Process instance.
+
+    It's backward compatible with < 2.0 versions of psutil.
+    '''
+    return proc.create_time() if PSUTIL2 else proc.create_time
+
+
+def _get_proc_name(proc):
+    '''
+    Returns the name of a Process instance.
+
+    It's backward compatible with < 2.0 versions of psutil.
+    '''
+    return proc.name() if PSUTIL2 else proc.name
+
+
+def _get_proc_status(proc):
+    '''
+    Returns the status of a Process instance.
+
+    It's backward compatible with < 2.0 versions of psutil.
+    '''
+    return proc.status() if PSUTIL2 else proc.status
+
+
+def _get_proc_username(proc):
+    '''
+    Returns the username of a Process instance.
+
+    It's backward compatible with < 2.0 versions of psutil.
+    '''
+    return proc.username() if PSUTIL2 else proc.username
+
+
+def _get_proc_pid(proc):
+    '''
+    Returns the pid of a Process instance.
+
+    It's backward compatible with < 2.0 versions of psutil.
+    '''
+    return proc.pid
 
 
 def top(num_processes=5, interval=3):
@@ -78,19 +131,22 @@ def top(num_processes=5, interval=3):
     for idx, (diff, process) in enumerate(reversed(sorted(usage))):
         if num_processes and idx >= num_processes:
             break
-        if len(process.cmdline) == 0:
-            cmdline = [process.name]
+        if len(_get_proc_cmdline(process)) == 0:
+            cmdline = [_get_proc_name(process)]
         else:
-            cmdline = process.cmdline
+            cmdline = _get_proc_cmdline(process)
         info = {'cmd': cmdline,
-                'user': process.username,
-                'status': process.status,
-                'pid': process.pid,
-                'create_time': process.create_time}
+                'user': _get_proc_username(process),
+                'status': _get_proc_status(process),
+                'pid': _get_proc_pid(process),
+                'create_time': _get_proc_create_time(process),
+                'cpu': {},
+                'mem': {},
+        }
         for key, value in process.get_cpu_times()._asdict().items():
-            info['cpu.{0}'.format(key)] = value
+            info['cpu'][key] = value
         for key, value in process.get_memory_info()._asdict().items():
-            info['mem.{0}'.format(key)] = value
+            info['mem'][key] = value
         result.append(info)
 
     return result
@@ -111,7 +167,7 @@ def get_pid_list():
 
 def kill_pid(pid, signal=15):
     '''
-    Kill a proccess by PID.
+    Kill a process by PID.
 
     .. code-block:: bash
 
@@ -179,13 +235,13 @@ def pkill(pattern, user=None, signal=15, full=False):
 
     killed = []
     for proc in psutil.process_iter():
-        name_match = pattern in ' '.join(proc.cmdline) if full \
-            else pattern in proc.name
-        user_match = True if user is None else user == proc.username
+        name_match = pattern in ' '.join(_get_proc_cmdline(proc)) if full \
+            else pattern in _get_proc_name(proc)
+        user_match = True if user is None else user == _get_proc_username(proc)
         if name_match and user_match:
             try:
                 proc.send_signal(signal)
-                killed.append(proc.pid)
+                killed.append(_get_proc_pid(proc))
             except psutil.NoSuchProcess:
                 pass
     if not killed:
@@ -232,11 +288,11 @@ def pgrep(pattern, user=None, full=False):
 
     procs = []
     for proc in psutil.process_iter():
-        name_match = pattern in ' '.join(proc.cmdline) if full \
-            else pattern in proc.name
-        user_match = True if user is None else user == proc.username
+        name_match = pattern in ' '.join(_get_proc_cmdline(proc)) if full \
+            else pattern in _get_proc_name(proc)
+        user_match = True if user is None else user == _get_proc_username(proc)
         if name_match and user_match:
-            procs.append(proc.pid)
+            procs.append(_get_proc_pid(proc))
     return procs or None
 
 
@@ -285,57 +341,48 @@ def cpu_times(per_cpu=False):
     return result
 
 
-def physical_memory_usage():
+def virtual_memory():
     '''
-    Return a dict that describes free and available physical memory.
+    .. versionadded:: 2014.7.0
 
-    CLI Examples:
+    Return a dict that describes statistics about system memory usage.
 
-    .. code-block:: bash
+    .. note::
 
-        salt '*' ps.physical_memory_usage
-    '''
-    return dict(psutil.phymem_usage()._asdict())
-
-
-def virtual_memory_usage():
-    '''
-    Return a dict that describes free and available memory, both physical
-    and virtual.
+        This function is only available in psutil version 0.6.0 and above.
 
     CLI Example:
 
     .. code-block:: bash
 
-        salt '*' ps.virtual_memory_usage
+        salt '*' ps.virtual_memory
     '''
-    return dict(psutil.virtmem_usage()._asdict())
+    if psutil.version_info < (0, 6, 0):
+        msg = 'virtual_memory is only available in psutil 0.6.0 or greater'
+        raise CommandExecutionError(msg)
+    return dict(psutil.virtual_memory()._asdict())
 
 
-def cached_physical_memory():
+def swap_memory():
     '''
-    Return the amount cached memory.
+    .. versionadded:: 2014.7.0
+
+    Return a dict that describes swap memory statistics.
+
+    .. note::
+
+        This function is only available in psutil version 0.6.0 and above.
 
     CLI Example:
 
     .. code-block:: bash
 
-        salt '*' ps.cached_physical_memory
+        salt '*' ps.swap_memory
     '''
-    return psutil.cached_phymem()
-
-
-def physical_memory_buffers():
-    '''
-    Return the amount of physical memory buffers.
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' ps.physical_memory_buffers
-    '''
-    return psutil.phymem_buffers()
+    if psutil.version_info < (0, 6, 0):
+        msg = 'swap_memory is only available in psutil 0.6.0 or greater'
+        raise CommandExecutionError(msg)
+    return dict(psutil.swap_memory()._asdict())
 
 
 def disk_partitions(all=False):
@@ -460,30 +507,48 @@ def boot_time(time_format=None):
     return b_time
 
 
-def network_io_counters():
+def network_io_counters(interface=None):
     '''
-    Return network I/O statisitics.
+    Return network I/O statistics.
 
     CLI Example:
 
     .. code-block:: bash
 
         salt '*' ps.network_io_counters
+
+        salt '*' ps.network_io_counters interface=eth0
     '''
-    return dict(psutil.network_io_counters()._asdict())
+    if not interface:
+        return dict(psutil.network_io_counters()._asdict())
+    else:
+        stats = psutil.network_io_counters(pernic=True)
+        if interface in stats:
+            return dict(stats[interface]._asdict())
+        else:
+            return False
 
 
-def disk_io_counters():
+def disk_io_counters(device=None):
     '''
-    Return disk I/O statisitics.
+    Return disk I/O statistics.
 
     CLI Example:
 
     .. code-block:: bash
 
         salt '*' ps.disk_io_counters
+
+        salt '*' ps.disk_io_counters device=sda1
     '''
-    return dict(psutil.disk_io_counters()._asdict())
+    if not device:
+        return dict(psutil.disk_io_counters()._asdict())
+    else:
+        stats = psutil.disk_io_counters(perdisk=True)
+        if device in stats:
+            return dict(stats[device]._asdict())
+        else:
+            return False
 
 
 def get_users():
@@ -504,6 +569,7 @@ def get_users():
         # try utmp
         try:
             import utmp
+
             result = []
             while True:
                 rec = utmp.utmpaccess.getutent()
@@ -517,8 +583,9 @@ def get_users():
                                    'started': started, 'host': rec[5]})
         except ImportError:
             return False
+
 # This is a possible last ditch method
-#        result = []
+# result = []
 #        w = __salt__['cmd.run'](
 #            'who', env='{"LC_ALL": "en_US.UTF-8"}').splitlines()
 #        for u in w:

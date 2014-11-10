@@ -76,9 +76,9 @@ class LoadAuth(object):
                 return self.auth[fstr](*fcall['args'], **fcall['kwargs'])
             else:
                 return self.auth[fstr](*fcall['args'])
-        except Exception as exc:
-            err = 'Authentication module threw an exception: {0}'.format(exc)
-            log.critical(err)
+        except Exception:
+            err = 'Authentication module threw an exception: '
+            log.critical(err, exc_info=True)
             return False
 
     def time_auth(self, load):
@@ -93,13 +93,31 @@ class LoadAuth(object):
         if f_time > self.max_fail:
             self.max_fail = f_time
         deviation = self.max_fail / 4
-        r_time = random.uniform(
+        r_time = random.SystemRandom().uniform(
                 self.max_fail - deviation,
                 self.max_fail + deviation
                 )
         while start + r_time > time.time():
             time.sleep(0.001)
         return False
+
+    def get_groups(self, load):
+        '''
+        Read in a load and return the groups a user is a member of
+        by asking the appropriate provider
+        '''
+        if 'eauth' not in load:
+            return False
+        fstr = '{0}.groups'.format(load['eauth'])
+        if fstr not in self.auth:
+            return False
+        fcall = salt.utils.format_call(self.auth[fstr], load)
+        try:
+            return self.auth[fstr](*fcall['args'], **fcall['kwargs'])
+        except IndexError:
+            return False
+        except Exception:
+            return None
 
     def mk_token(self, load):
         '''
@@ -109,10 +127,11 @@ class LoadAuth(object):
         if ret is False:
             return {}
         fstr = '{0}.auth'.format(load['eauth'])
-        tok = str(hashlib.md5(os.urandom(512)).hexdigest())
+        hash_type = getattr(hashlib, self.opts.get('hash_type', 'md5'))
+        tok = str(hash_type(os.urandom(512)).hexdigest())
         t_path = os.path.join(self.opts['token_dir'], tok)
         while os.path.isfile(t_path):
-            tok = hashlib.md5(os.urandom(512)).hexdigest()
+            tok = str(hash_type(os.urandom(512)).hexdigest())
             t_path = os.path.join(self.opts['token_dir'], tok)
         fcall = salt.utils.format_call(self.auth[fstr], load)
         tdata = {'start': time.time(),
@@ -292,11 +311,20 @@ class Resolver(object):
         self.auth = salt.loader.auth(opts)
 
     def _send_token_request(self, load):
-        sreq = salt.payload.SREQ(
-            'tcp://{0[interface]}:{0[ret_port]}'.format(self.opts),
-            )
-        tdata = sreq.send('clear', load)
-        return tdata
+        if self.opts['transport'] == 'zeromq':
+            sreq = salt.payload.SREQ(
+                    'tcp://{0}:{1}'.format(
+                        salt.utils.ip_bracket(self.opts['interface']),
+                        self.opts['ret_port'])
+                )
+            tdata = sreq.send('clear', load)
+            return tdata
+        elif self.opts['transport'] == 'raet':
+            sreq = salt.transport.Channel.factory(
+                    self.opts)
+            sreq.dst = (None, None, 'local_cmd')
+            tdata = sreq.send(load)
+            return tdata
 
     def cli(self, eauth):
         '''

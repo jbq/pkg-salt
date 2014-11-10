@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 '''
-    :codauthor: :email:`Mike Place <mp@saltstack.com>`
+    :codeauthor: :email:`Mike Place <mp@saltstack.com>`
 '''
 
 # Import Salt Testing libs
 from salttesting import skipIf
-from salttesting.helpers import (ensure_in_syspath, destructiveTest)
-from salttesting.mock import patch, MagicMock, call, NO_MOCK, NO_MOCK_REASON
-ensure_in_syspath('../')
+from salttesting.helpers import ensure_in_syspath
+from salttesting.mock import patch, NO_MOCK, NO_MOCK_REASON
+ensure_in_syspath('../..')
 
 # Import salt libs
 import integration
@@ -18,15 +18,19 @@ roots.__opts__ = {}
 
 # Import Python libs
 import os
-import shutil
 
 
+@skipIf(NO_MOCK, NO_MOCK_REASON)
 class RootsTest(integration.ModuleCase):
+
     def setUp(self):
-        self.master_opts['file_roots']['base'] = [os.path.join(integration.FILES, 'file', 'base')]
+        if integration.TMP_STATE_TREE not in self.master_opts['file_roots']['base']:
+            # We need to setup the file roots
+            self.master_opts['file_roots']['base'] = [os.path.join(integration.FILES, 'file', 'base')]
 
     def test_file_list(self):
-        with patch.dict(roots.__opts__, {'file_roots': self.master_opts['file_roots'],
+        with patch.dict(roots.__opts__, {'cachedir': self.master_opts['cachedir'],
+                                         'file_roots': self.master_opts['file_roots'],
                                          'fileserver_ignoresymlinks': False,
                                          'fileserver_followsymlinks': False,
                                          'file_ignore_regex': False,
@@ -61,9 +65,22 @@ class RootsTest(integration.ModuleCase):
             fnd = {'path': os.path.join(integration.FILES, 'file', 'base', 'testfile'),
                    'rel': 'testfile'}
             ret = roots.serve_file(load, fnd)
-            self.assertDictEqual(ret,
-                                 {'data': 'Scene 24\n\n \n  OLD MAN:  Ah, hee he he ha!\n  ARTHUR:  And this enchanter of whom you speak, he has seen the grail?\n  OLD MAN:  Ha ha he he he he!\n  ARTHUR:  Where does he live?  Old man, where does he live?\n  OLD MAN:  He knows of a cave, a cave which no man has entered.\n  ARTHUR:  And the Grail... The Grail is there?\n  OLD MAN:  Very much danger, for beyond the cave lies the Gorge\n      of Eternal Peril, which no man has ever crossed.\n  ARTHUR:  But the Grail!  Where is the Grail!?\n  OLD MAN:  Seek you the Bridge of Death.\n  ARTHUR:  The Bridge of Death, which leads to the Grail?\n  OLD MAN:  Hee hee ha ha!\n\n',
- 'dest': 'testfile'})
+            self.assertDictEqual(
+                ret,
+                {'data': 'Scene 24\n\n \n  OLD MAN:  Ah, hee he he ha!\n  '
+                         'ARTHUR:  And this enchanter of whom you speak, he '
+                         'has seen the grail?\n  OLD MAN:  Ha ha he he he '
+                         'he!\n  ARTHUR:  Where does he live?  Old man, where '
+                         'does he live?\n  OLD MAN:  He knows of a cave, a '
+                         'cave which no man has entered.\n  ARTHUR:  And the '
+                         'Grail... The Grail is there?\n  OLD MAN:  Very much '
+                         'danger, for beyond the cave lies the Gorge\n      '
+                         'of Eternal Peril, which no man has ever crossed.\n  '
+                         'ARTHUR:  But the Grail!  Where is the Grail!?\n  '
+                         'OLD MAN:  Seek you the Bridge of Death.\n  ARTHUR:  '
+                         'The Bridge of Death, which leads to the Grail?\n  '
+                         'OLD MAN:  Hee hee ha ha!\n\n',
+                 'dest': 'testfile'})
 
     @skipIf(True, "Update test not yet implemented")
     def test_update(self):
@@ -89,7 +106,18 @@ class RootsTest(integration.ModuleCase):
             self.assertDictEqual(ret, {'hsum': '98aa509006628302ce38ce521a7f805f', 'hash_type': 'md5'})
 
     def test_file_list_emptydirs(self):
-        with patch.dict(roots.__opts__, {'file_roots': self.master_opts['file_roots'],
+        if integration.TMP_STATE_TREE not in self.master_opts['file_roots']['base']:
+            self.skipTest('This test fails when using tests/runtests.py. salt-runtests will be available soon.')
+
+        empty_dir = os.path.join(integration.TMP_STATE_TREE, 'empty_dir')
+        if not os.path.isdir(empty_dir):
+            # There's no use creating the empty-directory ourselves at this
+            # point, the minions have already synced, it wouldn't get pushed to
+            # them
+            self.skipTest('This test fails when using tests/runtests.py. salt-runtests will be available soon.')
+
+        with patch.dict(roots.__opts__, {'cachedir': self.master_opts['cachedir'],
+                                         'file_roots': self.master_opts['file_roots'],
                                          'fileserver_ignoresymlinks': False,
                                          'fileserver_followsymlinks': False,
                                          'file_ignore_regex': False,
@@ -98,11 +126,23 @@ class RootsTest(integration.ModuleCase):
             self.assertIn('empty_dir', ret)
 
     def test_dir_list(self):
-        with patch.dict(roots.__opts__, {'file_roots': self.master_opts['file_roots'],
-                                 'fileserver_ignoresymlinks': False,
-                                 'fileserver_followsymlinks': False,
-                                 'file_ignore_regex': False,
-                                 'file_ignore_glob': False}):
+        empty_dir = os.path.join(integration.TMP_STATE_TREE, 'empty_dir')
+        if integration.TMP_STATE_TREE not in self.master_opts['file_roots']['base']:
+            self.skipTest('This test fails when using tests/runtests.py. salt-runtests will be available soon.')
+
+        empty_dir = os.path.join(integration.TMP_STATE_TREE, 'empty_dir')
+        if not os.path.isdir(empty_dir):
+            # There's no use creating the empty-directory ourselves at this
+            # point, the minions have already synced, it wouldn't get pushed to
+            # them
+            self.skipTest('This test fails when using tests/runtests.py. salt-runtests will be available soon.')
+
+        with patch.dict(roots.__opts__, {'cachedir': self.master_opts['cachedir'],
+                                         'file_roots': self.master_opts['file_roots'],
+                                         'fileserver_ignoresymlinks': False,
+                                         'fileserver_followsymlinks': False,
+                                         'file_ignore_regex': False,
+                                         'file_ignore_glob': False}):
             ret = roots.dir_list({'saltenv': 'base'})
             self.assertIn('empty_dir', ret)
 
@@ -118,9 +158,6 @@ class RootsTest(integration.ModuleCase):
 
 class RootsLimitTraversalTest(integration.ModuleCase):
 
-    def setUp(self):
-        self.master_opts['file_roots']['base'] = [os.path.join(integration.FILES, 'file', 'base')]
-
     # @destructiveTest
     def test_limit_traversal(self):
         '''
@@ -129,7 +166,7 @@ class RootsLimitTraversalTest(integration.ModuleCase):
         3) Ensure that we can find SLS files in a directory so long as there is an SLS file in a directory above.
         4) Ensure that we cannot find an SLS file in a directory that does not have an SLS file in a directory above.
         '''
-        file_client_opts = self.master_opts
+        file_client_opts = self.get_config('master', from_scratch=True)
         file_client_opts['fileserver_limit_traversal'] = True
 
         ret = fileclient.Client(file_client_opts).list_states('base')
@@ -137,6 +174,7 @@ class RootsLimitTraversalTest(integration.ModuleCase):
         self.assertIn('test_deep.a.test', ret)
         self.assertNotIn('test_deep.b.2.test', ret)
 
+
 if __name__ == '__main__':
     from integration import run_tests
-    run_tests(RootsLimitTraversalTest)
+    run_tests(RootsTest, RootsLimitTraversalTest)

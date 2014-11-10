@@ -1,8 +1,8 @@
 .. _pillar:
 
-==============
-Pillar of Salt
-==============
+=================================
+Storing Static Data in the Pillar
+=================================
 
 Pillar is an interface for Salt designed to offer global values that can be
 distributed to all minions. Pillar data is managed in a similar way as
@@ -38,8 +38,11 @@ is identical in behavior and function as :conf_master:`file_roots`:
         - /srv/pillar
 
 This example configuration declares that the base environment will be located
-in the ``/srv/pillar`` directory. The top file used matches the name of the top
-file used for States, and has the same structure:
+in the ``/srv/pillar`` directory. It must not be in a subdirectory of the
+state tree.
+
+The top file used matches the name of the top file used for States,
+and has the same structure:
 
 ``/srv/pillar/top.sls``
 
@@ -49,9 +52,16 @@ file used for States, and has the same structure:
       '*':
         - packages
 
-This further example shows how to use other standard top matching types (grain
-matching is used in this example) to deliver specific salt pillar data to
-minions with different ``os`` grains:
+In the above top file, it is declared that in the 'base' environment, the glob
+matching all minions will have the pillar data found in the 'packages' pillar
+available to it. Assuming the 'pillar_roots' value of '/srv/salt' taken from
+above, the 'packages' pillar would be located at '/srv/salt/packages.sls'.
+
+Another example shows how to use other standard top matching types
+to deliver specific salt pillar data to minions with different properties.
+
+Here is an example using the 'grains' matcher to target pillars to minions
+by their 'os' grain:
 
 .. code-block:: yaml
 
@@ -72,7 +82,15 @@ minions with different ``os`` grains:
     git: git-core
     {% endif %}
 
-Now this data can be used from within modules, renderers, State SLS files, and
+    company: Foo Industries
+
+The above pillar sets two key/value pairs. If a minion is running RedHat, then
+the 'apache' key is set to 'httpd' and the 'git' key is set to the value of
+'git'. If the minion is running Debian, those values are changed to 'apache2'
+and 'git-core' respctively. All minions that have this pillar targeting to them
+via a top file will have the key of 'company' with a value of 'Foo Industries'.
+
+Consequently this data can be used from within modules, renderers, State SLS files, and
 more via the shared pillar :ref:`dict <python2:typesmapping>`:
 
 .. code-block:: yaml
@@ -89,15 +107,32 @@ more via the shared pillar :ref:`dict <python2:typesmapping>`:
         - installed
         - name: {{ pillar['git'] }}
 
+Finally, the above states can utilize the values provided to them via Pillar.
+All pillar values targeted to a minion are available via the 'pillar'
+dictionary. As seen in the above example, Jinja substitution can then be
+utilized to access the keys and values in the Pillar dictionary. 
 
+Note that you cannot just list key/value-information in ``top.sls``. Instead,
+target a minion to a pillar file and then list the keys and values in the
+pillar. Here is an example top file that illustrates this point:
 
-Note that you cannot just list key/value-information in ``top.sls``.
+.. code-block:: yaml
+
+    base:
+      '*':
+         - common_pillar
+
+And the actual pillar file at '/srv/salt/common_pillar.sls':
+
+.. code-block:: yaml
+
+    foo: bar
+    boo: baz
 
 Pillar namespace flattened
 ==========================
 
-The separate pillar files all share the same namespace. Given 
-a ``top.sls`` of:
+The separate pillar files all share the same namespace. Given a ``top.sls`` of:
 
 .. code-block:: yaml
 
@@ -127,14 +162,65 @@ hierarchy. For example your ``package.sls`` file could look like:
     packages:
       bind: bind9
 
+Pillar Namespace Merges
+=======================
+
+With some care, the pillar namespace can merge content from multiple pillar
+files under a single key, so long as conflicts are avoided as described above.
+
+For example, if the above example were modified as follows, the values are
+merged below a single key:
+
+.. code-block:: yaml
+
+    base:
+      '*':
+        - packages
+        - services
+
+And a ``packages.sls`` file like:
+
+.. code-block:: yaml
+
+    bind:
+      package-name: bind9
+      version: 9.9.5
+
+And a ``services.sls`` file like:
+
+.. code-block:: yaml
+
+    bind:
+      port: 53
+      listen-on: any
+
+The resulting pillar will be as follows:
+
+.. code-block:: bash
+
+    $ salt-call pillar.get bind
+    local:
+        ----------
+        listen-on:
+            any
+        package-name:
+            bind9
+        port:
+            53
+        version:
+            9.9.5
+
+.. note::
+       Remember: conflicting keys will be overwritten in a non-deterministic manner!
+
 Including Other Pillars
 =======================
 
 .. versionadded:: 0.16.0
 
-Pillar SLS files may include other pillar files, similar to State files.
-Two syntaxes are available for this purpose. The simple form simply includes
-the additional pillar as if it were part of the same file:
+Pillar SLS files may include other pillar files, similar to State files. Two
+syntaxes are available for this purpose. The simple form simply includes the
+additional pillar as if it were part of the same file:
 
 .. code-block:: yaml
 
@@ -216,7 +302,7 @@ This makes handling nested structures much easier.
     It should be noted that within templating, the ``pillar`` variable is just
     a dictionary.  This means that calling ``pillar.get()`` inside of a
     template will just use the default dictionary ``.get()`` function which
-    does not include the extra ``:`` delimeter functionality.  It must be
+    does not include the extra ``:`` delimiter functionality.  It must be
     called using the above syntax (``salt['pillar.get']('foo:bar:baz',
     'qux')``) to get the salt function, instead of the default dictionary
     behavior.
@@ -234,6 +320,8 @@ locally. This is done with the ``saltutil.refresh_pillar`` function.
 
 This function triggers the minion to asynchronously refresh the pillar and will
 always return ``None``.
+
+.. _targeting-pillar:
 
 Targeting with Pillar
 =====================
@@ -254,6 +342,23 @@ is being traversed. The below example would match minions with a pillar named
 .. code-block:: bash
 
     salt -I 'foo:bar:baz*' test.ping
+
+
+Set Pillar Data at the Command Line
+===================================
+
+Pillar data can be set at the command line like the following example:
+
+.. code-block:: bash
+
+    salt '*' state.highstate pillar='{"cheese": "spam"}'
+
+This will create a dict with a key of 'cheese' and a value of 'spam'. A list
+can be created like this:
+
+.. code-block:: bash
+
+    salt '*' state.highstate pillar='["cheese", "milk", "bread"]'
 
 
 Master Config In Pillar

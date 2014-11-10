@@ -2,7 +2,7 @@
 '''
 Install software from the FreeBSD ``ports(7)`` system
 
-.. versionadded:: 2014.1.0 (Hydrogen)
+.. versionadded:: 2014.1.0
 
 This module allows you to install ports using ``BATCH=yes`` to bypass
 configuration prompts. It is recommended to use the the :mod:`ports state
@@ -34,6 +34,16 @@ __virtualname__ = 'ports'
 
 def __virtual__():
     return __virtualname__ if __grains__.get('os', '') == 'FreeBSD' else False
+
+
+def _portsnap():
+    '''
+    Return 'portsnap --interactive' for FreeBSD 10, otherwise 'portsnap'
+    '''
+    return 'portsnap{0}'.format(
+        ' --interactive' if float(__grains__['osrelease']) >= 10
+        else ''
+    )
 
 
 def _check_portname(name):
@@ -160,7 +170,15 @@ def install(name, clean=True):
         __context__['ports.install_error'] = result['stderr']
     __context__.pop('pkg.list_pkgs', None)
     new = __salt__['pkg.list_pkgs']()
-    return salt.utils.compare_dicts(old, new)
+    ret = salt.utils.compare_dicts(old, new)
+    if not ret and result['retcode'] == 0:
+        # No change in package list, but the make install was successful.
+        # Assume that the installation was a recompile with new options, and
+        # set return dict so that changes are detected by the ports.installed
+        # state.
+        ret = {name: {'old': old.get(name, ''),
+                      'new': new.get(name, '')}}
+    return ret
 
 
 def deinstall(name):
@@ -359,7 +377,7 @@ def update(extract=False):
 
         salt '*' ports.update
     '''
-    result = __salt__['cmd.run_all']('portsnap fetch')
+    result = __salt__['cmd.run_all']('{0} fetch'.format(_portsnap()))
     if not result['retcode'] == 0:
         raise CommandExecutionError(
             'Unable to fetch ports snapshot: {0}'.format(result['stderr'])
@@ -384,13 +402,13 @@ def update(extract=False):
     ret.append('Fetched {0} new ports or files'.format(new_port_count))
 
     if extract:
-        result = __salt__['cmd.run_all']('portsnap extract')
+        result = __salt__['cmd.run_all']('{0} extract'.format(_portsnap()))
         if not result['retcode'] == 0:
             raise CommandExecutionError(
                 'Unable to extract ports snapshot {0}'.format(result['stderr'])
             )
 
-    result = __salt__['cmd.run_all']('portsnap update')
+    result = __salt__['cmd.run_all']('{0} update'.format(_portsnap()))
     if not result['retcode'] == 0:
         raise CommandExecutionError(
             'Unable to apply ports snapshot: {0}'.format(result['stderr'])

@@ -91,7 +91,7 @@ common locations, but your mileage may vary.
 
 **Debian**
 
-Follow these instructions: http://wiki.debian.org/iptables
+Follow these instructions: https://wiki.debian.org/iptables
 
 Once you've found your firewall rules, you'll need to add the two lines below
 to allow traffic on ``tcp/4505`` and ``tcp/4506``:
@@ -135,7 +135,7 @@ be reloaded. This can be done using the ``pfctl`` command.
 Whitelist communication to Master
 =================================
 
-There are situations where you want to selectively allow Minon traffic
+There are situations where you want to selectively allow Minion traffic
 from specific hosts or networks into your Salt Master. The first
 scenario which comes to mind is to prevent unwanted traffic to your
 Master out of security concerns, but another scenario is to handle

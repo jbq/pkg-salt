@@ -582,9 +582,11 @@ def _parse_settings_eth(opts, iface_type, enabled, iface):
             else:
                 _raise_error_iface(iface, opts['addr'], ['AA:BB:CC:DD:EE:FF'])
         else:
-            ifaces = __salt__['network.interfaces']()
-            if iface in ifaces and 'hwaddr' in ifaces[iface]:
-                result['addr'] = ifaces[iface]['hwaddr']
+            # If interface type is slave for bond, not setting hwaddr
+            if iface_type != 'slave':
+                ifaces = __salt__['network.interfaces']()
+                if iface in ifaces and 'hwaddr' in ifaces[iface]:
+                    result['addr'] = ifaces[iface]['hwaddr']
 
     if iface_type == 'bridge':
         result['devtype'] = 'Bridge'
@@ -689,12 +691,14 @@ def _parse_network_settings(opts, current):
     result = {}
 
     valid = _CONFIG_TRUE + _CONFIG_FALSE
-    if 'networking' not in opts:
+    if 'enabled' not in opts:
         try:
             opts['networking'] = current['networking']
             _log_default_network('networking', current['networking'])
-        except Exception:
+        except ValueError:
             _raise_error_network('networking', valid)
+    else:
+        opts['networking'] = opts['enabled']
 
     if opts['networking'] in valid:
         if opts['networking'] in _CONFIG_TRUE:
@@ -733,7 +737,7 @@ def _parse_network_settings(opts, current):
 
 def _raise_error_iface(iface, option, expected):
     '''
-    Log and raise an error with a logical formated message.
+    Log and raise an error with a logical formatted message.
     '''
     msg = _error_msg_iface(iface, option, expected)
     log.error(msg)
@@ -742,7 +746,7 @@ def _raise_error_iface(iface, option, expected):
 
 def _raise_error_network(option, expected):
     '''
-    Log and raise an error with a logical formated message.
+    Log and raise an error with a logical formatted message.
     '''
     msg = _error_msg_network(option, expected)
     log.error(msg)
@@ -751,7 +755,7 @@ def _raise_error_network(option, expected):
 
 def _raise_error_routes(iface, option, expected):
     '''
-    Log and raise an error with a logical formated message.
+    Log and raise an error with a logical formatted message.
     '''
     msg = _error_msg_routes(iface, option, expected)
     log.error(msg)
@@ -764,7 +768,8 @@ def _read_file(path):
     '''
     try:
         with salt.utils.fopen(path, 'rb') as contents:
-            return contents.readlines()
+            # without newlines character. http://stackoverflow.com/questions/12330522/reading-a-file-without-newlines
+            return contents.read().splitlines()
     except Exception:
         return ''
 

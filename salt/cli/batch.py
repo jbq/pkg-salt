@@ -12,16 +12,18 @@ import copy
 # Import salt libs
 import salt.client
 import salt.output
+from salt.utils import print_cli
 
 
 class Batch(object):
     '''
     Manage the execution of batch runs
     '''
-    def __init__(self, opts, quiet=False):
+    def __init__(self, opts, eauth=None, quiet=False):
         self.opts = opts
+        self.eauth = eauth if eauth else {}
         self.quiet = quiet
-        self.local = salt.client.LocalClient(opts['conf_file'])
+        self.local = salt.client.get_local_client(opts['conf_file'])
         self.minions = self.__gather_minions()
 
     def __gather_minions(self):
@@ -41,10 +43,10 @@ class Batch(object):
             args.append(self.opts.get('expr_form', 'glob'))
 
         fret = []
-        for ret in self.local.cmd_iter(*args):
+        for ret in self.local.cmd_iter(*args, **self.eauth):
             for minion in ret:
                 if not self.quiet:
-                    print('{0} Detected for this batch run'.format(minion))
+                    print_cli('{0} Detected for this batch run'.format(minion))
                 fret.append(minion)
         return sorted(fret)
 
@@ -64,8 +66,8 @@ class Batch(object):
                 return int(self.opts['batch'])
         except ValueError:
             if not self.quiet:
-                print(('Invalid batch data sent: {0}\nData must be in the form'
-                       'of %10, 10% or 3').format(self.opts['batch']))
+                print_cli('Invalid batch data sent: {0}\nData must be in the '
+                          'form of %10, 10% or 3'.format(self.opts['batch']))
 
     def run(self):
         '''
@@ -108,12 +110,13 @@ class Batch(object):
 
             if next_:
                 if not self.quiet:
-                    print('\nExecuting run on {0}\n'.format(next_))
+                    print_cli('\nExecuting run on {0}\n'.format(next_))
                 # create a new iterator for this batch of minions
                 new_iter = self.local.cmd_iter_no_block(
                                 *args,
                                 raw=self.opts.get('raw', False),
-                                ret=self.opts.get('return', ''))
+                                ret=self.opts.get('return', ''),
+                                **self.eauth)
                 # add it to our iterators and to the minion_tracker
                 iters.append(new_iter)
                 minion_tracker[new_iter] = {}
