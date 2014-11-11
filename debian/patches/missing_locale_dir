@@ -1,11 +1,15 @@
+Description: Fix to prevent missing directory causing build failure
+Author: Joe Healy <joehealy@gmail.com>
+Forwarded: no
+
 --- a/doc/Makefile
 +++ b/doc/Makefile
 @@ -64,7 +64,7 @@
  
  clean:
  	rm -rf $(BUILDDIR)/*
--	find locale/ -name *.mo -exec rm {} \;
-+	-find locale/ -name *.mo -exec rm {} \;
+-	test -d 'locale' && find locale/ -name *.mo -exec rm {} \;
++	-test -d 'locale' && find locale/ -name *.mo -exec rm {} \;
  
  html: translations
  	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
