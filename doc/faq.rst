@@ -7,9 +7,9 @@ Is Salt open-core?
 ------------------
 
 No. Salt is 100% committed to being open-source, including all of our APIs and
-the new `'Halite' web interface`_ which was introduced in version 0.17.0. It
-is developed under the `Apache 2.0 license`_, allowing it to be used in both
-open and proprietary projects.
+the `'Halite' web interface`_ which was introduced in version 0.17.0. It is
+developed under the `Apache 2.0 license`_, allowing it to be used in both open
+and proprietary projects.
 
 .. _`'Halite' web interface`: https://github.com/saltstack/halite
 .. _`Apache 2.0 license`: http://www.apache.org/licenses/LICENSE-2.0.html
@@ -39,7 +39,7 @@ A :mod:`cmd.run <salt.states.cmd.run>` state will run the corresponding command
 *every time* (unless it is prevented from running by the ``unless`` or ``onlyif``
 arguments).
 
-More details can be found in the docmentation for the :mod:`cmd
+More details can be found in the documentation for the :mod:`cmd
 <salt.states.cmd>` states.
 
 When I run *test.ping*, why don't the Minions that aren't responding return anything? Returning ``False`` would be helpful.
@@ -65,6 +65,34 @@ runner:
 .. code-block:: bash
 
     salt-run manage.down
+
+Also, if the Master is under heavy load, it is possible that the CLI will exit
+without displaying return data for all targeted Minions. However, this doesn't
+mean that the Minions did not return; this only means that the Salt CLI timed
+out waiting for a response. Minions will still send their return data back to
+the Master once the job completes. If any expected Minions are missing from the
+CLI output, the :mod:`jobs.list_jobs <salt.runners.jobs.list_jobs>` runner can
+be used to show the job IDs of the jobs that have been run, and the
+:mod:`jobs.lookup_jid <salt.runners.jobs.lookup_jid>` runner can be used to get
+the return data for that job.
+
+.. code-block:: bash
+
+    salt-run jobs.list_jobs
+    salt-run jobs.lookup_jid 20130916125524463507
+
+If you find that you are often missing Minion return data on the CLI, only to
+find it with the jobs runners, then this may be a sign that the
+:conf_master:`worker_threads` value may need to be increased in the master
+config file. Additionally, running your Salt CLI commands with the ``-t``
+option will make Salt wait longer for the return data before the CLI command
+exits. For instance, the below command will wait up to 60 seconds for the
+Minions to return:
+
+.. code-block:: bash
+
+    salt -t 60 '*' test.ping
+
 
 How does Salt determine the Minion's id?
 ----------------------------------------
@@ -135,11 +163,21 @@ PATH using a :mod:`file.symlink <salt.states.file.symlink>` state.
 Can I run different versions of Salt on my Master and Minion?
 -------------------------------------------------------------
 
-As of release 0.17.1 backwards compatibility was broken (specifically for
-0.17.1 trying to interface with older releases) due to a protocol change for
-security purposes. The Salt team continues to emphasize backwards compatiblity
-as an important feature and plans to support it to the best of our ability to
-do so.
+This depends on the versions.  In general, it is recommended that Master and
+Minion versions match.
+
+When upgrading Salt, the master(s) should always be upgraded first.  Backwards
+compatibility for minions running newer versions of salt than their masters is
+not guaranteed.
+
+Whenever possible, backwards compatibility between new masters
+and old minions will be preserved.  Generally, the only exception to this
+policy is in case of a security vulnerability.
+
+Recent examples of backwards compatibility breakage include the 0.17.1 release
+(where all backwards compatibility was broken due to a security fix), and the
+2014.1.0 release (which retained compatibility between 2014.1.0 masters and
+0.17 minions, but broke compatibility for 2014.1.0 minions and older masters).
 
 Does Salt support backing up managed files?
 -------------------------------------------
@@ -149,3 +187,78 @@ allow you to back up files via :doc:`backup_mode </ref/states/backup_mode>`,
 backup_mode can be configured on a per state basis, or in the minion config
 (note that if set in the minion config this would simply be the default
 method to use, you still need to specify that the file should be backed up!).
+
+What is the best way to restart a Salt daemon using Salt?
+---------------------------------------------------------
+
+Restarting Salt using Salt without having the restart interrupt the whole
+process is a tricky problem to solve. We're still working on it but in the
+meantime a good way is to use the system scheduler with a short interval. The
+following example is a state that will always execute at the very end of a
+state run.
+
+Linux/Unix
+**********
+
+.. code-block:: yaml
+
+    salt-minion-reload:
+      cmd:
+        - run
+        - name: echo service salt-minion restart | at now + 1 minute
+        - order: last
+
+To ensure that **at** is installed and **atd** is running, the following states
+can be used (be sure to double-check the package name and service name for the
+distro the minion is running, in case they differ from the example below.
+
+.. code-block:: yaml
+
+    at:
+      pkg:
+        - installed
+      service:
+        - running
+        - name: atd
+        - enable: True
+
+Windows
+*******
+
+.. code-block:: yaml
+
+    schedule-start:
+      cmd:
+        - run
+        - name: at (Get-Date).AddMinutes(1).ToString("HH:mm") cmd /c "net start salt-minion"
+        - shell: powershell
+        - order: last
+      service:
+        - dead
+        - name: salt-minion
+        - require:
+            - cmd: schedule-start
+
+Salting the Salt Master
+-----------------------
+
+In order to configure a master server via states, the Salt master can also be
+"salted" in order to enforce state on the Salt master as well as the Salt
+minions. Salting the Salt master requires a Salt minion to be installed on
+the same machine as the Salt master. Once the Salt minion is installed, the
+minion configuration file must be pointed to the local Salt master:
+
+.. code-block:: yaml
+
+    master: 127.0.0.1
+
+Once the Salt master has been "salted" with a Salt minion, it can be targeted
+just like any other minion. If the minion on the salted master is running, the
+minion can be targeted via any usual ``salt`` command. Additionally, the
+``salt-call`` command can execute operations to enforce state on the salted
+master without requiring the minion to be running.
+
+More information about salting the Salt master can be found in the salt-formula
+for salt itself:
+
+https://github.com/saltstack-formulas/salt-formula

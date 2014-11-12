@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
     :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
-    :copyright: © 2012-2013 by the SaltStack Team, see AUTHORS for more details
-    :license: Apache 2.0, see LICENSE for more details.
 
 
     tests.unit.utils.path_join_test
@@ -24,7 +22,6 @@ ensure_in_syspath('../../')
 
 # Import salt libs
 from salt.utils import path_join
-from salt import syspaths
 
 
 class PathJoinTestCase(TestCase):

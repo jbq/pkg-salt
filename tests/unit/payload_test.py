@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
     :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
-    :copyright: © 2013 by the SaltStack Team, see AUTHORS for more details
-    :license: Apache 2.0, see LICENSE for more details.
 
 
     tests.unit.payload_test
@@ -48,3 +46,8 @@ class PayloadTestCase(TestCase):
             odata = payload.loads(payload.dumps(idata.copy()))
             self.assertNoOrderedDict(odata)
             self.assertEqual(idata, odata)
+
+
+if __name__ == '__main__':
+    from integration import run_tests
+    run_tests(PayloadTestCase, needs_daemon=False)

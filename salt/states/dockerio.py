@@ -248,6 +248,14 @@ def pulled(name, tag=None, force=False, *args, **kwargs):
         return _valid(
             name=name,
             comment='Image already pulled: {0}'.format(name))
+
+    if __opts__['test'] and force:
+        comment = 'Image {0} will be pulled'.format(name)
+        return {'name': name,
+                'changes': {},
+                'result': None,
+                'comment': comment}
+
     previous_id = image_infos['out']['Id'] if image_infos['status'] else None
     pull = __salt__['docker.pull']
     returned = pull(name, tag=tag)
@@ -259,7 +267,7 @@ def pulled(name, tag=None, force=False, *args, **kwargs):
     return _ret_status(returned, name, changes=changes)
 
 
-def pushed(name):
+def pushed(name, tag=None):
     '''
     Push an image from a docker registry. (`docker push`)
 
@@ -277,9 +285,21 @@ def pushed(name):
 
     name
         Name of the image
+
+    tag
+        Tag of the image [Optional]
+
     '''
+
+    if __opts__['test']:
+        comment = 'Image {0} will be pushed'.format(name)
+        return {'name': name,
+                'changes': {},
+                'result': None,
+                'comment': comment}
+
     push = __salt__['docker.push']
-    returned = push(name)
+    returned = push(name, tag=tag)
     log.debug("Returned: "+str(returned))
     if returned['status']:
         changes = {name: {'Rev': returned['id']}}
@@ -314,6 +334,14 @@ def built(name,
             name=name,
             comment='Image already built: {0}, id: {1}'.format(
                 name, image_infos['out']['Id']))
+
+    if __opts__['test'] and force:
+        comment = 'Image {0} will be built'.format(name)
+        return {'name': name,
+                'changes': {},
+                'result': None,
+                'comment': comment}
+
     previous_id = image_infos['out']['Id'] if image_infos['status'] else None
     build = __salt__['docker.build']
     kw = dict(tag=name,
@@ -597,7 +625,8 @@ def script(*args, **kw):
 def running(name, container=None, port_bindings=None, binds=None,
             publish_all_ports=False, links=None, lxc_conf=None,
             privileged=False, dns=None, volumes_from=None,
-            network_mode=None, check_is_running=True):
+            network_mode=None, restart_policy=None, cap_add=None,
+            cap_drop=None, check_is_running=True):
     '''
     Ensure that a container is running. (`docker inspect`)
 
@@ -606,14 +635,6 @@ def running(name, container=None, port_bindings=None, binds=None,
 
     container
         name of the container to start
-
-    binds
-        like -v of docker run command
-
-        .. code-block:: yaml
-
-            - binds:
-                /var/log/service: /var/log/service
 
     publish_all_ports
 
@@ -635,8 +656,19 @@ def running(name, container=None, port_bindings=None, binds=None,
                 "5000/tcp":
                     HostIp: ""
                     HostPort: "5000"
+
     binds
-        List of volumes to mount
+        List of volumes to mount (like ``-v`` of ``docker run`` command),
+        mapping host directory to container directory.
+
+        For read-write mounting, use the short form:
+
+        .. code-block:: yaml
+
+            - binds:
+                /var/log/service: /var/log/service
+
+        Or, to specify read-only mounting, use the extended form:
 
         .. code-block:: yaml
 
@@ -661,7 +693,7 @@ def running(name, container=None, port_bindings=None, binds=None,
 
         .. code-block:: yaml
 
-            - dns:
+            - volumes_from:
                 - name_other_container
 
     network_mode
@@ -673,6 +705,21 @@ def running(name, container=None, port_bindings=None, binds=None,
         .. code-block:: yaml
 
             - network_mode: host
+
+    restart_policy
+        Restart policy to apply when a container exits (no, on-failure[:max-retry], always)
+
+        .. code-block:: yaml
+
+            - restart_policy:
+                MaximumRetryCount: 5
+                Name: on-failure
+
+    cap_add
+        List of capabilities to add in a container.
+
+    cap_drop
+        List of capabilities to drop in a container.
 
     check_is_running
         Enable checking if a container should run or not.
@@ -691,6 +738,7 @@ def running(name, container=None, port_bindings=None, binds=None,
             lxc_conf=lxc_conf, publish_all_ports=publish_all_ports,
             links=links, privileged=privileged,
             dns=dns, volumes_from=volumes_from, network_mode=network_mode,
+            restart_policy=restart_policy, cap_add=cap_add, cap_drop=cap_drop
         )
         if check_is_running:
             is_running = __salt__['docker.is_running'](container)
@@ -703,7 +751,7 @@ def running(name, container=None, port_bindings=None, binds=None,
             else:
                 return _invalid(
                     comment=(
-                        'Container {0!r} cannot be started\n{0!s}'
+                        'Container {0!r} cannot be started\n{1!s}'
                         .format(
                             container,
                             started['out'],

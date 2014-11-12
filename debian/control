@@ -141,8 +141,7 @@ Architecture: all
 Depends: ${misc:Depends},
          ${python:Depends},
          salt-common (= ${source:Version}),
-         msgpack-python,
-         sshpass
+         msgpack-python
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
  administer servers in a fast and efficient way.
@@ -195,8 +194,7 @@ Package: salt-cloud
 Architecture: all
 Depends: ${python:Depends},
          ${misc:Depends},
-         salt-common (= ${source:Version}),
-         sshpass
+         salt-common (= ${source:Version})
 Suggests: python-botocore
 Recommends: python-netaddr
 Description: public cloud VM management system

@@ -58,12 +58,14 @@ A multiple-environment bucket must adhere to the following root directory
 structure::
 
     s3://<bucket name>/<environment>/<files>
+
+.. note:: This fileserver back-end requires the use of the MD5 hashing algorithm.
+    MD5 may not be compliant with all security policies.
 '''
 
 # Import python libs
 import datetime
 import os
-import hashlib
 import time
 import pickle
 import urllib
@@ -100,8 +102,6 @@ def update():
     metadata = _init()
 
     if _s3_sync_on_update:
-        key, keyid, service_url = _get_s3_key()
-
         # sync the buckets to the local cache
         log.info('Syncing local cache from S3...')
         for saltenv, env_meta in metadata.iteritems():
@@ -297,7 +297,7 @@ def dir_list(load):
         return ret
 
     # grab all the dirs from the buckets cache file
-    for dirs in _find_files(metadata[saltenv], dirs_only=True).values():
+    for dirs in _find_dirs(metadata[saltenv]).values():
         # trim env and trailing slash
         dirs = _trim_env_off_path(dirs, saltenv, trim_slash=True)
         # remove empty string left by the base env dir in single bucket mode
@@ -316,8 +316,11 @@ def _get_s3_key():
     service_url = __opts__['s3.service_url'] \
         if 's3.service_url' in __opts__ \
         else None
+    verify_ssl = __opts__['s3.verify_ssl'] \
+        if 's3.verify_ssl' in __opts__ \
+        else None
 
-    return key, keyid, service_url
+    return key, keyid, service_url, verify_ssl
 
 
 def _init():
@@ -381,7 +384,7 @@ def _refresh_buckets_cache_file(cache_file):
 
     log.debug('Refreshing buckets cache file')
 
-    key, keyid, service_url = _get_s3_key()
+    key, keyid, service_url, verify_ssl = _get_s3_key()
     metadata = {}
 
     # helper s3 query function
@@ -391,6 +394,7 @@ def _refresh_buckets_cache_file(cache_file):
                 keyid=keyid,
                 bucket=bucket,
                 service_url=service_url,
+                verify_ssl=verify_ssl,
                 return_bin=False)
 
     if _is_env_per_bucket():
@@ -418,7 +422,7 @@ def _refresh_buckets_cache_file(cache_file):
             if not s3_meta:
                 continue
 
-            # pull out the environment dirs (eg. the root dirs)
+            # pull out the environment dirs (e.g. the root dirs)
             files = filter(lambda k: 'Key' in k, s3_meta)
             environments = map(lambda k: (os.path.dirname(k['Key']).split('/', 1))[0], files)
             environments = set(environments)
@@ -461,7 +465,7 @@ def _read_buckets_cache_file(cache_file):
     return data
 
 
-def _find_files(metadata, dirs_only=False):
+def _find_files(metadata):
     '''
     Looks for all the files in the S3 bucket cache metadata
     '''
@@ -472,10 +476,33 @@ def _find_files(metadata, dirs_only=False):
         if bucket_name not in ret:
             ret[bucket_name] = []
 
-        # grab the paths from the metadata
         filePaths = map(lambda k: k['Key'], data)
-        # filter out the files or the dirs depending on flag
-        ret[bucket_name] += filter(lambda k: k.endswith('/') == dirs_only, filePaths)
+        # filter out the dirs
+        ret[bucket_name] += filter(lambda k: not k.endswith('/'), filePaths)
+
+    return ret
+
+
+def _find_dirs(metadata):
+    '''
+    Looks for all the directories in the S3 bucket cache metadata.
+
+    Supports trailing '/' keys (as created by S3 console) as well as
+    directories discovered in the path of file keys.
+    '''
+
+    ret = {}
+
+    for bucket_name, data in metadata.iteritems():
+        if bucket_name not in ret:
+            ret[bucket_name] = set()
+
+        for path in [k['Key'] for k in data]:
+            prefix = ''
+            for part in path.split('/')[:-1]:
+                dir = prefix + part + '/'
+                ret[bucket_name].add(dir)
+                prefix = dir
 
     return ret
 
@@ -507,7 +534,7 @@ def _get_file_from_s3(metadata, saltenv, bucket_name, path, cached_file_path):
     Checks the local cache for the file, if it's old or missing go grab the
     file from S3 and update the cache
     '''
-    key, keyid, service_url = _get_s3_key()
+    key, keyid, service_url, verify_ssl = _get_s3_key()
 
     # check the local cache...
     if os.path.isfile(cached_file_path):
@@ -517,12 +544,10 @@ def _get_file_from_s3(metadata, saltenv, bucket_name, path, cached_file_path):
 
             if file_etag.find('-') == -1:
                 file_md5 = file_etag
-                cached_file_hash = hashlib.md5()
-                with salt.utils.fopen(cached_file_path, 'rb') as fp_:
-                    cached_file_hash.update(fp_.read())
+                cached_md5 = salt.utils.get_hash(cached_file_path, 'md5')
 
                 # hashes match we have a cache hit
-                if cached_file_hash.hexdigest() == file_md5:
+                if cached_md5 == file_md5:
                     return
             else:
                 cached_file_stat = os.stat(cached_file_path)
@@ -543,6 +568,7 @@ def _get_file_from_s3(metadata, saltenv, bucket_name, path, cached_file_path):
                         method='HEAD',
                         bucket=bucket_name,
                         service_url=service_url,
+                        verify_ssl=verify_ssl,
                         path=urllib.quote(path),
                         local_file=cached_file_path
                     )
@@ -569,6 +595,7 @@ def _get_file_from_s3(metadata, saltenv, bucket_name, path, cached_file_path):
         keyid=keyid,
         bucket=bucket_name,
         service_url=service_url,
+        verify_ssl=verify_ssl,
         path=urllib.quote(path),
         local_file=cached_file_path
     )
