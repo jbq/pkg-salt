@@ -143,7 +143,7 @@ the Apache ID, the user and group will be the Apache user and group. The
 the group, and that the group will be made only after the Apache package is
 installed.
 
-Next,the ``require`` statement under service was changed to watch, and is
+Next, the ``require`` statement under service was changed to watch, and is
 now watching 3 states instead of just one. The watch statement does the same
 thing as require, making sure that the other states run before running the
 state with a watch, but it adds an extra component. The ``watch`` statement
@@ -167,7 +167,9 @@ The SLS files are laid out in a directory structure on the Salt master; an
 SLS is just a file and files to download are just files.
 
 The Apache example would be laid out in the root of the Salt file server like
-this::
+this:
+
+.. code-block:: text
 
     apache/init.sls
     apache/httpd.conf
@@ -241,7 +243,9 @@ the toolkit. Consider this SSH example:
     produce an identical result; the first way -- using `file.managed` --
     is merely a shortcut.
 
-Now our State Tree looks like this::
+Now our State Tree looks like this:
+
+.. code-block:: text
 
     apache/init.sls
     apache/httpd.conf
@@ -327,18 +331,22 @@ full programming constructs are available when creating SLS files.
 
 Other renderers available are ``yaml_mako`` and ``yaml_wempy`` which each use
 the `Mako`_ or `Wempy`_ templating system respectively rather than the jinja
-templating system, and more notably, the pure Python or ``py`` and ``pydsl``
-renderers.
+templating system, and more notably, the pure Python or ``py``, ``pydsl`` &
+``pyobjects`` renderers.
 The ``py`` renderer allows for SLS files to be written in pure Python, 
 allowing for the utmost level of flexibility and power when preparing SLS 
 data; while the :doc:`pydsl</ref/renderers/all/salt.renderers.pydsl>` renderer 
-provides a flexible, domain-specific language for authoring SLS data in Python.
+provides a flexible, domain-specific language for authoring SLS data in Python;
+and the :doc:`pyobjects</ref/renderers/all/salt.renderers.pyobjects>` renderer
+gives you a `"Pythonic"`_ interface to building state data.
 
 .. _`Jinja2`: http://jinja.pocoo.org/
 .. _`Mako`: http://www.makotemplates.org/
-.. _`Wempy`: http://www.wempy.org/
+.. _`Wempy`: https://fossil.secution.com/u/gcw/wempy/doc/tip/README.wiki
+.. _`"Pythonic"`: http://legacy.python.org/dev/peps/pep-0008/
 
 .. note::
+
     The templating engines described above aren't just available in SLS files.
     They can also be used in :mod:`file.managed <salt.states.file.managed>`
     states, making file management much more dynamic and flexible. Some
@@ -467,8 +475,8 @@ and set them up to be mounted, and the ``salt`` object is used multiple
 times to call shell commands to gather data.
 
 
-Introducing the Python and the PyDSL Renderers
-----------------------------------------------
+Introducing the Python, PyDSL and the Pyobjects Renderers
+---------------------------------------------------------
 
 Sometimes the chosen default renderer might not have enough logical power to
 accomplish the needed task. When this happens, the Python renderer can be
@@ -499,14 +507,23 @@ must be a Salt friendly data structure, or better known as a Salt
 Alternatively, using the :doc:`pydsl</ref/renderers/all/salt.renderers.pydsl>`
 renderer, the above example can be written more succinctly as:
 
-``python/django.sls:``
-
 .. code-block:: python
 
     #!pydsl
 
     include('python', delayed=True)
     state('django').pkg.installed()
+
+The :doc:`pyobjects</ref/renderers/all/salt.renderers.pyobjects>` renderer
+provides an `"Pythonic"`_ object based approach for building the state data.
+The above example could be written as:
+
+.. code-block:: python
+
+    #!pyobjects
+
+    include('python')
+    Pkg.installed("django")
 
 
 This Python examples would look like this if they were written in YAML:

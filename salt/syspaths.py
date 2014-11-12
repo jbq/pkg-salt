@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
     :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
-    :copyright: © 2013 by the SaltStack Team, see AUTHORS for more details.
-    :license: Apache 2.0, see LICENSE for more details.
 
 
     salt.syspaths
@@ -32,7 +30,7 @@ else:
 try:
     # Let's try loading the system paths from the generated module at
     # installation time.
-    from salt._syspaths import (  # pylint: disable=E0611
+    from salt._syspaths import (  # pylint: disable=W0611,E0611,import-error
         ROOT_DIR,                 # because pylint thinks that _syspaths is an
         CONFIG_DIR,               # attribute of salt.__init__
         CACHE_DIR,
@@ -54,6 +52,8 @@ except ImportError:
         ROOT_DIR = '/'
         if 'freebsd' in __platform:
             CONFIG_DIR = os.path.join(ROOT_DIR, 'usr', 'local', 'etc', 'salt')
+        elif 'netbsd' in __platform:
+            CONFIG_DIR = os.path.join(ROOT_DIR, 'usr', 'pkg', 'etc', 'salt')
         else:
             CONFIG_DIR = os.path.join(ROOT_DIR, 'etc', 'salt')
     CACHE_DIR = os.path.join(ROOT_DIR, 'var', 'cache', 'salt')

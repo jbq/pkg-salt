@@ -6,8 +6,6 @@
     CLI related unit testing
 
     :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
-    :copyright: © 2013 by the SaltStack Team, see AUTHORS for more details.
-    :license: Apache 2.0, see LICENSE for more details.
 '''
 
 
@@ -21,7 +19,7 @@ import integration
 
 # Import 3rd-party libs
 try:
-    import libcloud
+    import libcloud  # pylint: disable=W0611
     HAS_LIBCLOUD = True
 except ImportError:
     HAS_LIBCLOUD = False

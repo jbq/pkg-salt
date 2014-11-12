@@ -66,9 +66,12 @@ def default_config():
     return '/etc/sysctl.conf'
 
 
-def show():
+def show(config_file=False):
     '''
     Return a list of sysctl parameters for this minion
+
+    config: Pull the data from the system configuration file
+        instead of the live data.
 
     CLI Example:
 
@@ -76,14 +79,31 @@ def show():
 
         salt '*' sysctl.show
     '''
-    cmd = 'sysctl -a'
     ret = {}
-    out = __salt__['cmd.run_stdout'](cmd, output_loglevel='trace')
-    for line in out.splitlines():
-        if not line or ' = ' not in line:
-            continue
-        comps = line.split(' = ', 1)
-        ret[comps[0]] = comps[1]
+    if config_file:
+        config_file_path = default_config()
+        try:
+            for line in salt.utils.fopen(config_file_path):
+                if not line.startswith('#') and '=' in line:
+                    # search if we have some '=' instead of ' = ' separators
+                    SPLIT = ' = '
+                    if SPLIT not in line:
+                        SPLIT = SPLIT.strip()
+                    key, value = line.split(SPLIT, 1)
+                    key = key.strip()
+                    value = value.lstrip()
+                    ret[key] = value
+        except OSError:
+            log.error('Could not open sysctl file')
+            return None
+    else:
+        cmd = 'sysctl -a'
+        out = __salt__['cmd.run_stdout'](cmd, output_loglevel='trace')
+        for line in out.splitlines():
+            if not line or ' = ' not in line:
+                continue
+            comps = line.split(' = ', 1)
+            ret[comps[0]] = comps[1]
     return ret
 
 
@@ -121,15 +141,16 @@ def assign(name, value):
     cmd = 'sysctl -w {0}="{1}"'.format(name, value)
     data = __salt__['cmd.run_all'](cmd)
     out = data['stdout']
+    err = data['stderr']
 
     # Example:
     #    # sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
     #    net.ipv4.tcp_rmem = 4096 87380 16777216
     regex = re.compile(r'^{0}\s+=\s+{1}$'.format(re.escape(name), re.escape(value)))
 
-    if not regex.match(out):
-        if data['retcode'] != 0 and data['stderr']:
-            error = data['stderr']
+    if not regex.match(out) or 'Invalid argument' in str(err):
+        if data['retcode'] != 0 and err:
+            error = err
         else:
             error = out
         raise CommandExecutionError('sysctl -w failed: {0}'.format(error))

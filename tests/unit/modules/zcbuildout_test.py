@@ -12,13 +12,9 @@ from salttesting import TestCase, skipIf
 from salttesting.helpers import (
     ensure_in_syspath,
     requires_network,
+    skip_if_binaries_missing
 )
 ensure_in_syspath('../../')
-
-try:
-    from salttesting.helpers import skip_if_binaries_missing
-except ImportError:
-    from integration import skip_if_binaries_missing
 
 # Import Salt libs
 import integration
@@ -155,13 +151,9 @@ class BuildoutTestCase(Base):
 
         self.assertTrue(u'Log summary:\n' in ret1['outlog'])
         self.assertTrue(
-            u'\n'
             u'INFO: ibar\n'
-            u'\n'
             u'WARN: wbar\n'
-            u'\n'
             u'DEBUG: dbar\n'
-            u'\n'
             u'ERROR: ebar\n'
             in ret1['outlog']
         )
@@ -301,6 +293,7 @@ class BuildoutTestCase(Base):
 
 @skipIf(salt.utils.which_bin(KNOWN_VIRTUALENV_BINARY_NAMES) is None,
         'The \'virtualenv\' packaged needs to be installed')
+@skipIf(True, 'These tests are not running reliably')
 class BuildoutOnlineTestCase(Base):
 
     @classmethod
@@ -363,7 +356,7 @@ class BuildoutOnlineTestCase(Base):
         b2_dir = os.path.join(self.tdir, 'b', 'b2')
         self.assertTrue(buildout._has_old_distribute(self.py_dis))
         # this is too hard to check as on debian & other where old
-        # packages are present (virtualenv), we cant have
+        # packages are present (virtualenv), we can't have
         # a clean site-packages
         # self.assertFalse(buildout._has_old_distribute(self.py_blank))
         self.assertFalse(buildout._has_old_distribute(self.py_st))
@@ -417,7 +410,7 @@ class BuildoutOnlineTestCase(Base):
         ret = buildout.bootstrap(b_dir, buildout_ver=2, python=self.py_st)
         self.assertTrue(ret['status'])
         ret = buildout.run_buildout(b_dir,
-                                    parts=['a', 'b'], python=self.py_st)
+                                    parts=['a', 'b'])
         out = ret['out']
         self.assertTrue('Installing a' in out)
         self.assertTrue('Installing b' in out)

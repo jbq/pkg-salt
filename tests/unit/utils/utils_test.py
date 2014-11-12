@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
-    :codauthor: :email:`Mike Place <mp@saltstack.com>`
+    :codeauthor: :email:`Mike Place <mp@saltstack.com>`
 '''
 
 # Import Salt Testing libs
@@ -17,6 +17,7 @@ ensure_in_syspath('../../')
 # Import Salt libs
 from salt.utils.odict import OrderedDict
 from salt import utils
+from salt.utils import args
 from salt.exceptions import (SaltInvocationError, SaltSystemExit, CommandNotFoundError)
 
 # Import Python libraries
@@ -27,7 +28,7 @@ from collections import namedtuple
 
 # Import 3rd-party libs
 try:
-    import timelib
+    import timelib  # pylint: disable=W0611
     HAS_TIMELIB = True
 except ImportError:
     HAS_TIMELIB = False
@@ -203,19 +204,119 @@ class UtilsTestCase(TestCase):
     def test_subdict_match(self):
         test_two_level_dict = {'foo': {'bar': 'baz'}}
         test_two_level_comb_dict = {'foo': {'bar': 'baz:woz'}}
+        test_two_level_dict_and_list = {
+            'abc': ['def', 'ghi', {'lorem': {'ipsum': [{'dolor': 'sit'}]}}],
+        }
 
-        self.assertTrue(utils.subdict_match(test_two_level_dict, 'foo:bar:baz'))
-        self.assertFalse(utils.subdict_match(test_two_level_comb_dict, 'foo:bar:baz'))
-
-        self.assertTrue(utils.subdict_match(test_two_level_comb_dict, 'foo:bar:baz:woz'))
-        self.assertFalse(utils.subdict_match(test_two_level_comb_dict, 'foo:bar:baz:woz:wiz'))
+        self.assertTrue(
+            utils.subdict_match(
+                test_two_level_dict, 'foo:bar:baz'
+            )
+        )
+        # In test_two_level_comb_dict, 'foo:bar' corresponds to 'baz:woz', not
+        # 'baz'. This match should return False.
+        self.assertFalse(
+            utils.subdict_match(
+                test_two_level_comb_dict, 'foo:bar:baz'
+            )
+        )
+        # This tests matching with the delimiter in the value part (in other
+        # words, that the path 'foo:bar' corresponds to the string 'baz:woz').
+        self.assertTrue(
+            utils.subdict_match(
+                test_two_level_comb_dict, 'foo:bar:baz:woz'
+            )
+        )
+        # This would match if test_two_level_comb_dict['foo']['bar'] was equal
+        # to 'baz:woz:wiz', or if there was more deep nesting. But it does not,
+        # so this should return False.
+        self.assertFalse(
+            utils.subdict_match(
+                test_two_level_comb_dict, 'foo:bar:baz:woz:wiz'
+            )
+        )
+        # This tests for cases when a key path corresponds to a list. The
+        # value part 'ghi' should be successfully matched as it is a member of
+        # the list corresponding to key path 'abc'. It is somewhat a
+        # duplication of a test within test_traverse_dict_and_list, but
+        # salt.utils.subdict_match() does more than just invoke
+        # salt.utils.traverse_list_and_dict() so this particular assertion is a
+        # sanity check.
+        self.assertTrue(
+            utils.subdict_match(
+                test_two_level_dict_and_list, 'abc:ghi'
+            )
+        )
+        # This tests the use case of a dict embedded in a list, embedded in a
+        # list, embedded in a dict. This is a rather absurd case, but it
+        # confirms that match recursion works properly.
+        self.assertTrue(
+            utils.subdict_match(
+                test_two_level_dict_and_list, 'abc:lorem:ipsum:dolor:sit'
+            )
+        )
 
     def test_traverse_dict(self):
         test_two_level_dict = {'foo': {'bar': 'baz'}}
 
-        self.assertDictEqual({'not_found': 'nope'},
-                             utils.traverse_dict(test_two_level_dict, 'foo:bar:baz', {'not_found': 'nope'}))
-        self.assertEqual('baz', utils.traverse_dict(test_two_level_dict, 'foo:bar', {'not_found': 'not_found'}))
+        self.assertDictEqual(
+            {'not_found': 'nope'},
+            utils.traverse_dict(
+                test_two_level_dict, 'foo:bar:baz', {'not_found': 'nope'}
+            )
+        )
+        self.assertEqual(
+            'baz',
+            utils.traverse_dict(
+                test_two_level_dict, 'foo:bar', {'not_found': 'not_found'}
+            )
+        )
+
+    def test_traverse_dict_and_list(self):
+        test_two_level_dict = {'foo': {'bar': 'baz'}}
+        test_two_level_dict_and_list = {
+            'foo': ['bar', 'baz', {'lorem': {'ipsum': [{'dolor': 'sit'}]}}]
+        }
+
+        # Check traversing too far: salt.utils.traverse_dict_and_list() returns
+        # the value corresponding to a given key path, and baz is a value
+        # corresponding to the key path foo:bar.
+        self.assertDictEqual(
+            {'not_found': 'nope'},
+            utils.traverse_dict_and_list(
+                test_two_level_dict, 'foo:bar:baz', {'not_found': 'nope'}
+            )
+        )
+        # Now check to ensure that foo:bar corresponds to baz
+        self.assertEqual(
+            'baz',
+            utils.traverse_dict_and_list(
+                test_two_level_dict, 'foo:bar', {'not_found': 'not_found'}
+            )
+        )
+        # Check traversing too far
+        self.assertDictEqual(
+            {'not_found': 'nope'},
+            utils.traverse_dict_and_list(
+                test_two_level_dict_and_list, 'foo:bar', {'not_found': 'nope'}
+            )
+        )
+        # Check index 1 (2nd element) of list corresponding to path 'foo'
+        self.assertEqual(
+            'baz',
+            utils.traverse_dict_and_list(
+                test_two_level_dict_and_list, 'foo:1', {'not_found': 'not_found'}
+            )
+        )
+        # Traverse a couple times into dicts embedded in lists
+        self.assertEqual(
+            'sit',
+            utils.traverse_dict_and_list(
+                test_two_level_dict_and_list,
+                'foo:lorem:ipsum:dolor',
+                {'not_found': 'not_found'}
+            )
+        )
 
     def test_clean_kwargs(self):
         self.assertDictEqual(utils.clean_kwargs(foo='bar'), {'foo': 'bar'})
@@ -223,10 +324,8 @@ class UtilsTestCase(TestCase):
         self.assertDictEqual(utils.clean_kwargs(__foo_bar='gwar'), {'__foo_bar': 'gwar'})
 
     def test_check_state_result(self):
-        self.assertFalse(utils.check_state_result([]), "Failed to handle an invalid data type.")
         self.assertFalse(utils.check_state_result(None), "Failed to handle None as an invalid data type.")
-        self.assertFalse(utils.check_state_result({'host1': []}),
-                         "Failed to handle an invalid data structure for a host")
+        self.assertFalse(utils.check_state_result([]), "Failed to handle an invalid data type.")
         self.assertFalse(utils.check_state_result({}), "Failed to handle an empty dictionary.")
         self.assertFalse(utils.check_state_result({'host1': []}), "Failed to handle an invalid host data structure.")
         test_valid_state = {'host1': {'test_state': {'result': 'We have liftoff!'}}}
@@ -349,6 +448,14 @@ class UtilsTestCase(TestCase):
         self.assertTrue(utils.test_mode(Test=True))
         self.assertTrue(utils.test_mode(tEsT=True))
 
+    def test_option(self):
+        test_two_level_dict = {'foo': {'bar': 'baz'}}
+
+        self.assertDictEqual({'not_found': 'nope'}, utils.option('foo:bar', {'not_found': 'nope'}))
+        self.assertEqual('baz', utils.option('foo:bar', {'not_found': 'nope'}, opts=test_two_level_dict))
+        self.assertEqual('baz', utils.option('foo:bar', {'not_found': 'nope'}, pillar={'master': test_two_level_dict}))
+        self.assertEqual('baz', utils.option('foo:bar', {'not_found': 'nope'}, pillar=test_two_level_dict))
+
     def test_parse_docstring(self):
         test_keystone_str = '''Management of Keystone users
                                 ============================
@@ -369,10 +476,10 @@ class UtilsTestCase(TestCase):
         self.assertRaises(ValueError, utils.get_hash, '/tmp/foo/', form='INVALID')
 
     def test_parse_kwarg(self):
-        ret = utils.parse_kwarg('foo=bar')
+        ret = args.parse_kwarg('foo=bar')
         self.assertEqual(ret, ('foo', 'bar'))
 
-        ret = utils.parse_kwarg('foobar')
+        ret = args.parse_kwarg('foobar')
         self.assertEqual(ret, (None, None))
 
     @skipIf(NO_MOCK, NO_MOCK_REASON)
@@ -605,3 +712,7 @@ class UtilsTestCase(TestCase):
     def test_kwargs_warn_until(self):
         # Test invalid version arg
         self.assertRaises(RuntimeError, utils.kwargs_warn_until, {}, [])
+
+if __name__ == '__main__':
+    from integration import run_tests
+    run_tests(UtilsTestCase, needs_daemon=False)

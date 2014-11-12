@@ -19,6 +19,8 @@ import salt.key
 import salt.client
 import salt.output
 import salt.utils.minions
+import salt.wheel
+import salt.version
 
 FINGERPRINT_REGEX = re.compile(r'^([a-f0-9]{2}:){15}([a-f0-9]{2})$')
 
@@ -33,7 +35,7 @@ def status(output=True):
 
         salt-run manage.status
     '''
-    client = salt.client.LocalClient(__opts__['conf_file'])
+    client = salt.client.get_local_client(__opts__['conf_file'])
     minions = client.cmd('*', 'test.ping', timeout=__opts__['timeout'])
 
     key = salt.key.Key(__opts__)
@@ -72,7 +74,7 @@ def key_regen():
 
         salt-run manage.key_regen
     '''
-    client = salt.client.LocalClient(__opts__['conf_file'])
+    client = salt.client.get_local_client(__opts__['conf_file'])
     minions = client.cmd('*', 'saltutil.regen_keys')
 
     for root, dirs, files in os.walk(__opts__['pki_dir']):
@@ -110,7 +112,8 @@ def down(removekeys=False):
     ret = status(output=False).get('down', [])
     for minion in ret:
         if removekeys:
-            subprocess.call(["salt-key", "-qyd", minion])
+            wheel = salt.wheel.Wheel(__opts__)
+            wheel.call_func('key.delete', match=minion)
         else:
             salt.output.display_output(minion, '', __opts__)
     return ret
@@ -132,10 +135,16 @@ def up():  # pylint: disable=C0103
     return ret
 
 
-def present():
+def present(subset=None, show_ipv4=False):
     '''
     Print a list of all minions that are up according to Salt's presence
     detection, no commands will be sent
+
+    subset : None
+        Pass in a CIDR range to filter minions by IP address.
+
+    show_ipv4 : False
+        Also show the IP address each minion is connecting from.
 
     CLI Example:
 
@@ -144,7 +153,10 @@ def present():
         salt-run manage.present
     '''
     ckminions = salt.utils.minions.CkMinions(__opts__)
-    connected = sorted(ckminions.connected_ids())
+
+    minions = ckminions.connected_ids(show_ipv4=show_ipv4, subset=subset)
+    connected = dict(minions) if show_ipv4 else sorted(minions)
+
     salt.output.display_output(connected, '', __opts__)
     return connected
 
@@ -211,38 +223,38 @@ def versions():
 
         salt-run manage.versions
     '''
-    client = salt.client.LocalClient(__opts__['conf_file'])
+    client = salt.client.get_local_client(__opts__['conf_file'])
     minions = client.cmd('*', 'test.version', timeout=__opts__['timeout'])
 
     labels = {
         -1: 'Minion requires update',
         0: 'Up to date',
         1: 'Minion newer than master',
+        2: 'Master',
     }
 
     version_status = {}
 
-    comps = salt.__version__.split('-')
-    if len(comps) == 3:
-        master_version = '-'.join(comps[0:2])
-    else:
-        master_version = salt.__version__
+    master_version = salt.version.__saltstack_version__
+
     for minion in minions:
-        comps = minions[minion].split('-')
-        if len(comps) == 3:
-            minion_version = '-'.join(comps[0:2])
-        else:
-            minion_version = minions[minion]
+        minion_version = salt.version.SaltStackVersion.parse(minions[minion])
         ver_diff = cmp(minion_version, master_version)
 
         if ver_diff not in version_status:
             version_status[ver_diff] = {}
-        version_status[ver_diff][minion] = minion_version
+        version_status[ver_diff][minion] = minion_version.string
+
+    # Add version of Master to output
+    version_status[2] = master_version.string
 
     ret = {}
     for key in version_status:
-        for minion in sorted(version_status[key]):
-            ret.setdefault(labels[key], {})[minion] = version_status[key][minion]
+        if key == 2:
+            ret[labels[key]] = version_status[2]
+        else:
+            for minion in sorted(version_status[key]):
+                ret.setdefault(labels[key], {})[minion] = version_status[key][minion]
 
     salt.output.display_output(ret, '', __opts__)
     return ret
@@ -250,14 +262,19 @@ def versions():
 
 def bootstrap(version="develop",
               script=None,
-              hosts=""):
+              hosts="",
+              root_user=True):
     '''
     Bootstrap minions with salt-bootstrap
 
-    Options:
-        version: git tag of version to install [default: develop]
-        script: Script to execute [default: http://bootstrap.saltstack.org]
-        hosts: Comma separated hosts [example: hosts="host1.local,host2.local"]
+    version : develop
+        Git tag of version to install
+    script : https://bootstrap.saltstack.com
+        Script to execute
+    hosts
+        Comma separated hosts [example: hosts="host1.local,host2.local"]
+    root_user : True
+        Prepend ``root@`` to each host.
 
     CLI Example:
 
@@ -265,16 +282,19 @@ def bootstrap(version="develop",
 
         salt-run manage.bootstrap hosts="host1,host2"
         salt-run manage.bootstrap hosts="host1,host2" version="v0.17"
-        salt-run manage.bootstrap hosts="host1,host2" version="v0.17" script="https://raw.githubusercontent.com/saltstack/salt-bootstrap/develop/bootstrap-salt.sh"
+        salt-run manage.bootstrap hosts="host1,host2" version="v0.17" script="https://bootstrap.saltstack.com/develop"
+        salt-run manage.bootstrap hosts="ec2-user@host1,ec2-user@host2" root_user=False
 
     '''
     if script is None:
-        script = 'https://raw.githubusercontent.com/saltstack/salt-bootstrap/stable/bootstrap-salt.sh'
+        script = 'https://bootstrap.saltstack.com'
     for host in hosts.split(","):
         # Could potentially lean on salt-ssh utils to make
         # deployment easier on existing hosts (i.e. use sshpass,
         # or expect, pass better options to ssh etc)
-        subprocess.call(["ssh", "root@" + host, "python -c 'import urllib; "
+        subprocess.call(["ssh",
+                        "root@" if root_user else "" + host,
+                        "python -c 'import urllib; "
                         "print urllib.urlopen("
                         "\"" + script + "\""
                         ").read()' | sh -s -- git " + version])
@@ -384,7 +404,7 @@ objShell.Exec("{1}{2}")'''
 
     # First off, change to the local temp directory, stop salt-minion (if
     # running), and remove the master's public key.
-    # This is to accomodate for reinstalling Salt over an old or broken build,
+    # This is to accommodate for reinstalling Salt over an old or broken build,
     # e.g. if the master address is changed, the salt-minion process will fail
     # to authenticate and quit; which means infinite restarts under Windows.
     batch = 'cd /d %TEMP%\nnet stop salt-minion\ndel c:\\salt\\conf\\pki\\minion\\minion_master.pub\n'

@@ -14,7 +14,7 @@ except ImportError:
 
 # Import 3rd party libraries
 try:
-    import wmi
+    import wmi  # pylint: disable=W0611
 except ImportError:
     HAS_DEPENDENCIES = False
 
@@ -178,6 +178,25 @@ def dig(host):
     '''
     cmd = 'dig {0}'.format(salt.utils.network.sanitize_host(host))
     return __salt__['cmd.run'](cmd)
+
+
+def interfaces_names():
+    '''
+    Return a list of all the interfaces names
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' network.interfaces_names
+    '''
+
+    ret = []
+    with salt.utils.winapi.Com():
+        c = wmi.WMI()
+        for iface in c.Win32_NetworkAdapter(NetEnabled=True):
+            ret.append(iface.NetConnectionID)
+    return ret
 
 
 def interfaces():

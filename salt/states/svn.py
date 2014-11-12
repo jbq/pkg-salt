@@ -3,7 +3,7 @@
 Manage SVN repositories
 =======================
 
-Manage repositiry checkouts via the svn vcs system:
+Manage repository checkouts via the svn vcs system:
 
 .. code-block:: yaml
 
@@ -27,9 +27,7 @@ def __virtual__():
     '''
     Only load if svn is available
     '''
-    if __salt__['cmd.has_exec']('svn'):
-        return 'svn'
-    return False
+    return __salt__['cmd.has_exec']('svn')
 
 
 def latest(name,
@@ -154,6 +152,7 @@ def export(name,
            username=None,
            password=None,
            force=False,
+           overwrite=False,
            externals=True,
            trust=False):
     '''
@@ -185,6 +184,9 @@ def export(name,
     force : False
         Continue if conflicts are encountered
 
+    overwrite : False
+        Overwrite existing target
+
     externals : True
         Change to False to not checkout or update externals
 
@@ -199,7 +201,7 @@ def export(name,
     cwd, basename = os.path.split(target)
     opts = tuple()
 
-    if os.path.exists(target) and not os.path.isdir(target):
+    if not overwrite and os.path.exists(target) and not os.path.isdir(target):
         return _fail(ret,
                      'The path "{0}" exists and is not '
                      'a directory.'.format(target)

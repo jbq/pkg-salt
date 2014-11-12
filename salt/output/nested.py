@@ -1,13 +1,35 @@
 # -*- coding: utf-8 -*-
 '''
-Recursively display nested data, this is the default outputter.
+Recursively display nested data
+===============================
+
+This is the default outputter for most execution functions.
+
+Example output::
+
+    myminion:
+        ----------
+        foo:
+            ----------
+            bar:
+                baz
+            dictionary:
+                ----------
+                abc:
+                    123
+                def:
+                    456
+            list:
+                - Hello
+                - World
 '''
 # Import python libs
-import re
 from numbers import Number
+import re
 
 # Import salt libs
 import salt.utils
+import salt.output
 from salt._compat import string_types
 
 
@@ -39,6 +61,8 @@ class NestDisplay(object):
         '''
         Recursively iterate down through data structures to determine output
         '''
+        strip_colors = __opts__.get('strip_colors', True)
+
         if ret is None or ret is True or ret is False:
             out += self.ustring(
                 ' ' * indent,
@@ -56,6 +80,8 @@ class NestDisplay(object):
         elif isinstance(ret, string_types):
             lines = re.split(r'\r?\n', ret)
             for line in lines:
+                if strip_colors:
+                    line = salt.output.strip_esc_sequence(line)
                 out += self.ustring(
                     ' ' * indent,
                     self.colors['GREEN'],

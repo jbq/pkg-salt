@@ -7,6 +7,8 @@ Module for running arbitrary tests
 import os
 import sys
 import time
+import traceback
+import hashlib
 import random
 
 # Import Salt libs
@@ -32,8 +34,9 @@ def echo(text):
 
 def ping():
     '''
-    Just used to make sure the minion is up and responding
-    Return True
+    Used to make sure the minion is up and responding. Not an ICMP ping.
+
+    Returns ``True``.
 
     CLI Example:
 
@@ -390,9 +393,51 @@ def opts_pkg():
     return ret
 
 
-def tty(device, echo=None):
+def rand_str(size=9999999999):
     '''
-    Echo a string to a specific tty
+    Return a random string
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' test.rand_str
+    '''
+    hasher = getattr(hashlib, __opts__.get('hash_type', 'md5'))
+    return hasher(str(random.SystemRandom().randint(0, size))).hexdigest()
+
+
+def exception(message='Test Exception'):
+    '''
+    Raise an exception
+
+    Optionally provide an error message or output the full stack.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' test.exception 'Oh noes!'
+    '''
+    raise Exception(message)
+
+
+def stack():
+    '''
+    Return the current stack trace
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' test.stack
+    '''
+    return ''.join(traceback.format_stack())
+
+
+def tty(*args, **kwargs):  # pylint: disable=W0613
+    '''
+    Deprecated! Moved to cmdmod.
 
     CLI Example:
 
@@ -401,22 +446,4 @@ def tty(device, echo=None):
         salt '*' test.tty tty0 'This is a test'
         salt '*' test.tty pts3 'This is a test'
     '''
-    if device.startswith('tty'):
-        teletype = '/dev/{0}'.format(device)
-    elif device.startswith('pts'):
-        teletype = '/dev/{0}'.format(device.replace('pts', 'pts/'))
-    else:
-        return {'Error': 'The specified device is not a valid TTY'}
-
-    cmd = 'echo {0} > {1}'.format(echo, teletype)
-    ret = __salt__['cmd.run_all'](cmd)
-    if ret['retcode'] == 0:
-        return {
-            'Success': 'Message was successfully echoed to {0}'.format(teletype)
-        }
-    else:
-        return {
-            'Error': 'Echoing to {0} returned error code {1}'.format(
-                teletype,
-                ret['retcode'])
-        }
+    return 'ERROR: This function has been moved to cmd.tty'

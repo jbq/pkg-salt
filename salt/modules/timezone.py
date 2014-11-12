@@ -5,7 +5,6 @@ Module for managing timezone on POSIX-like systems.
 
 # Import python libs
 import os
-import hashlib
 import logging
 import re
 
@@ -22,7 +21,7 @@ def __virtual__():
     '''
     if salt.utils.is_windows():
         return False
-    return 'timezone'
+    return True
 
 
 def get_zone():
@@ -37,7 +36,7 @@ def get_zone():
     '''
     cmd = ''
     if salt.utils.which('timedatectl'):
-        out = __salt__['cmd.run']('timedatectl', output_loglevel='debug')
+        out = __salt__['cmd.run']('timedatectl')
         for line in (x.strip() for x in out.splitlines()):
             try:
                 return re.match(r'Time ?zone:\s+(\S+)', line).group(1)
@@ -61,7 +60,7 @@ def get_zone():
                 'consider using timezone.get_zonecode or timezone.zonecompare')
     elif 'Solaris' in __grains__['os_family']:
         cmd = 'grep "TZ=" /etc/TIMEZONE'
-    out = __salt__['cmd.run'](cmd, output_loglevel='debug').split('=')
+    out = __salt__['cmd.run'](cmd).split('=')
     ret = out[1].replace('"', '')
     return ret
 
@@ -77,7 +76,7 @@ def get_zonecode():
         salt '*' timezone.get_zonecode
     '''
     cmd = 'date +%Z'
-    out = __salt__['cmd.run'](cmd, output_loglevel='debug')
+    out = __salt__['cmd.run'](cmd)
     return out
 
 
@@ -92,7 +91,7 @@ def get_offset():
         salt '*' timezone.get_offset
     '''
     cmd = 'date +%z'
-    out = __salt__['cmd.run'](cmd, output_loglevel='debug')
+    out = __salt__['cmd.run'](cmd)
     return out
 
 
@@ -134,7 +133,8 @@ def set_zone(timezone):
             '/etc/sysconfig/clock', '^ZONE=.*', 'ZONE="{0}"'.format(timezone))
     elif 'Debian' in __grains__['os_family']:
         with salt.utils.fopen('/etc/timezone', 'w') as ofh:
-            ofh.write(timezone)
+            ofh.write(timezone.strip())
+            ofh.write('\n')
     elif 'Gentoo' in __grains__['os_family']:
         with salt.utils.fopen('/etc/timezone', 'w') as ofh:
             ofh.write(timezone)
@@ -144,7 +144,7 @@ def set_zone(timezone):
 
 def zone_compare(timezone):
     '''
-    Checks the md5sum between the given timezone, and the one set in
+    Checks the hash sum between the given timezone, and the one set in
     /etc/localtime. Returns True if they match, and False if not. Mostly useful
     for running state checks.
 
@@ -163,17 +163,15 @@ def zone_compare(timezone):
     if not os.path.exists(tzfile):
         return 'Error: {0} does not exist.'.format(tzfile)
 
-    hash_type = getattr(hashlib, __opts__.get('hash_type', 'md5'))
+    hash_type = __opts__.get('hash_type', 'md5')
 
     try:
-        with salt.utils.fopen(zonepath, 'r') as fp_:
-            usrzone = hash_type(fp_.read()).hexdigest()
+        usrzone = salt.utils.get_hash(zonepath, hash_type)
     except IOError as exc:
         raise SaltInvocationError('Invalid timezone {0!r}'.format(timezone))
 
     try:
-        with salt.utils.fopen(tzfile, 'r') as fp_:
-            etczone = hash_type(fp_.read()).hexdigest()
+        etczone = salt.utils.get_hash(tzfile, hash_type)
     except IOError as exc:
         raise CommandExecutionError(
             'Problem reading timezone file {0}: {1}'
@@ -197,7 +195,7 @@ def get_hwclock():
     '''
     cmd = ''
     if salt.utils.which('timedatectl'):
-        out = __salt__['cmd.run']('timedatectl', output_loglevel='debug')
+        out = __salt__['cmd.run']('timedatectl')
         for line in (x.strip() for x in out.splitlines()):
             if 'rtc in local tz' in line.lower():
                 try:
@@ -212,15 +210,14 @@ def get_hwclock():
         )
     elif 'RedHat' in __grains__['os_family']:
         cmd = 'tail -n 1 /etc/adjtime'
-        return __salt__['cmd.run'](cmd, output_loglevel='debug')
+        return __salt__['cmd.run'](cmd)
     elif 'Suse' in __grains__['os_family']:
         cmd = 'tail -n 1 /etc/adjtime'
-        return __salt__['cmd.run'](cmd, output_loglevel='debug')
+        return __salt__['cmd.run'](cmd)
     elif 'Debian' in __grains__['os_family']:
         #Original way to look up hwclock on Debian-based systems
         cmd = 'grep "UTC=" /etc/default/rcS | grep -vE "^#"'
-        out = __salt__['cmd.run'](
-            cmd, output_loglevel='debug', ignore_retcode=True).split('=')
+        out = __salt__['cmd.run'](cmd, ignore_retcode=True).split('=')
         if len(out) > 1:
             if out[1] == 'yes':
                 return 'UTC'
@@ -229,10 +226,10 @@ def get_hwclock():
         else:
             #Since Wheezy
             cmd = 'tail -n 1 /etc/adjtime'
-            return __salt__['cmd.run'](cmd, output_loglevel='debug')
+            return __salt__['cmd.run'](cmd)
     elif 'Gentoo' in __grains__['os_family']:
         cmd = 'grep "^clock=" /etc/conf.d/hwclock | grep -vE "^#"'
-        out = __salt__['cmd.run'](cmd, output_loglevel='debug').split('=')
+        out = __salt__['cmd.run'](cmd).split('=')
         return out[1].replace('"', '')
     elif 'Solaris' in __grains__['os_family']:
         if os.path.isfile('/etc/rtc_config'):
@@ -262,11 +259,11 @@ def set_hwclock(clock):
             return 'UTC is the only choice for SPARC architecture'
         if clock == 'localtime':
             cmd = 'rtc -z {0}'.format(timezone)
-            __salt__['cmd.run'](cmd, output_loglevel='debug')
+            __salt__['cmd.run'](cmd)
             return True
         elif clock == 'UTC':
             cmd = 'rtc -z GMT'
-            __salt__['cmd.run'](cmd, output_loglevel='debug')
+            __salt__['cmd.run'](cmd)
             return True
     else:
         zonepath = '/usr/share/zoneinfo/{0}'.format(timezone)
@@ -281,10 +278,10 @@ def set_hwclock(clock):
     if 'Arch' in __grains__['os_family']:
         if clock == 'localtime':
             cmd = 'timezonectl set-local-rtc true'
-            __salt__['cmd.run'](cmd, output_loglevel='debug')
+            __salt__['cmd.run'](cmd)
         else:
             cmd = 'timezonectl set-local-rtc false'
-            __salt__['cmd.run'](cmd, output_loglevel='debug')
+            __salt__['cmd.run'](cmd)
     elif 'RedHat' in __grains__['os_family']:
         __salt__['file.sed'](
             '/etc/sysconfig/clock', '^ZONE=.*', 'ZONE="{0}"'.format(timezone))

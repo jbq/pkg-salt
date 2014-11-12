@@ -1,29 +1,274 @@
 Description: Fix to docs to enable building
 Author: Joe Healy <joehealy@gmail.com>
-Forwarded: yes
+Forwarded: no
 
---- a/doc/conf.py
-+++ b/doc/conf.py
-@@ -55,6 +55,11 @@
-     'libcloud.compute.deployment',
-     'libcloud.compute.providers',
-     'libcloud.compute.types',
-+    'libcloud.loadbalancer',
-+    'libcloud.loadbalancer.types',
-+    'libcloud.loadbalancer.providers',
-+    'libcloud.common',
-+    'libcloud.common.google',
-     # modules, renderers, states, returners, et al
-     'django',
-     'libvirt',
---- a/salt/states/file.py
-+++ b/salt/states/file.py
-@@ -1140,7 +1140,7 @@
-         ``pillar['userdata']['deployer']['id_rsa']``. An example of this pillar
-         setup would be like so:
+--- a/salt/netapi/rest_cherrypy/app.py
++++ b/salt/netapi/rest_cherrypy/app.py
+@@ -628,7 +628,7 @@
  
--        .. code-block:: yaml:
-+        .. code-block:: yaml
+             curl -i localhost:8000
  
-             userdata:
-               deployer:
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             GET / HTTP/1.1
+             Host: localhost:8000
+@@ -636,7 +636,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Type: application/json
+@@ -686,7 +686,7 @@
+                     -d fun='test.ping' \\
+                     -d arg
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             POST / HTTP/1.1
+             Host: localhost:8000
+@@ -699,7 +699,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Length: 200
+@@ -748,7 +748,7 @@
+ 
+             curl -i localhost:8000/minions/ms-3
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             GET /minions/ms-3 HTTP/1.1
+             Host: localhost:8000
+@@ -756,7 +756,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Length: 129005
+@@ -804,7 +804,7 @@
+                 -d tgt='*' \\
+                 -d fun='status.diskusage'
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             POST /minions HTTP/1.1
+             Host: localhost:8000
+@@ -816,7 +816,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 202 Accepted
+             Content-Length: 86
+@@ -867,7 +867,7 @@
+ 
+             curl -i localhost:8000/jobs
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             GET /jobs HTTP/1.1
+             Host: localhost:8000
+@@ -875,7 +875,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Length: 165
+@@ -896,7 +896,7 @@
+ 
+             curl -i localhost:8000/jobs/20121130104633606931
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             GET /jobs/20121130104633606931 HTTP/1.1
+             Host: localhost:8000
+@@ -904,7 +904,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Length: 73
+@@ -977,7 +977,7 @@
+ 
+             curl -i localhost:8000/keys
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             GET /keys HTTP/1.1
+             Host: localhost:8000
+@@ -985,7 +985,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Length: 165
+@@ -1006,7 +1006,7 @@
+ 
+             curl -i localhost:8000/keys/jerry
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             GET /keys/jerry HTTP/1.1
+             Host: localhost:8000
+@@ -1014,7 +1014,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Length: 73
+@@ -1085,14 +1085,14 @@
+                     -d eauth=pam \
+                     -o jerry-salt-keys.tar
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             POST /keys HTTP/1.1
+             Host: localhost:8000
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Length: 10240
+@@ -1176,7 +1176,7 @@
+ 
+             curl -i localhost:8000/login
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             GET /login HTTP/1.1
+             Host: localhost:8000
+@@ -1184,7 +1184,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Type: text/html
+@@ -1224,7 +1224,7 @@
+                     -d password='saltpass' \\
+                     -d eauth='pam'
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             POST / HTTP/1.1
+             Host: localhost:8000
+@@ -1236,7 +1236,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Type: application/json
+@@ -1357,7 +1357,7 @@
+                 -d password='saltdev' \\
+                 -d eauth='pam'
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             POST /run HTTP/1.1
+             Host: localhost:8000
+@@ -1369,7 +1369,7 @@
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Length: 73
+@@ -1435,14 +1435,14 @@
+ 
+             curl -NsS localhost:8000/events
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             GET /events HTTP/1.1
+             Host: localhost:8000
+ 
+         **Example response:**
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Connection: keep-alive
+@@ -1615,7 +1615,7 @@
+                 -H 'Sec-WebSocket-Key: '"$(echo -n $RANDOM | base64)" \\
+                 localhost:8000/ws
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             GET /ws HTTP/1.1
+             Connection: Upgrade
+@@ -1628,7 +1628,7 @@
+ 
+         **Example response**:
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 101 Switching Protocols
+             Upgrade: websocket
+@@ -1820,7 +1820,7 @@
+ 
+             curl -sS localhost:8000/hook -d foo='Foo!' -d bar='Bar!'
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             POST /hook HTTP/1.1
+             Host: localhost:8000
+@@ -1831,7 +1831,7 @@
+ 
+         **Example response**:
+ 
+-        .. code-block:: http
++        .. code-block:: text
+ 
+             HTTP/1.1 200 OK
+             Content-Length: 14

@@ -171,9 +171,9 @@ def NS(domain, resolve=True, nameserver=None):
 
     if resolve:
         ret = []
-        for ns in cmd['stdout'].split('\n'):
-            for a in A(ns, nameserver):
-                ret.append(a)
+        for ns_host in cmd['stdout'].split('\n'):
+            for ip_addr in A(ns_host, nameserver):
+                ret.append(ip_addr)
         return ret
 
     return cmd['stdout'].split('\n')
@@ -199,7 +199,7 @@ def SPF(domain, record='SPF', nameserver=None):
     if nameserver is not None:
         cmd.append('@{0}'.format(nameserver))
 
-    result = __salt__['cmd.run_all'](' '.join(cmd), output_loglevel='debug')
+    result = __salt__['cmd.run_all'](' '.join(cmd))
     # In this case, 0 is not the same as False
     if result['retcode'] != 0:
         log.warn(
@@ -275,6 +275,37 @@ def MX(domain, resolve=False, nameserver=None):
         ]
 
     return stdout
+
+
+def TXT(host, nameserver=None):
+    '''
+    Return the TXT record for ``host``.
+
+    Always returns a list.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt ns1 dig.TXT google.com
+    '''
+    dig = ['dig', '+short', str(host), 'TXT']
+
+    if nameserver is not None:
+        dig.append('@{0}'.format(nameserver))
+
+    cmd = __salt__['cmd.run_all'](' '.join(dig))
+
+    if cmd['retcode'] != 0:
+        log.warn(
+            'dig returned exit code \'{0}\'. Returning empty list as '
+            'fallback.'.format(
+                cmd['retcode']
+            )
+        )
+        return []
+
+    return [i for i in cmd['stdout'].split('\n')]
 
 # Let lowercase work, since that is the convention for Salt functions
 a = A

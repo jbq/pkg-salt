@@ -2,10 +2,12 @@
 Salt Rosters
 ============
 
-Salt rosters are plugable systems added in Salt 0.17.0 to facilitate the
+Salt rosters are pluggable systems added in Salt 0.17.0 to facilitate the
 ``salt-ssh`` system.
 The roster system was created because ``salt-ssh`` needs a means to
 identify which systems need to be targeted for execution.
+
+.. seealso:: :ref:`all-salt.roster`
 
 .. note::
     The Roster System is not needed or used in standard Salt because the
@@ -20,7 +22,7 @@ file is located at /etc/salt/roster.
 How Rosters Work
 ================
 
-The roster system compiles a data structure internally refered to as
+The roster system compiles a data structure internally referred to as
 `targets`. The `targets` is a list of target systems and attributes about how
 to connect to said systems. The only requirement for a roster module in Salt
 is to return the `targets` data structure.
