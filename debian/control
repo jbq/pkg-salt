@@ -25,7 +25,8 @@ Depends: ${python:Depends},
          python-jinja2,
          python-apt,
          python-yaml,
-         python-pkg-resources
+         python-pkg-resources,
+         python-requests (>= 1.0.0)
 Recommends: lsb-release,
             python-mako
 Suggests: salt-doc (= ${source:Version})
