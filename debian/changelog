@@ -1,12 +1,8 @@
-salt (2014.7.0+ds-1~bpo70+1) wheezy-backports; urgency=medium
+salt (2014.7.0+ds-2) experimental; urgency=medium
 
-  * Rebuild for wheezy-backports.
-  * [5be7496] Updated packages for squeeze
-  * [015a818] Removal of systemd for squeeze
-  * [b7583e0] fixing of docs to build minified files
-  * [f5c2018] Removed explicit dependency on libcloud till it is backported
+  * [9954f59] Added python-requests as a dependency
 
- -- Joe Healy <joehealy@gmail.com>  Wed, 12 Nov 2014 11:07:01 +1100
+ -- Joe Healy <joehealy@gmail.com>  Wed, 12 Nov 2014 15:26:00 +1100
 
 salt (2014.7.0+ds-1) experimental; urgency=medium
 
