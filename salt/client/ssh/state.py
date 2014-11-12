@@ -57,8 +57,8 @@ class SSHHighState(salt.state.BaseHighState):
     '''
     stack = []
 
-    def __init__(self, opts, pillar=None, wrapper=None):
-        self.client = salt.fileclient.LocalClient(opts)
+    def __init__(self, opts, pillar=None, wrapper=None, fsclient=None):
+        self.client = fsclient
         salt.state.BaseHighState.__init__(self, opts)
         self.state = SSHState(opts, pillar, wrapper)
         self.matcher = salt.minion.Matcher(self.opts)
@@ -70,7 +70,7 @@ class SSHHighState(salt.state.BaseHighState):
         return
 
 
-def lowstate_file_refs(chunks):
+def lowstate_file_refs(chunks, extras=''):
     '''
     Create a list of file ref objects to reconcile
     '''
@@ -87,9 +87,16 @@ def lowstate_file_refs(chunks):
                 continue
             crefs.extend(salt_refs(chunk[state]))
         if crefs:
-            if not saltenv in refs:
+            if saltenv not in refs:
                 refs[saltenv] = []
             refs[saltenv].append(crefs)
+    if extras:
+        extra_refs = extras.split(',')
+        if extra_refs:
+            for env in refs:
+                for x in extra_refs:
+                    refs[env].append([x])
+
     return refs
 
 
@@ -110,15 +117,15 @@ def salt_refs(data):
     return ret
 
 
-def prep_trans_tar(opts, chunks, file_refs):
+def prep_trans_tar(file_client, chunks, file_refs, pillar=None):
     '''
     Generate the execution package from the saltenv file refs and a low state
     data structure
     '''
     gendir = tempfile.mkdtemp()
     trans_tar = salt.utils.mkstemp()
-    file_client = salt.fileclient.LocalClient(opts)
     lowfn = os.path.join(gendir, 'lowstate.json')
+    pillarfn = os.path.join(gendir, 'pillar.json')
     sync_refs = [
             ['salt://_modules'],
             ['salt://_states'],
@@ -126,9 +133,13 @@ def prep_trans_tar(opts, chunks, file_refs):
             ['salt://_renderers'],
             ['salt://_returners'],
             ['salt://_outputters'],
+            ['salt://_utils'],
             ]
     with open(lowfn, 'w+') as fp_:
         fp_.write(json.dumps(chunks))
+    if pillar:
+        with open(pillarfn, 'w+') as fp_:
+            fp_.write(json.dumps(pillar))
     for saltenv in file_refs:
         file_refs[saltenv].extend(sync_refs)
         env_root = os.path.join(gendir, saltenv)

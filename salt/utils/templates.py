@@ -20,10 +20,15 @@ import jinja2.ext
 
 # Import salt libs
 import salt.utils
-from salt.exceptions import SaltRenderError
+from salt.exceptions import (
+    SaltRenderError, CommandExecutionError, SaltInvocationError
+)
+from salt.utils.jinja import ensure_sequence_filter, show_full_context
 from salt.utils.jinja import SaltCacheLoader as JinjaSaltCacheLoader
 from salt.utils.jinja import SerializerExtension as JinjaSerializerExtension
+from salt.utils.odict import OrderedDict
 from salt import __path__ as saltpath
+from salt._compat import string_types
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +58,18 @@ def wrap_tmpl_func(render_str):
         assert 'opts' in context
         assert 'saltenv' in context
 
-        if isinstance(tmplsrc, basestring):
+        if 'sls' in context:
+            slspath = context['sls'].replace('.', '/')
+            if tmplpath is not None:
+                context['tplpath'] = tmplpath
+                if not tmplpath.lower().replace('\\', '/').endswith('/init.sls'):
+                    slspath = os.path.dirname(slspath)
+            context['slsdotpath'] = slspath.replace('/', '.')
+            context['slscolonpath'] = slspath.replace('/', ':')
+            context['sls_path'] = slspath.replace('/', '_')
+            context['slspath'] = slspath
+
+        if isinstance(tmplsrc, string_types):
             if from_str:
                 tmplstr = tmplsrc
             else:
@@ -73,7 +89,7 @@ def wrap_tmpl_func(render_str):
                         'Exception occurred while reading file '
                         '{0}: {1}'.format(tmplsrc, exc),
                         # Show full traceback if debug logging is enabled
-                        exc_info=log.isEnabledFor(logging.DEBUG)
+                        exc_info_on_loglevel=logging.DEBUG
                     )
                     raise exc
         else:  # assume tmplsrc is file-like.
@@ -160,7 +176,7 @@ def _get_jinja_error(trace, context=None):
     # resolve the filename
     add_log = False
     template_path = None
-    if not 'sls' in context:
+    if 'sls' not in context:
         if (
             (error[0] != '<unknown>')
             and os.path.exists(error[0])
@@ -216,7 +232,7 @@ def render_jinja_tmpl(tmplstr, context, tmplpath=None):
             loader = jinja2.FileSystemLoader(
                 context, os.path.dirname(tmplpath))
     else:
-        loader = JinjaSaltCacheLoader(opts, saltenv)
+        loader = JinjaSaltCacheLoader(opts, saltenv, pillar_rend=context.get('_pillar_rend', False))
 
     env_args = {'extensions': [], 'loader': loader}
 
@@ -246,19 +262,28 @@ def render_jinja_tmpl(tmplstr, context, tmplpath=None):
                                        **env_args)
 
     jinja_env.filters['strftime'] = salt.utils.date_format
+    jinja_env.filters['sequence'] = ensure_sequence_filter
+
+    jinja_env.globals['odict'] = OrderedDict
+    jinja_env.globals['show_full_context'] = show_full_context
 
     unicode_context = {}
     for key, value in context.iteritems():
-        if not isinstance(value, basestring):
+        if not isinstance(value, string_types):
             unicode_context[key] = value
             continue
 
         # Let's try UTF-8 and fail if this still fails, that's why this is not
         # wrapped in a try/except
-        unicode_context[key] = unicode(value, 'utf-8')
+        if isinstance(value, unicode):
+            unicode_context[key] = value
+        else:
+            unicode_context[key] = unicode(value, 'utf-8')
 
     try:
-        output = jinja_env.from_string(tmplstr).render(**unicode_context)
+        template = jinja_env.from_string(tmplstr)
+        template.globals.update(unicode_context)
+        output = template.render(**unicode_context)
     except jinja2.exceptions.TemplateSyntaxError as exc:
         trace = traceback.extract_tb(sys.exc_info()[2])
         line, out = _get_jinja_error(trace, context=unicode_context)
@@ -269,15 +294,25 @@ def render_jinja_tmpl(tmplstr, context, tmplpath=None):
                               tmplstr)
     except jinja2.exceptions.UndefinedError as exc:
         trace = traceback.extract_tb(sys.exc_info()[2])
+        out = _get_jinja_error(trace, context=unicode_context)[1]
+        tmplstr = ''
+        # Don't include the line number, since it is misreported
+        # https://github.com/mitsuhiko/jinja2/issues/276
+        raise SaltRenderError(
+            'Jinja variable {0}{1}'.format(
+                exc, out),
+            buf=tmplstr)
+    except (SaltInvocationError, CommandExecutionError) as exc:
+        trace = traceback.extract_tb(sys.exc_info()[2])
         line, out = _get_jinja_error(trace, context=unicode_context)
         if not line:
             tmplstr = ''
         raise SaltRenderError(
-            'Jinja variable {0}{1}'.format(
+            'Problem running salt function in Jinja template: {0}{1}'.format(
                 exc, out),
             line,
             tmplstr)
-    except Exception, exc:
+    except Exception as exc:
         tracestr = traceback.format_exc()
         trace = traceback.extract_tb(sys.exc_info()[2])
         line, out = _get_jinja_error(trace, context=unicode_context)

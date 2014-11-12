@@ -4,7 +4,7 @@ Salt SSH
 
 .. note::
 
-    SALT-SSH IS ALPHA SOFTWARE AND MAY NOT BE READY FOR PRODUCTION USE
+    Salt ssh is considered production ready in version 2014.7.0
 
 .. note::
 
@@ -27,6 +27,18 @@ Master.
 Salt SSH is very easy to use, simply set up a basic `roster` file of the
 systems to connect to and run ``salt-ssh`` commands in a similar way as
 standard ``salt`` commands.
+
+.. note::
+
+    The Salt SSH eventually is supposed to support the same set of commands and 
+    functionality as standard ``salt`` command. 
+    
+    At the moment fileserver operations must be wrapped to ensure that the 
+    relevant files are delivered with the ``salt-ssh`` commands. 
+    The state module is an exception, which compiles the state run on the 
+    master, and in the process finds all the references to ``salt://`` paths and 
+    copies those files down in the same tarball as the state run. 
+    However, needed fileserver wrappers are still under development.
 
 Salt SSH Roster
 ===============
@@ -55,11 +67,16 @@ address. A more elaborate roster can be created:
       sudo: True         # Whether to sudo to root, not enabled by default
     web2:
       host: 192.168.42.2
+      
+.. note::
+
+    sudo works only if NOPASSWD is set for user in /etc/sudoers:
+    ``fred ALL=(ALL) NOPASSWD: ALL`` 
 
 Calling Salt SSH
 ================
 
-The ``salt-ssh`` command can be easily executed in the same was as a salt
+The ``salt-ssh`` command can be easily executed in the same way as a salt
 command:
 
 .. code-block:: bash
@@ -119,4 +136,24 @@ and ``cachedir``. Those should point to a full path writable for the user.
 
 It's recommed not to modify /etc/salt for this purpose. Create a private copy
 of /etc/salt for the user and run the command with ``-c /new/config/path``.
+
+Define CLI Options with Saltfile
+================================
+
+If you are commonly passing in CLI options to ``salt-ssh``, you can create
+a ``Saltfile`` to automatically use these options. This is common if you're
+managing several different salt projects on the same server.
+
+So if you ``cd`` into a directory with a Saltfile with the following
+contents:
+
+.. code-block:: yaml
+
+    salt-ssh:
+      config_dir: path/to/config/dir
+      max_prox: 30
+
+Instead of having to call
+``salt-ssh --config-dir=path/to/config/dir --max-procs=30 \* test.ping`` you
+can call ``salt-ssh \* test.ping``.
 

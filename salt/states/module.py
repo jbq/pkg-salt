@@ -11,7 +11,7 @@ state:
 
     mine.send:
       module.run:
-        - func: network.interfaces
+        - name: network.interfaces
 
 Note that this example is probably unnecessary to use in practice, since the
 ``mine_functions`` and ``mine_interval`` config parameters can be used to
@@ -25,12 +25,23 @@ for this the :mod:`module.wait <salt.states.module.wait>` state can be used:
 
     mine.send:
       module.wait:
-        - func: network.interfaces
+        - name: network.interfaces
         - watch:
           - file: /etc/network/interfaces
 
-All arguments are passed through to the module function being executed.
-However, due to how the state system works, if a module function accepts an
+All arguments that the ``module`` state does not consume are passed through to
+the execution module function being executed:
+
+.. code-block:: yaml
+
+    fetch_out_of_band:
+      module.run:
+        - name: git.fetch
+        - cwd: /path/to/my/repo
+        - user: myuser
+        - opts: '--all'
+
+Due to how the state system works, if a module function accepts an
 argument called, ``name``, then ``m_name`` must be used to specify that
 argument, to avoid a collision with the ``name`` argument. For example:
 
@@ -107,7 +118,6 @@ def run(name, **kwargs):
         return ret
 
     aspec = salt.utils.get_function_argspec(__salt__[name])
-
     args = []
     defaults = {}
 
@@ -181,8 +191,8 @@ def run(name, **kwargs):
             mret = __salt__[name](*args, **nkwargs)
         else:
             mret = __salt__[name](*args)
-    except Exception:
-        ret['comment'] = 'Module function {0} threw an exception'.format(name)
+    except Exception as e:
+        ret['comment'] = 'Module function {0} threw an exception. Exception: {1}'.format(name, e)
         ret['result'] = False
         return ret
     else:
@@ -199,9 +209,14 @@ def run(name, **kwargs):
         if kwargs['returner'] in returners:
             returners[kwargs['returner']](ret_ret)
     ret['comment'] = 'Module function {0} executed'.format(name)
+
     ret['result'] = True
     if ret['changes'].get('retcode', 0) != 0:
         ret['result'] = False
+    else:
+        changes_ret = ret['changes'].get('ret', {})
+        if isinstance(changes_ret, dict) and changes_ret.get('retcode', 0) != 0:
+            ret['result'] = False
     return ret
 
 mod_watch = run  # pylint: disable=C0103

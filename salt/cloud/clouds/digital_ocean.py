@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 '''
-Digital Ocean Cloud Module
+DigitalOcean Cloud Module
 ==========================
 
-The Digital Ocean cloud module is used to control access to the Digital Ocean
+The DigitalOcean cloud module is used to control access to the DigitalOcean
 VPS system.
 
 Use of this module only requires the ``api_key`` parameter to be set. Set up the
@@ -13,11 +13,12 @@ cloud configuration at ``/etc/salt/cloud.providers`` or
 .. code-block:: yaml
 
     my-digital-ocean-config:
-      # Digital Ocean account keys
+      # DigitalOcean account keys
       client_key: wFGEwgregeqw3435gDger
       api_key: GDE43t43REGTrkilg43934t34qT43t4dgegerGEgg
       provider: digital_ocean
 
+:depends: requests
 '''
 
 # Import python libs
@@ -26,14 +27,13 @@ import copy
 import time
 import json
 import pprint
-import urllib
-import urllib2
+import requests
 import logging
 
 # Import salt cloud libs
 import salt.utils.cloud
 import salt.config as config
-from salt.cloud.exceptions import (
+from salt.exceptions import (
     SaltCloudConfigError,
     SaltCloudNotFound,
     SaltCloudSystemExit,
@@ -48,7 +48,7 @@ log = logging.getLogger(__name__)
 # Only load in this module if the DIGITAL_OCEAN configurations are in place
 def __virtual__():
     '''
-    Check for Digital Ocean configurations
+    Check for DigitalOcean configurations
     '''
     if get_configured_provider() is False:
         return False
@@ -101,9 +101,9 @@ def avail_images(call=None):
     items = query(method='images')
     ret = {}
     for image in items['images']:
-        ret[image['name']] = {}
+        ret[image['id']] = {}
         for item in image.keys():
-            ret[image['name']][item] = str(image[item])
+            ret[image['id']][item] = str(image[item])
 
     return ret
 
@@ -255,6 +255,7 @@ def create(vm_):
             'profile': vm_['profile'],
             'provider': vm_['provider'],
         },
+        transport=__opts__['transport']
     )
 
     log.info('Creating Cloud VM {0}'.format(vm_['name']))
@@ -280,16 +281,34 @@ def create(vm_):
             )
         )
 
+    if key_filename is None:
+        raise SaltCloudConfigError(
+            'The DigitalOcean driver requires an ssh_key_file and an ssh_key_name '
+            'because it does not supply a root password upon building the server.'
+        )
+
     private_networking = config.get_cloud_config_value(
-        'private_networking', vm_, __opts__, search_global=False, default=None
+        'private_networking', vm_, __opts__, search_global=False, default=None,
     )
-    kwargs['private_networking'] = 'true' if private_networking else 'false'
+    if private_networking is not None:
+        if not isinstance(private_networking, bool):
+            raise SaltCloudConfigError("'private_networking' should be a boolean value.")
+        kwargs['private_networking'] = private_networking
+
+    backups_enabled = config.get_cloud_config_value(
+        'backups_enabled', vm_, __opts__, search_global=False, default=None,
+    )
+    if backups_enabled is not None:
+        if not isinstance(backups_enabled, bool):
+            raise SaltCloudConfigError("'backups_enabled' should be a boolean value.")
+        kwargs['backups_enabled'] = backups_enabled
 
     salt.utils.cloud.fire_event(
         'event',
         'requesting instance',
         'salt/cloud/{0}/requesting'.format(vm_['name']),
         {'kwargs': kwargs},
+        transport=__opts__['transport']
     )
 
     try:
@@ -300,15 +319,15 @@ def create(vm_):
             'The following exception was thrown when trying to '
             'run the initial deployment: {1}'.format(
                 vm_['name'],
-                exc.message
+                str(exc)
             ),
             # Show the traceback if the debug logging level is enabled
-            exc_info=log.isEnabledFor(logging.DEBUG)
+            exc_info_on_loglevel=logging.DEBUG
         )
         return False
 
     def __query_node_data(vm_name):
-        data = _get_node(vm_name)
+        data = show_instance(vm_name, 'action')
         if not data:
             # Trigger an error in the wait_for_ip function
             return False
@@ -331,7 +350,7 @@ def create(vm_):
         except SaltCloudSystemExit:
             pass
         finally:
-            raise SaltCloudSystemExit(exc.message)
+            raise SaltCloudSystemExit(str(exc))
 
     ssh_username = config.get_cloud_config_value(
         'ssh_username', vm_, __opts__, default='root'
@@ -340,6 +359,7 @@ def create(vm_):
     if config.get_cloud_config_value('deploy', vm_, __opts__) is True:
         deploy_script = script(vm_)
         deploy_kwargs = {
+            'opts': __opts__,
             'host': data['ip_address'],
             'username': ssh_username,
             'key_filename': key_filename,
@@ -421,6 +441,7 @@ def create(vm_):
             'executing deploy script',
             'salt/cloud/{0}/deploying'.format(vm_['name']),
             {'kwargs': event_kwargs},
+            transport=__opts__['transport']
         )
 
         deployed = False
@@ -456,6 +477,7 @@ def create(vm_):
             'profile': vm_['profile'],
             'provider': vm_['provider'],
         },
+        transport=__opts__['transport']
     )
 
     return ret
@@ -463,9 +485,17 @@ def create(vm_):
 
 def query(method='droplets', droplet_id=None, command=None, args=None):
     '''
-    Make a web call to Digital Ocean
+    Make a web call to DigitalOcean
     '''
-    path = 'https://api.digitalocean.com/{0}/'.format(method)
+    base_path = str(config.get_cloud_config_value(
+        'api_root',
+        get_configured_provider(),
+        __opts__,
+        search_global=False,
+        default='https://api.digitalocean.com/v1'
+    ))
+
+    path = '{0}/{1}/'.format(base_path, method)
 
     if droplet_id:
         path += '{0}/'.format(droplet_id)
@@ -483,22 +513,20 @@ def query(method='droplets', droplet_id=None, command=None, args=None):
         'api_key', get_configured_provider(), __opts__, search_global=False
     )
 
-    path += '?%s'
-    params = urllib.urlencode(args)
-    request = urllib2.urlopen(path % params)
-    if request.getcode() != 200:
+    request = requests.get(path, params=args)
+    if request.status_code != 200:
         raise SaltCloudSystemExit(
-            'An error occurred while querying Digital Ocean. HTTP Code: {0}  '
+            'An error occurred while querying DigitalOcean. HTTP Code: {0}  '
             'Error: {1!r}'.format(
                 request.getcode(),
-                request.read()
+                #request.read()
+                request.text
             )
         )
 
-    log.debug(request.geturl())
+    log.debug(request.url)
 
-    content = request.read()
-    request.close()
+    content = request.text
 
     result = json.loads(content)
     if result.get('status', '').lower() == 'error':
@@ -526,14 +554,15 @@ def script(vm_):
 
 def show_instance(name, call=None):
     '''
-    Show the details from Digital Ocean concerning a droplet
+    Show the details from DigitalOcean concerning a droplet
     '''
     if call != 'action':
         raise SaltCloudSystemExit(
             'The show_instance action must be called with -a or --action.'
         )
-
-    return _get_node(name)
+    node = _get_node(name)
+    salt.utils.cloud.cache_node(node, __active_provider_name__, __opts__)
+    return node
 
 
 def _get_node(name):
@@ -618,7 +647,9 @@ def destroy(name, call=None):
     '''
     Destroy a node. Will check termination protection and warn if enabled.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt-cloud --destroy mymachine
     '''
@@ -633,6 +664,7 @@ def destroy(name, call=None):
         'destroying instance',
         'salt/cloud/{0}/destroying'.format(name),
         {'name': name},
+        transport=__opts__['transport']
     )
 
     scrub_data = config.get_cloud_config_value(
@@ -647,6 +679,10 @@ def destroy(name, call=None):
         'destroyed instance',
         'salt/cloud/{0}/destroyed'.format(name),
         {'name': name},
+        transport=__opts__['transport']
     )
+
+    if __opts__.get('update_cachedir', False) is True:
+        salt.utils.cloud.delete_minion_cachedir(name, __active_provider_name__.split(':')[0], __opts__)
 
     return node

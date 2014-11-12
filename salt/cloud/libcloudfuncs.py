@@ -11,27 +11,42 @@ import logging
 
 # pylint: disable=W0611
 # Import libcloud
-from libcloud.compute.types import Provider
-from libcloud.compute.providers import get_driver
-from libcloud.compute.deployment import (
-    MultiStepDeployment,
-    ScriptDeployment,
-    SSHKeyDeployment
-)
+try:
+    import libcloud
+    from libcloud.compute.types import Provider
+    from libcloud.compute.providers import get_driver
+    from libcloud.compute.deployment import (
+        MultiStepDeployment,
+        ScriptDeployment,
+        SSHKeyDeployment
+    )
+    HAS_LIBCLOUD = True
+    LIBCLOUD_VERSION_INFO = tuple([
+        int(part) for part in libcloud.__version__.replace('-', '.').split('.')[:3]
+    ])
+
+except ImportError:
+    HAS_LIBCLOUD = False
+    LIBCLOUD_VERSION_INFO = (1000,)
 # pylint: enable=W0611
 
 
 # Import salt libs
 import salt._compat
 import salt.utils.event
+import salt.client
 
 # Import salt cloud libs
+import salt.utils
 import salt.utils.cloud
 import salt.config as config
-from salt.cloud.exceptions import SaltCloudNotFound, SaltCloudSystemExit
+from salt.exceptions import SaltCloudNotFound, SaltCloudSystemExit
 
 # Get logging started
 log = logging.getLogger(__name__)
+
+
+LIBCLOUD_MINIMAL_VERSION = (0, 14, 0)
 
 
 def node_state(id_):
@@ -39,61 +54,45 @@ def node_state(id_):
               1: 'REBOOTING',
               2: 'TERMINATED',
               3: 'PENDING',
-              4: 'UNKNOWN'}
+              4: 'UNKNOWN',
+              5: 'STOPPED',
+              6: 'SUSPENDED',
+              7: 'ERROR',
+              8: 'PAUSED'}
     return states[id_]
 
 
-def check_libcloud_version(reqver='0.13.2', why=None):
+def check_libcloud_version(reqver=LIBCLOUD_MINIMAL_VERSION, why=None):
     '''
     Compare different libcloud versions
     '''
-    try:
-        import libcloud
-    except ImportError:
-        raise ImportError('salt-cloud requires >= libcloud {0}'.format(reqver))
+    if not HAS_LIBCLOUD:
+        return False
 
-    reqver = reqver.replace('-', '.')
-    comps = reqver.split('.')
-    required_version = []
-    for number in comps[:3]:
-        required_version.append(int(number))
-    ver = libcloud.__version__
-    ver = ver.replace('-', '.')
-    comps = ver.split('.')
-    version = []
-    for number in comps[:3]:
-        version.append(int(number))
+    if not isinstance(reqver, (list, tuple)):
+        raise RuntimeError(
+            '\'reqver\' needs to passed as a tuple or list, ie, (0, 14, 0)'
+        )
+    try:
+        import libcloud  # pylint: disable=redefined-outer-name
+    except ImportError:
+        raise ImportError(
+            'salt-cloud requires >= libcloud {0} which is not installed'.format(
+                '.'.join([str(num) for num in reqver])
+            )
+        )
+
+    if LIBCLOUD_VERSION_INFO >= reqver:
+        return libcloud.__version__
+
     errormsg = 'Your version of libcloud is {0}. '.format(libcloud.__version__)
-    errormsg += 'salt-cloud requires >= libcloud {0}'.format(required_version)
+    errormsg += 'salt-cloud requires >= libcloud {0}'.format(
+        '.'.join([str(num) for num in reqver])
+    )
     if why:
         errormsg += ' for {0}'.format(why)
     errormsg += '. Please upgrade.'
-    if version < required_version:
-        raise ImportError(errormsg)
-    return libcloud.__version__
-
-
-def libcloud_version():
-    '''
-    Require the minimal libcloud version
-    '''
-    try:
-        import libcloud
-    except ImportError:
-        raise ImportError('salt-cloud requires >= libcloud 0.13.2')
-
-    ver = libcloud.__version__
-    ver = ver.replace('-', '.')
-    comps = ver.split('.')
-    version = []
-    for number in comps[:3]:
-        version.append(int(number))
-    if version < [0, 13, 2]:
-        raise ImportError(
-            'Your version of libcloud is {0}. salt-cloud requires >= '
-            'libcloud 0.13.2. Please upgrade.'.format(libcloud.__version__)
-        )
-    return libcloud.__version__
+    raise ImportError(errormsg)
 
 
 def get_node(conn, name):
@@ -103,6 +102,7 @@ def get_node(conn, name):
     nodes = conn.list_nodes()
     for node in nodes:
         if node.name == name:
+            salt.utils.cloud.cache_node(salt.utils.cloud.simple_types_filter(node.__dict__), __active_provider_name__, __opts__)
             return node
 
 
@@ -340,28 +340,46 @@ def destroy(name, conn=None, call=None):
         'destroying instance',
         'salt/cloud/{0}/destroying'.format(name),
         {'name': name},
+        transport=__opts__['transport']
     )
 
     if not conn:
         conn = get_conn()   # pylint: disable=E0602
 
     node = get_node(conn, name)
+    profiles = get_configured_provider()['profiles']  # pylint: disable=E0602
     if node is None:
         log.error('Unable to find the VM {0}'.format(name))
+    profile = None
+    if 'metadata' in node.extra and 'profile' in node.extra['metadata']:
+        profile = node.extra['metadata']['profile']
+    flush_mine_on_destroy = False
+    if profile is not None and profile in profiles:
+        if 'flush_mine_on_destroy' in profiles[profile]:
+            flush_mine_on_destroy = profiles[profile]['flush_mine_on_destroy']
+    if flush_mine_on_destroy:
+        log.info('Clearing Salt Mine: {0}'.format(name))
+        client = salt.client.get_local_client(__opts__['conf_file'])
+        minions = client.cmd(name, 'mine.flush')
+
+    log.info('Clearing Salt Mine: {0}, {1}'.format(name, flush_mine_on_destroy))
     log.info('Destroying VM: {0}'.format(name))
     ret = conn.destroy_node(node)
     if ret:
         log.info('Destroyed VM: {0}'.format(name))
         # Fire destroy action
-        event = salt.utils.event.SaltEvent('master', __opts__['sock_dir'])
         salt.utils.cloud.fire_event(
             'event',
             'destroyed instance',
             'salt/cloud/{0}/destroyed'.format(name),
             {'name': name},
+            transport=__opts__['transport']
         )
         if __opts__['delete_sshkeys'] is True:
-            salt.utils.cloud.remove_sshkey(node.public_ips[0])
+            salt.utils.cloud.remove_sshkey(getattr(node, __opts__.get('ssh_interface', 'public_ips'))[0])
+        if __opts__.get('update_cachedir', False) is True:
+            salt.utils.cloud.delete_minion_cachedir(name, __active_provider_name__.split(':')[0], __opts__)
+
         return True
 
     log.error('Failed to Destroy VM: {0}'.format(name))
@@ -383,17 +401,13 @@ def reboot(name, conn=None):
     if ret:
         log.info('Rebooted VM: {0}'.format(name))
         # Fire reboot action
-        # Fire destroy action
-        event = salt.utils.event.SaltEvent('master', __opts__['sock_dir'])
-        try:
-            event.fire_event(
-                '{0} has been rebooted'.format(name), 'salt-cloud'
-            )
-        except ValueError:
-            # We're using develop or a 0.17.x version of salt
-            event.fire_event(
-                {name: '{0} has been rebooted'.format(name)}, 'salt-cloud'
-            )
+        salt.utils.cloud.fire_event(
+            'event',
+            '{0} has been rebooted'.format(name), 'salt-cloud'
+            'salt/cloud/{0}/rebooting'.format(name),
+            {'name': name},
+            transport=__opts__['transport']
+        )
         return True
 
     log.error('Failed to reboot VM: {0}'.format(name))
@@ -446,6 +460,8 @@ def list_nodes_full(conn=None, call=None):
             pairs[key] = value
         ret[node.name] = pairs
         del ret[node.name]['driver']
+
+    salt.utils.cloud.cache_node_list(ret, __active_provider_name__.split(':')[0], __opts__)
     return ret
 
 
@@ -471,6 +487,7 @@ def show_instance(name, call=None):
         )
 
     nodes = list_nodes_full()
+    salt.utils.cloud.cache_node(nodes[name], __active_provider_name__, __opts__)
     return nodes[name]
 
 

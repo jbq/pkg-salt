@@ -27,11 +27,12 @@ Depends: ${python:Depends},
          ${shlibs:Depends},
          python,
          python-jinja2,
+         python-apt,
          python-yaml,
-         python-pkg-resources
+         python-pkg-resources,
+         python-requests (>= 1.0.0)
 Recommends: lsb-release,
-            python-mako,
-            python-git
+            python-mako
 Suggests: salt-doc (= ${source:Version})
 Breaks: python-mako (<< 0.7.0)
 Description: shared libraries that salt requires for all packages
@@ -144,8 +145,7 @@ Architecture: all
 Depends: ${misc:Depends},
          ${python:Depends},
          salt-common (= ${source:Version}),
-         msgpack-python,
-         sshpass
+         msgpack-python
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
  administer servers in a fast and efficient way.
@@ -197,8 +197,7 @@ Architecture: all
 Depends: ${python:Depends},
          ${misc:Depends},
          salt-common (= ${source:Version}),
-         python-libcloud,
-         sshpass
+         python-libcloud (>= 0.14.1-1)
 Suggests: python-botocore
 Recommends: python-netaddr
 Description: public cloud VM management system

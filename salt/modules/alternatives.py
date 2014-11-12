@@ -3,8 +3,6 @@
 Support for Alternatives system
 
 :codeauthor: Radek Rada <radek.rada@gmail.com>
-:copyright: © 2012 by the SaltStack Team, see AUTHORS for more details.
-:license: Apache 2.0, see LICENSE for more details.
 '''
 
 # Import python libs
@@ -30,7 +28,7 @@ def __virtual__():
     Only if alternatives dir is available
     '''
     if os.path.isdir('/etc/alternatives'):
-        return 'alternatives'
+        return True
     return False
 
 

@@ -22,7 +22,7 @@ from salt.exceptions import SaltInvocationError
 import yaml
 from jinja2 import Environment, FileSystemLoader
 try:
-    import ldap
+    import ldap  # pylint: disable=W0611
     HAS_LDAP = True
 except ImportError:
     HAS_LDAP = False
@@ -150,7 +150,9 @@ def _do_search(conf):
     return result
 
 
-def ext_pillar(minion_id, pillar, config_file):
+def ext_pillar(minion_id,  # pylint: disable=W0613
+               pillar,  # pylint: disable=W0613
+               config_file):
     '''
     Execute LDAP searches and return the aggregated data
     '''

@@ -1,0 +1,14 @@
+Description: Minor update to release notes for missing fix
+Author: Joe Healy <joehealy@gmail.com>
+Forwarded: no
+
+--- a/doc/topics/releases/2014.1.6.rst
++++ b/doc/topics/releases/2014.1.6.rst
+@@ -14,6 +14,7 @@
+ - Add sqlite3 to esky builds
+ - Fix ``jobs.active`` output (:issue:`9526`)
+ - Fix the ``virtual`` grain for Xen (:issue:`13534`)
++- Fix _ext_nodes unavailable on master (:issue:`13535`)
+ - Fix eauth for batch mode (:issue:`9605`)
+ - Fix force-related issues with ``tomcat`` support (:issue:`12889`)
+ - Fix KeyError when cloud mapping

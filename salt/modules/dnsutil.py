@@ -18,7 +18,7 @@ def __virtual__():
     Generic, should work on any platform (including Windows). Functionality
     which requires dependencies outside of Python do not belong in this module.
     '''
-    return 'dnsutil'
+    return True
 
 
 def parse_hosts(hostsfile='/etc/hosts', hosts=None):
@@ -178,7 +178,7 @@ def parse_zone(zonefile=None, zone=None):
         if comps[2] == 'NS':
             zonedict.setdefault('NS', []).append(comps[3])
         elif comps[2] == 'MX':
-            if not 'MX' in zonedict.keys():
+            if 'MX' not in zonedict.keys():
                 zonedict.setdefault('MX', []).append({'priority': comps[3],
                                                       'host': comps[4]})
         else:
@@ -205,7 +205,7 @@ def _to_seconds(time):
             time = int(time)
         except Exception:
             time = 604800
-    if time < 604800:
+    if time > 604800:
         time = 604800
     return time
 

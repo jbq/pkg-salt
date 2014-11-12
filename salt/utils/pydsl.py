@@ -90,9 +90,10 @@ from uuid import uuid4 as _uuid
 from salt.utils.odict import OrderedDict
 from salt.utils import warn_until
 from salt.state import HighState
+from salt._compat import string_types
 
 
-REQUISITES = set('require watch use require_in watch_in use_in'.split())
+REQUISITES = set('require watch prereq use require_in watch_in prereq_in use_in onchanges onfail'.split())
 
 
 class PyDslError(Exception):
@@ -253,7 +254,7 @@ class Sls(object):
                     modname, funcname = modname.rsplit('.', 1)
                 else:
                     funcname = (
-                        x for x in args if isinstance(x, basestring)
+                        x for x in args if isinstance(x, string_types)
                     ).next()
                     args.remove(funcname)
                 mod = getattr(s, modname)
@@ -314,6 +315,15 @@ class StateDeclaration(object):
         result = HighState.get_active().state.functions['state.high'](
             {self._id: self._repr()}
         )
+
+        if not isinstance(result, dict):
+            # A list is an error
+            raise PyDslError(
+                'An error occurred while running highstate: {0}'.format(
+                    '; '.join(result)
+                )
+            )
+
         result = sorted(result.iteritems(), key=lambda t: t[1]['__run_num__'])
         if check:
             for k, v in result:

@@ -19,44 +19,37 @@ import logging
 
 # Import salt libs
 import salt.config
+import salt.exitcodes
 import salt.output
 import salt.utils
-from salt import syspaths
 from salt.utils import parsers
-from salt.utils.validate.path import is_writeable
 from salt.utils.verify import check_user, verify_env, verify_files
 
 # Import salt.cloud libs
 import salt.cloud
-from salt.cloud.exceptions import SaltCloudException, SaltCloudSystemExit
-try:
-    from salt.cloud.libcloudfuncs import libcloud_version
-    HAS_LIBCLOUD = True
-except ImportError:
-    HAS_LIBCLOUD = False
+from salt.exceptions import SaltCloudException, SaltCloudSystemExit
 
 log = logging.getLogger(__name__)
 
 
 class SaltCloud(parsers.SaltCloudParser):
+
     def run(self):
         '''
         Execute the salt-cloud command line
         '''
-        if HAS_LIBCLOUD is False:
-            self.error('salt-cloud requires >= libcloud 0.11.4')
-
-        libcloud_version()
-
         # Parse shell arguments
         self.parse_args()
 
         salt_master_user = self.config.get('user', salt.utils.get_user())
         if salt_master_user is not None and not check_user(salt_master_user):
             self.error(
-                'salt-cloud needs to run as the same user as salt-master, '
-                '{0!r}, but was unable to switch credentials. Please run '
-                'salt-cloud as root or as {0!r}'.format(salt_master_user)
+                'If salt-cloud is running on a master machine, salt-cloud '
+                'needs to run as the same user as the salt-master, {0!r}. If '
+                'salt-cloud is not running on a salt-master, the appropriate '
+                'write permissions must be granted to /etc/salt/. Please run '
+                'salt-cloud as root, {0!r}, or change permissions for '
+                '/etc/salt/.'.format(salt_master_user)
             )
 
         try:
@@ -79,106 +72,12 @@ class SaltCloud(parsers.SaltCloudParser):
         self.setup_logfile_logger()
 
         if self.options.update_bootstrap:
-            log.debug('Updating the bootstrap-salt.sh script to latest stable')
-            import urllib2
-            url = 'http://bootstrap.saltstack.org'
-            req = urllib2.urlopen(url)
-            if req.getcode() != 200:
-                self.error(
-                    'Failed to download the latest stable version of the '
-                    'bootstrap-salt.sh script from {0}. HTTP error: '
-                    '{1}'.format(
-                        url, req.getcode()
-                    )
-                )
-
-            # Get the path to the built-in deploy scripts directory
-            builtin_deploy_dir = os.path.join(
-                os.path.dirname(__file__),
-                'deploy'
+            ret = salt.utils.cloud.update_bootstrap(self.config)
+            display_output = salt.output.get_printout(
+                self.options.output, self.config
             )
-
-            # Compute the search path from the current loaded opts conf_file
-            # value
-            deploy_d_from_conf_file = os.path.join(
-                os.path.dirname(self.config['conf_file']),
-                'cloud.deploy.d'
-            )
-
-            # Compute the search path using the install time defined
-            # syspaths.CONF_DIR
-            deploy_d_from_syspaths = os.path.join(
-                syspaths.CONFIG_DIR,
-                'cloud.deploy.d'
-            )
-
-            # Get a copy of any defined search paths, flagging them not to
-            # create parent
-            deploy_scripts_search_paths = []
-            for entry in self.config.get('deploy_scripts_search_path', []):
-                if entry.startswith(builtin_deploy_dir):
-                    # We won't write the updated script to the built-in deploy
-                    # directory
-                    continue
-
-                if entry in (deploy_d_from_conf_file, deploy_d_from_syspaths):
-                    # Allow parent directories to be made
-                    deploy_scripts_search_paths.append((entry, True))
-                else:
-                    deploy_scripts_search_paths.append((entry, False))
-
-            # In case the user is not using defaults and the computed
-            # 'cloud.deploy.d' from conf_file and syspaths is not included, add
-            # them
-            if deploy_d_from_conf_file not in deploy_scripts_search_paths:
-                deploy_scripts_search_paths.append(
-                    (deploy_d_from_conf_file, True)
-                )
-            if deploy_d_from_syspaths not in deploy_scripts_search_paths:
-                deploy_scripts_search_paths.append(
-                    (deploy_d_from_syspaths, True)
-                )
-
-            for entry, makedirs in deploy_scripts_search_paths:
-                if makedirs and not os.path.isdir(entry):
-                    try:
-                        os.makedirs(entry)
-                    except (OSError, IOError) as err:
-                        log.info(
-                            'Failed to create directory {0!r}'.format(entry)
-                        )
-                        continue
-
-                if not is_writeable(entry):
-                    log.debug(
-                        'The {0!r} is not writeable. Continuing...'.format(
-                            entry
-                        )
-                    )
-                    continue
-
-                deploy_path = os.path.join(entry, 'bootstrap-salt.sh')
-                try:
-                    print(
-                        '\nUpdating \'bootstrap-salt.sh\':'
-                        '\n\tSource:      {0}'
-                        '\n\tDestination: {1}'.format(
-                            url,
-                            deploy_path
-                        )
-                    )
-                    with salt.utils.fopen(deploy_path, 'w') as fp_:
-                        fp_.write(req.read())
-                    # We were able to update, no need to continue trying to
-                    # write up the search path
-                    self.exit(0)
-                except (OSError, IOError) as err:
-                    log.debug(
-                        'Failed to write the updated script: {0}'.format(err)
-                    )
-                    continue
-
-            self.error('Failed to update the bootstrap script')
+            print(display_output(ret))
+            self.exit(os.EX_OK)
 
         log.info('salt-cloud starting')
         mapper = salt.cloud.Map(self.config)
@@ -245,12 +144,13 @@ class SaltCloud(parsers.SaltCloudParser):
                 matching = mapper.delete_map(query='list_nodes')
             else:
                 matching = mapper.get_running_by_names(
-                    self.config.get('names', ())
+                    self.config.get('names', ()),
+                    profile=self.options.profile
                 )
 
             if not matching:
                 print('No machines were found to be destroyed')
-                self.exit()
+                self.exit(os.EX_OK)
 
             msg = 'The following virtual machines are set to be destroyed:\n'
             names = set()
@@ -334,11 +234,17 @@ class SaltCloud(parsers.SaltCloudParser):
                 msg = 'There was a profile error: {0}'
                 self.handle_exception(msg, exc)
 
+        elif self.options.set_password:
+            username = self.credential_username
+            provider_name = "salt.cloud.provider.{0}".format(self.credential_provider)
+            # TODO: check if provider is configured
+            # set the password
+            salt.utils.cloud.store_password_in_keyring(provider_name, username)
         elif self.config.get('map', None) and \
                 self.selected_query_option is None:
             if len(mapper.rendered_map) == 0:
                 sys.stderr.write('No nodes defined in this map')
-                self.exit(1)
+                self.exit(salt.exitcodes.EX_GENERIC)
             try:
                 ret = {}
                 run_map = True
@@ -357,8 +263,7 @@ class SaltCloud(parsers.SaltCloudParser):
 
                 msg = ''
                 if 'existing' in dmap:
-                    msg += ('The following virtual machines were found '
-                            'already running:\n')
+                    msg += ('The following virtual machines already exist:\n')
                     for name in dmap['existing']:
                         msg += '  {0}\n'.format(name)
 
@@ -406,7 +311,7 @@ class SaltCloud(parsers.SaltCloudParser):
         )
         # display output using salt's outputter system
         print(display_output(ret))
-        self.exit(0)
+        self.exit(os.EX_OK)
 
     def print_confirm(self, msg):
         if self.options.assume_yes:
@@ -429,13 +334,13 @@ class SaltCloud(parsers.SaltCloudParser):
                 self.exit(
                     exc.exit_code,
                     '{0}\n'.format(
-                        msg.format(exc.message.rstrip())
+                        msg.format(str(exc).rstrip())
                     )
                 )
             # It's not a system exit but it's an error we can
             # handle
             self.error(
-                msg.format(exc.message)
+                msg.format(str(exc))
             )
         # This is a generic exception, log it, include traceback if
         # debug logging is enabled and exit.
@@ -443,6 +348,6 @@ class SaltCloud(parsers.SaltCloudParser):
             msg.format(exc),
             # Show the traceback if the debug logging level is
             # enabled
-            exc_info=log.isEnabledFor(logging.DEBUG)
+            exc_info_on_loglevel=logging.DEBUG
         )
-        self.exit(1)
+        self.exit(salt.exitcodes.EX_GENERIC)

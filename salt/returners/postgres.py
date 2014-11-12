@@ -55,10 +55,19 @@ correctly::
     EOF
 
 Required python modules: psycopg2
+
+  To use the postgres returner, append '--return postgres' to the salt command. ex:
+
+    salt '*' test.ping --return postgres
 '''
+# Let's not allow PyLint complain about string substitution
+# pylint: disable=W1321,E1321
 
 # Import python libs
 import json
+
+# Import Salt libs
+import salt.utils
 
 # Import third party libs
 try:
@@ -79,15 +88,27 @@ def _get_conn():
     '''
     Return a postgres connection.
     '''
-    return psycopg2.connect(
-            host=__salt__['config.option']('returner.postgres.host'),
-            user=__salt__['config.option']('returner.postgres.user'),
-            password=__salt__['config.option']('returner.postgres.passwd'),
-            database=__salt__['config.option']('returner.postgres.db'),
-            port=__salt__['config.option']('returner.postgres.port'))
+    if 'config.option' in __salt__:
+        return psycopg2.connect(
+                host=__salt__['config.option']('returner.postgres.host'),
+                user=__salt__['config.option']('returner.postgres.user'),
+                password=__salt__['config.option']('returner.postgres.passwd'),
+                database=__salt__['config.option']('returner.postgres.db'),
+                port=__salt__['config.option']('returner.postgres.port'))
+    else:
+        cfg = __opts__
+        return psycopg2.connect(
+                host=cfg.get('returner.postgres.host', None),
+                user=cfg.get('returner.postgres.user', None),
+                password=cfg.get('returner.postgres.passwd', None),
+                database=cfg.get('returner.postgres.db', None),
+                port=cfg.get('returner.postgres.port', None))
 
 
 def _close_conn(conn):
+    '''
+    Close the Postgres connection
+    '''
     conn.commit()
     conn.close()
 
@@ -177,7 +198,7 @@ def get_fun(fun):
 
     ret = {}
     if data:
-        for minion, jid, full_ret in data:
+        for minion, _, full_ret in data:
             ret[minion] = json.loads(full_ret)
     _close_conn(conn)
     return ret
@@ -215,3 +236,10 @@ def get_minions():
         ret.append(minion[0])
     _close_conn(conn)
     return ret
+
+
+def prep_jid(nocache, passed_jid=None):  # pylint: disable=unused-argument
+    '''
+    Do any work necessary to prepare a JID, including sending a custom id
+    '''
+    return passed_jid if passed_jid is not None else salt.utils.gen_jid()

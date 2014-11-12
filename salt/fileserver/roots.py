@@ -10,13 +10,6 @@ option.
 import os
 import logging
 
-try:
-    import fcntl
-    HAS_FCNTL = os.uname()[0] != "SunOS"
-except ImportError:
-    # fcntl is not available on windows
-    HAS_FCNTL = False
-
 # Import salt libs
 import salt.fileserver
 import salt.utils
@@ -128,8 +121,13 @@ def update():
     if os.path.exists(mtime_map_path):
         with salt.utils.fopen(mtime_map_path, 'rb') as fp_:
             for line in fp_:
-                file_path, mtime = line.split(':', 1)
-                old_mtime_map[file_path] = mtime
+                try:
+                    file_path, mtime = line.split(':', 1)
+                    old_mtime_map[file_path] = mtime
+                except ValueError:
+                    # Document the invalid entry in the log
+                    log.warning('Skipped invalid cache mtime entry in {0}: {1}'
+                                .format(mtime_map_path, line))
 
     # generate the new map
     new_mtime_map = salt.fileserver.generate_mtime_map(__opts__['file_roots'])
@@ -148,7 +146,12 @@ def update():
 
     if __opts__.get('fileserver_events', False):
         # if there is a change, fire an event
-        event = salt.utils.event.MasterEvent(__opts__['sock_dir'])
+        event = salt.utils.event.get_event(
+                'master',
+                __opts__['sock_dir'],
+                __opts__['transport'],
+                opts=__opts__,
+                listen=False)
         event.fire_event(data, tagify(['roots', 'update'], prefix='fileserver'))
 
 
@@ -217,15 +220,10 @@ def file_hash(load, fnd):
     if not os.path.exists(cache_dir):
         os.makedirs(cache_dir)
     # save the cache object "hash:mtime"
-    if HAS_FCNTL:
-        with salt.utils.flopen(cache_path, 'w') as fp_:
-            fp_.write('{0}:{1}'.format(ret['hsum'], os.path.getmtime(path)))
-            fcntl.flock(fp_.fileno(), fcntl.LOCK_UN)
-        return ret
-    else:
-        with salt.utils.fopen(cache_path, 'w') as fp_:
-            fp_.write('{0}:{1}'.format(ret['hsum'], os.path.getmtime(path)))
-        return ret
+    cache_object = '{0}:{1}'.format(ret['hsum'], os.path.getmtime(path))
+    with salt.utils.flopen(cache_path, 'w') as fp_:
+        fp_.write(cache_object)
+    return ret
 
 
 def _file_lists(load, form):

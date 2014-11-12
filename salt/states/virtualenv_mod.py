@@ -26,7 +26,6 @@ def __virtual__():
 def managed(name,
             venv_bin=None,
             requirements=None,
-            no_site_packages=None,
             system_site_packages=False,
             distribute=False,
             use_wheel=False,
@@ -43,6 +42,7 @@ def managed(name,
             extra_index_url=None,
             pre_releases=False,
             no_deps=False,
+            pip_exists_action=None,
             proxy=None):
     '''
     Create a virtualenv and optionally manage it with pip
@@ -58,6 +58,9 @@ def managed(name,
         Prefer wheel archives (requires pip>=1.4)
     no_deps: False
         Pass `--no-deps` to `pip`.
+    pip_exists_action: None
+        Default action of pip when a path already exists: (s)witch, (i)gnore,
+        (w)ipe, (b)ackup
     proxy: None
         Proxy address which is passed to "pip install"
 
@@ -72,30 +75,27 @@ def managed(name,
     '''
     ret = {'name': name, 'result': True, 'comment': '', 'changes': {}}
 
-    if not 'virtualenv.create' in __salt__:
+    if 'virtualenv.create' not in __salt__:
         ret['result'] = False
         ret['comment'] = 'Virtualenv was not detected on this system'
         return ret
 
-    salt.utils.warn_until(
-        'Lithium',
-        'Let\'s support \'runas\' until salt {0} is out, after which it will'
-        'stop being supported'.format(
-            salt.version.SaltStackVersion.from_name('Helium').formatted_version
-        ),
-        _dont_call_warnings=True
-    )
     if runas:
         # Warn users about the deprecation
-        ret.setdefault('warnings', []).append(
-            'The \'runas\' argument is being deprecated in favor of \'user\', '
-            'please update your state files.'
+        salt.utils.warn_until(
+            'Lithium',
+            'The support for \'runas\' is being deprecated in favor of '
+            '\'user\' and will be removed in Salt Beryllium. Please update '
+            'your state files.'
         )
     if user is not None and runas is not None:
         # user wins over runas but let warn about the deprecation.
-        ret.setdefault('warnings', []).append(
-            'Passed both the \'runas\' and \'user\' arguments. Please don\'t. '
-            '\'runas\' is being ignored in favor of \'user\'.'
+        salt.utils.warn_until(
+            'Lithium',
+            'Passed both the \'runas\' and \'user\' arguments. \'runas\' is '
+            'being ignored in favor of \'user\' as the support for \'runas\' '
+            'is being deprecated in favor of \'user\' and will be removed in '
+            'Salt Beryllium. Please update your state files.'
         )
         runas = None
     elif runas is not None:
@@ -158,7 +158,6 @@ def managed(name,
         _ret = __salt__['virtualenv.create'](
             name,
             venv_bin=venv_bin,
-            no_site_packages=no_site_packages,
             system_site_packages=system_site_packages,
             distribute=distribute,
             clear=clear,
@@ -205,6 +204,7 @@ def managed(name,
             extra_index_url=extra_index_url,
             no_chown=no_chown,
             pre_releases=pre_releases,
+            exists_action=pip_exists_action,
             no_deps=no_deps,
             proxy=proxy,
         )

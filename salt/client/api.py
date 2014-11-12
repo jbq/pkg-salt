@@ -54,11 +54,15 @@ class APIClient(object):
                 )
             )
         self.opts = opts
-        self.localClient = salt.client.LocalClient(self.opts['conf_file'])
+        self.localClient = salt.client.get_local_client(self.opts['conf_file'])
         self.runnerClient = salt.runner.RunnerClient(self.opts)
         self.wheelClient = salt.wheel.Wheel(self.opts)
         self.resolver = salt.auth.Resolver(self.opts)
-        self.event = salt.utils.event.SaltEvent('master', self.opts['sock_dir'])
+        self.event = salt.utils.event.get_event(
+                'master',
+                self.opts['sock_dir'],
+                self.opts['transport'],
+                opts=self.opts)
 
     def run(self, cmd):
         '''
@@ -220,7 +224,7 @@ class APIClient(object):
             client = parts[0]
             module = '.'.join(parts[1:])  # strip prefix
             if client == 'wheel':
-                functions = self.wheelClient.w_funcs
+                functions = self.wheelClient.functions
             elif client == 'runner':
                 functions = self.runnerClient.functions
             result = {'master': salt.utils.argspec_report(functions, module)}
@@ -270,7 +274,7 @@ class APIClient(object):
             raise EauthAuthenticationError(
                 "Authentication failed with {0}.".format(repr(ex)))
 
-        if not 'token' in tokenage:
+        if 'token' not in tokenage:
             raise EauthAuthenticationError("Authentication failed with provided credentials.")
 
         # Grab eauth config for the current backend for the current user

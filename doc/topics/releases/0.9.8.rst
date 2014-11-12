@@ -200,7 +200,7 @@ Support has been added for matching minions with Yahoo's range library. This
 is handled by passing range syntax with *-R* or *--range* arguments to salt.
 
 More information at:
-https://github.com/grierj/range/wiki/Introduction-to-Range-with-YAML-files
+https://github.com/ytoolshed/range/wiki/%22yamlfile%22-module-file-spec
 
 
 Requisite "in"
@@ -335,7 +335,7 @@ The :doc:`virt </ref/modules/all/salt.modules.virt>` module gained basic Xen sup
 The :doc:`yum </ref/modules/all/salt.modules.yumpkg>` module gained
 Scientific Linux support.
 
-The :doc:`pkg </ref/modules/all/salt.modules.apt>` module on Debian, Ubuntu,
+The :doc:`pkg </ref/modules/all/salt.modules.aptpkg>` module on Debian, Ubuntu,
 and derivatives force apt to run in a non-interactive mode. This prevents
 issues when package installation waits for confirmation.
 

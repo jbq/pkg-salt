@@ -82,7 +82,6 @@ the following:
 
 # Import python libs
 from __future__ import print_function
-import hashlib
 import logging
 import os
 import re
@@ -498,13 +497,8 @@ class PrintOption(Option):
                     result.append(gid)
             elif arg == 'md5':
                 if stat.S_ISREG(fstat[stat.ST_MODE]):
-                    with salt.utils.fopen(fullpath, 'rb') as ifile:
-                        buf = ifile.read(8192)
-                        md5hash = hashlib.md5()
-                        while buf:
-                            md5hash.update(buf)
-                            buf = ifile.read(8192)
-                    result.append(md5hash.hexdigest())
+                    md5digest = salt.utils.get_hash(fullpath, 'md5')
+                    result.append(md5digest)
                 else:
                     result.append('')
 
@@ -590,7 +584,7 @@ def find(path, options):
 def _main():
     if len(sys.argv) < 2:
         sys.stderr.write('usage: {0} path [options]\n'.format(sys.argv[0]))
-        sys.exit(1)
+        sys.exit(os.EX_USAGE)
 
     path = sys.argv[1]
     criteria = {}
@@ -602,7 +596,7 @@ def _main():
         finder = Finder(criteria)
     except ValueError as ex:
         sys.stderr.write('error: {0}\n'.format(ex))
-        sys.exit(1)
+        sys.exit(salt.exitcodes.EX_GENERIC)
 
     for result in finder.find(path):
         print(result)

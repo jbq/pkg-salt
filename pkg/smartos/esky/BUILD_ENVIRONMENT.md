@@ -13,23 +13,18 @@ HERE=$(pwd)
 
 mv /opt/local /opt/local.backup ; hash -r
 cd /
-curl http://pkgsrc.joyent.com/packages/SmartOS/bootstrap/bootstrap-2013Q3-x86_64.tar.gz | gtar xz
+curl http://pkgsrc.joyent.com/packages/SmartOS/bootstrap/bootstrap-2014Q2-x86_64.tar.gz | gtar xz
 hash -r
 
 pkgin -y up
-pkgin -y in build-essential salt swig py27-pip unzip 
-pkgin -y rm salt
+pkgin -y in build-essential salt swig py27-pip unzip py27-mysqldb libsodium
+pkgin -y rm salt py27-zmq
 
 cd /opt/local/bin
 curl -kO 'https://us-east.manta.joyent.com/nahamu/public/smartos/bins/patchelf'
 chmod +x patchelf
-cat >swig <<"EOF"
-#!/bin/bash
-exec /opt/local/bin/swig2.0 -I/opt/local/include "$@"
-EOF
 
-pip install esky
-yes | pip uninstall bbfreeze
+pip install --egg esky bbfreeze
 
 cd $HERE
 curl -kO 'https://pypi.python.org/packages/source/b/bbfreeze-loader/bbfreeze-loader-1.1.0.zip'
@@ -41,16 +36,30 @@ $COMPILE -c bbfreeze-loader-1.1.0/_bbfreeze_loader/getpath.c -o $HERE/getpath.o
 gcc $HERE/console.o $HERE/getpath.o /opt/local/lib/python2.7/config/libpython2.7.a -L/opt/local/lib -L/opt/local/lib/python2.7/config -L/opt/local/lib -lsocket -lnsl -ldl -lrt -lm -static-libgcc -o $HERE/console.exe
 patchelf --set-rpath '$ORIGIN:$ORIGIN/../lib' $HERE/console.exe
 
-git clone git://github.com/schmir/bbfreeze -b master
-( cd $HERE/bbfreeze && easy_install-2.7 . )
 find /opt/local -name console.exe -exec mv $HERE/console.exe {} \;
 
-git clone git://github.com/saltstack/salt -b 0.17
-( cd $HERE/salt && python2.7 setup.py bdist && python2.7 setup.py bdist_esky )
+git clone git://github.com/saltstack/salt -b 2014.7
+cd $HERE/salt
 
-mv /opt/local /opt/local.build ; hash -r
-mv /opt/local.backup /opt/local ; hash -r
+# install all requirements
+# (installing them as eggs seems to trigger esky pulling in the whole egg)
+# this step is buggy... I had to run them repeatedly until they succeeded...
+until pip install --egg -r pkg/smartos/esky/zeromq_requirements.txt ; do sleep 1 ; done ;
+until pip install --egg -r pkg/smartos/esky/raet_requirements.txt ; do sleep 1 ; done ;
 
-mmkdir -p /$MANTA_USER/public/salt
-mput /$MANTA_USER/public/salt -f $(ls salt/dist/*.zip)
+# install the sodium_grabber library
+python2.7 pkg/smartos/esky/sodium_grabber_installer.py install
+
+# ugly workaround for odd zeromq linking breakage
+cp /opt/local/lib/libzmq.so.3 /opt/local/lib/python2.7/site-packages/pyzmq-13.1.0-py2.7-solaris-2.11-i86pc.64bit.egg/zmq/
+patchelf --set-rpath '$ORIGIN:$ORIGIN/../lib' /opt/local/lib/python2.7/site-packages/pyzmq-13.1.0-py2.7-solaris-2.11-i86pc.64bit.egg/zmq/libzmq.so.3
+
+# at this point you have a build environment that you could set aside and reuse to run further builds.
+
+bash pkg/smartos/esky/build-tarball.sh
+
+# Upload packages into Manta
+#pkgin -y in sdc-manta
+#mmkdir -p /$MANTA_USER/public/salt
+#for file in dist/salt*; do mput -m /$MANTA_USER/public/salt -f $file; done;
 ```

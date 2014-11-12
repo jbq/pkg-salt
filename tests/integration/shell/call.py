@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
     :codeauthor: :email:`Pedro Algarvio (pedro@algarvio.me)`
-    :copyright: © 2012-2013 by the SaltStack Team, see AUTHORS for more details
-    :license: Apache 2.0, see LICENSE for more details.
 
 
     tests.integration.shell.call
@@ -12,6 +10,7 @@
 # Import python libs
 import os
 import sys
+import re
 import shutil
 import yaml
 from datetime import datetime
@@ -49,6 +48,27 @@ class CallTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
 
         self.assertEqual(''.join(expect), ''.join(out).rsplit(",", 1)[0])
 
+    def test_json_out_indent(self):
+        out = self.run_call('test.ping -l quiet --out=json --out-indent=-1')
+        expect = ['{"local": true}']
+        self.assertEqual(expect, out)
+
+        out = self.run_call('test.ping -l quiet --out=json --out-indent=0')
+        expect = ['{', '"local": true', '}']
+        self.assertEqual(expect, out)
+
+        out = self.run_call('test.ping -l quiet --out=json --out-indent=1')
+        expect = ['{', ' "local": true', '}']
+        self.assertEqual(expect, out)
+
+    def test_local_sls_call(self):
+        fileroot = os.path.join(integration.FILES, 'file', 'base')
+        out = self.run_call('--file-root {0} --local state.sls saltcalllocal'.format(fileroot))
+        self.assertIn('Name: test.echo', ''.join(out))
+        self.assertIn('Result: True', ''.join(out))
+        self.assertIn('hello', ''.join(out))
+        self.assertIn('Succeeded: 1', ''.join(out))
+
     @skipIf(sys.platform.startswith('win'), 'This test does not apply on Win')
     def test_user_delete_kw_output(self):
         ret = self.run_call('-l quiet -d user.delete')
@@ -56,6 +76,13 @@ class CallTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
             'salt \'*\' user.delete name remove=True force=True',
             ''.join(ret)
         )
+
+    def test_salt_documentation_too_many_arguments(self):
+        '''
+        Test to see if passing additional arguments shows an error
+        '''
+        data = self.run_call('-d virtualenv.create /tmp/ve', catch_stderr=True)
+        self.assertIn('You can only get documentation for one method at one time', '\n'.join(data[1]))
 
     def test_issue_6973_state_highstate_exit_code(self):
         '''
@@ -66,7 +93,7 @@ class CallTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
         src = os.path.join(integration.FILES, 'file/base/top.sls')
         dst = os.path.join(integration.FILES, 'file/base/top.sls.bak')
         shutil.move(src, dst)
-        expected_comment = 'No Top file or external nodes data matches found'
+        expected_comment = 'No states found for this minion'
         try:
             stdout, retcode = self.run_call(
                 '-l quiet --retcode-passthrough state.highstate',
@@ -78,30 +105,62 @@ class CallTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
         self.assertNotEqual(0, retcode)
 
     @skipIf(sys.platform.startswith('win'), 'This test does not apply on Win')
+    def test_return(self):
+        self.run_call('-c {0} cmd.run "echo returnTOmaster"'.format(self.get_config_dir()))
+        jobs = [a for a in self.run_run('-c {0} jobs.list_jobs'.format(self.get_config_dir()))]
+
+        self.assertTrue(True in ['returnTOmaster' in j for j in jobs])
+        # lookback jid
+        first_match = [(i, j)
+                       for i, j in enumerate(jobs)
+                       if 'returnTOmaster' in j][0]
+        jid, idx = None, first_match[0]
+        while idx > 0:
+            jid = re.match("([0-9]+):", jobs[idx])
+            if jid:
+                jid = jid.group(1)
+                break
+            idx -= 1
+        assert idx > 0
+        assert jid
+        master_out = [
+            a for a in self.run_run('-c {0} jobs.lookup_jid {1}'.format(self.get_config_dir(), jid))
+        ]
+        self.assertTrue(True in ['returnTOmaster' in a for a in master_out])
+
+    @skipIf(sys.platform.startswith('win'), 'This test does not apply on Win')
     def test_issue_2731_masterless(self):
-        config_dir = '/tmp/salttest'
+        root_dir = os.path.join(integration.TMP, 'issue-2731')
+        config_dir = os.path.join(root_dir, 'conf')
         minion_config_file = os.path.join(config_dir, 'minion')
+        logfile = os.path.join(root_dir, 'minion_test_issue_2731')
+
+        if not os.path.isdir(config_dir):
+            os.makedirs(config_dir)
+
+        master_config = yaml.load(open(self.get_config_file_path('master')).read())
+        master_root_dir = master_config['root_dir']
         this_minion_key = os.path.join(
-            config_dir, 'pki', 'minions', 'minion_test_issue_2731'
+            master_root_dir, 'pki', 'minions', 'minion_test_issue_2731'
         )
 
         minion_config = {
             'id': 'minion_test_issue_2731',
             'master': 'localhost',
             'master_port': 64506,
-            'root_dir': '/tmp/salttest',
+            'root_dir': master_root_dir,
             'pki_dir': 'pki',
             'cachedir': 'cachedir',
             'sock_dir': 'minion_sock',
             'open_mode': True,
-            'log_file': '/tmp/salttest/minion_test_issue_2731',
+            'log_file': logfile,
             'log_level': 'quiet',
             'log_level_logfile': 'info'
         }
 
         # Remove existing logfile
-        if os.path.isfile('/tmp/salttest/minion_test_issue_2731'):
-            os.unlink('/tmp/salttest/minion_test_issue_2731')
+        if os.path.isfile(logfile):
+            os.unlink(logfile)
 
         start = datetime.now()
         # Let's first test with a master running
@@ -237,6 +296,43 @@ class CallTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
             os.chdir(old_cwd)
             if os.path.isdir(config_dir):
                 shutil.rmtree(config_dir)
+
+    def test_issue_14979_output_file_permissions(self):
+        output_file = os.path.join(integration.TMP, 'issue-14979')
+        current_umask = os.umask(0077)
+        try:
+            # Let's create an initial output file with some data
+            self.run_script(
+                'salt-call',
+                '-c {0} --output-file={1} -g'.format(
+                    self.get_config_dir(),
+                    output_file
+                ),
+                catch_stderr=True,
+                with_retcode=True
+            )
+            stat1 = os.stat(output_file)
+
+            # Let's change umask
+            os.umask(0777)
+
+            self.run_script(
+                'salt-call',
+                '-c {0} --output-file={1} -g'.format(
+                    self.get_config_dir(),
+                    output_file
+                ),
+                catch_stderr=True,
+                with_retcode=True
+            )
+            stat2 = os.stat(output_file)
+            self.assertEqual(stat1.st_mode, stat2.st_mode)
+            # self.assertEqual(stat1.st_ctime, stat2.st_ctime)
+        finally:
+            if os.path.exists(output_file):
+                os.unlink(output_file)
+            # Restore umask
+            os.umask(current_umask)
 
 
 if __name__ == '__main__':

@@ -9,8 +9,11 @@ from __future__ import print_function
 import os
 import re
 import sys
+import copy
+import json
 import time
 import errno
+import signal
 import shutil
 import pprint
 import logging
@@ -49,20 +52,31 @@ ensure_in_syspath(CODE_DIR, SALT_LIBS)
 import salt
 import salt._compat
 import salt.config
-import salt.master
 import salt.minion
 import salt.runner
 import salt.output
 import salt.version
 import salt.utils
+import salt.utils.process
 from salt.utils import fopen, get_colors
 from salt.utils.verify import verify_env
+from salt.utils.immutabletypes import freeze
+
+try:
+    import salt.master
+except ImportError:
+    # Not required fro raet tests
+    pass
 
 # Import 3rd-party libs
 import yaml
 
+if os.uname()[0] == 'Darwin':
+    SYS_TMP_DIR = '/tmp'
+else:
+    SYS_TMP_DIR = os.environ.get('TMPDIR', tempfile.gettempdir())
+
 # Gentoo Portage prefers ebuild tests are rooted in ${TMPDIR}
-SYS_TMP_DIR = os.environ.get('TMPDIR', tempfile.gettempdir())
 TMP = os.path.join(SYS_TMP_DIR, 'salt-tests-tmpdir')
 FILES = os.path.join(INTEGRATION_TEST_DIR, 'files')
 PYEXEC = 'python{0}.{1}'.format(*sys.version_info)
@@ -71,33 +85,11 @@ SCRIPT_DIR = os.path.join(CODE_DIR, 'scripts')
 TMP_STATE_TREE = os.path.join(SYS_TMP_DIR, 'salt-temp-state-tree')
 TMP_PRODENV_STATE_TREE = os.path.join(SYS_TMP_DIR, 'salt-temp-prodenv-state-tree')
 TMP_CONF_DIR = os.path.join(TMP, 'config')
+CONF_DIR = os.path.join(INTEGRATION_TEST_DIR, 'files', 'conf')
+
+RUNTIME_CONFIGS = {}
 
 log = logging.getLogger(__name__)
-
-
-def skip_if_binaries_missing(binaries, check_all=False):
-    # While there's no new release of salt-testing
-    def _id(obj):
-        return obj
-
-    if sys.version_info < (2, 7):
-        from unittest2 import skip  # pylint: disable=F0401
-    else:
-        from unittest import skip  # pylint: disable=E0611
-
-    if check_all:
-        for binary in binaries:
-            if salt.utils.which(binary) is None:
-                return skip(
-                    'The {0!r} binary was not found'
-                )
-    elif salt.utils.which_bin(binaries) is None:
-        return skip(
-            'None of the following binaries was found: {0}'.format(
-                ', '.join(binaries)
-            )
-        )
-    return _id
 
 
 def run_tests(*test_cases, **kwargs):
@@ -129,6 +121,21 @@ def run_tests(*test_cases, **kwargs):
                 action='store_true',
                 help='Disable colour printing.'
             )
+            if needs_daemon:
+                self.add_option(
+                    '--transport',
+                    default='zeromq',
+                    choices=('zeromq', 'raet'),
+                    help='Set to raet to run integration tests with raet transport. Default: %default'
+                )
+
+        def validate_options(self):
+            SaltTestcaseParser.validate_options(self)
+            # Transplant configuration
+            transport = None
+            if needs_daemon:
+                transport = self.options.transport
+            TestDaemon.transplant_configs(transport=transport)
 
         def run_testcase(self, testcase, needs_daemon=True):  # pylint: disable=W0221
             if needs_daemon:
@@ -159,106 +166,63 @@ class TestDaemon(object):
         '''
         Start a master and minion
         '''
-        running_tests_user = pwd.getpwuid(os.getuid()).pw_name
-        self.master_opts = salt.config.master_config(
-            os.path.join(INTEGRATION_TEST_DIR, 'files', 'conf', 'master')
-        )
-        self.master_opts['user'] = running_tests_user
-        minion_config_path = os.path.join(
-            INTEGRATION_TEST_DIR, 'files', 'conf', 'minion'
-        )
-        self.minion_opts = salt.config.minion_config(minion_config_path)
-        self.minion_opts['user'] = running_tests_user
-        self.syndic_opts = salt.config.syndic_config(
-            os.path.join(INTEGRATION_TEST_DIR, 'files', 'conf', 'syndic'),
-            minion_config_path
-        )
-        self.syndic_opts['user'] = running_tests_user
-
-        #if sys.version_info < (2, 7):
-        #    self.minion_opts['multiprocessing'] = False
-        self.sub_minion_opts = salt.config.minion_config(
-            os.path.join(INTEGRATION_TEST_DIR, 'files', 'conf', 'sub_minion')
-        )
-        self.sub_minion_opts['root_dir'] = os.path.join(TMP, 'subsalt')
-        self.sub_minion_opts['user'] = running_tests_user
-        #if sys.version_info < (2, 7):
-        #    self.sub_minion_opts['multiprocessing'] = False
-        self.smaster_opts = salt.config.master_config(
-            os.path.join(
-                INTEGRATION_TEST_DIR, 'files', 'conf', 'syndic_master'
-            )
-        )
-        self.smaster_opts['user'] = running_tests_user
-
-        # Set up config options that require internal data
-        self.master_opts['pillar_roots'] = {
-            'base': [os.path.join(FILES, 'pillar', 'base')]
-        }
-        self.master_opts['file_roots'] = {
-            'base': [
-                os.path.join(FILES, 'file', 'base'),
-                # Let's support runtime created files that can be used like:
-                #   salt://my-temp-file.txt
-                TMP_STATE_TREE
-            ],
-            # Alternate root to test __env__ choices
-            'prod': [
-                os.path.join(FILES, 'file', 'prod'),
-                TMP_PRODENV_STATE_TREE
-            ]
-        }
-        self.master_opts['ext_pillar'].append(
-            {'cmd_yaml': 'cat {0}'.format(
-                os.path.join(
-                    FILES,
-                    'ext.yaml'
-                )
-            )}
-        )
-
-        self.master_opts['extension_modules'] = os.path.join(
-            INTEGRATION_TEST_DIR, 'files', 'extension_modules'
-        )
-
-        # clean up the old files
-        self._clean()
-
-        # Point the config values to the correct temporary paths
-        for name in ('hosts', 'aliases'):
-            optname = '{0}.file'.format(name)
-            optname_path = os.path.join(TMP, name)
-            self.master_opts[optname] = optname_path
-            self.minion_opts[optname] = optname_path
-            self.sub_minion_opts[optname] = optname_path
-
-        verify_env([os.path.join(self.master_opts['pki_dir'], 'minions'),
-                    os.path.join(self.master_opts['pki_dir'], 'minions_pre'),
-                    os.path.join(self.master_opts['pki_dir'],
-                                 'minions_rejected'),
-                    os.path.join(self.master_opts['cachedir'], 'jobs'),
-                    os.path.join(self.smaster_opts['pki_dir'], 'minions'),
-                    os.path.join(self.smaster_opts['pki_dir'], 'minions_pre'),
-                    os.path.join(self.smaster_opts['pki_dir'],
-                                 'minions_rejected'),
-                    os.path.join(self.smaster_opts['cachedir'], 'jobs'),
-                    os.path.dirname(self.master_opts['log_file']),
-                    self.minion_opts['extension_modules'],
-                    self.sub_minion_opts['extension_modules'],
-                    self.sub_minion_opts['pki_dir'],
-                    self.master_opts['sock_dir'],
-                    self.smaster_opts['sock_dir'],
-                    self.sub_minion_opts['sock_dir'],
-                    self.minion_opts['sock_dir'],
-                    TMP_STATE_TREE,
-                    TMP_PRODENV_STATE_TREE,
-                    TMP,
-                    ],
-                   running_tests_user)
-
         # Set up PATH to mockbin
         self._enter_mockbin()
 
+        if self.parser.options.transport == 'zeromq':
+            self.start_zeromq_daemons()
+        elif self.parser.options.transport == 'raet':
+            self.start_raet_daemons()
+
+        self.minion_targets = set(['minion', 'sub_minion'])
+        self.pre_setup_minions()
+        self.setup_minions()
+
+        if getattr(self.parser.options, 'ssh', False):
+            self.prep_ssh()
+
+        if self.parser.options.sysinfo:
+            try:
+                print_header(
+                    '~~~~~~~ Versions Report ', inline=True,
+                    width=getattr(self.parser.options, 'output_columns', PNUM)
+                )
+            except TypeError:
+                print_header('~~~~~~~ Versions Report ', inline=True)
+
+            print('\n'.join(salt.version.versions_report()))
+
+            try:
+                print_header(
+                    '~~~~~~~ Minion Grains Information ', inline=True,
+                    width=getattr(self.parser.options, 'output_columns', PNUM)
+                )
+            except TypeError:
+                print_header('~~~~~~~ Minion Grains Information ', inline=True)
+
+            grains = self.client.cmd('minion', 'grains.items')
+
+            minion_opts = self.minion_opts.copy()
+            minion_opts['color'] = self.parser.options.no_colors is False
+            salt.output.display_output(grains, 'grains', minion_opts)
+
+        try:
+            print_header(
+                '=', sep='=', inline=True,
+                width=getattr(self.parser.options, 'output_columns', PNUM)
+            )
+        except TypeError:
+            print_header('', sep='=', inline=True)
+
+        try:
+            return self
+        finally:
+            self.post_setup_minions()
+
+    def start_zeromq_daemons(self):
+        '''
+        Fire up the daemons used for zeromq tests
+        '''
         master = salt.master.Master(self.master_opts)
         self.master_process = multiprocessing.Process(target=master.start)
         self.master_process.start()
@@ -273,7 +237,7 @@ class TestDaemon(object):
         )
         self.sub_minion_process.start()
 
-        smaster = salt.master.Master(self.smaster_opts)
+        smaster = salt.master.Master(self.syndic_master_opts)
         self.smaster_process = multiprocessing.Process(target=smaster.start)
         self.smaster_process.start()
 
@@ -281,49 +245,178 @@ class TestDaemon(object):
         self.syndic_process = multiprocessing.Process(target=syndic.tune_in)
         self.syndic_process.start()
 
-        if os.environ.get('DUMP_SALT_CONFIG', None) is not None:
-            from copy import deepcopy
-            try:
-                os.makedirs('/tmp/salttest/conf')
-            except OSError:
-                pass
-            master_opts = deepcopy(self.master_opts)
-            minion_opts = deepcopy(self.minion_opts)
-            master_opts.pop('conf_file', None)
+    def start_raet_daemons(self):
+        '''
+        Fire up the raet daemons!
+        '''
+        import salt.daemons.flo
+        master = salt.daemons.flo.IofloMaster(self.master_opts)
+        self.master_process = multiprocessing.Process(target=master.start)
+        self.master_process.start()
 
-            minion_opts.pop('conf_file', None)
-            minion_opts.pop('grains', None)
-            minion_opts.pop('pillar', None)
-            open('/tmp/salttest/conf/master', 'w').write(
-                yaml.dump(master_opts)
-            )
-            open('/tmp/salttest/conf/minion', 'w').write(
-                yaml.dump(minion_opts)
-            )
+        minion = salt.daemons.flo.IofloMinion(self.minion_opts)
+        self.minion_process = multiprocessing.Process(target=minion.tune_in)
+        self.minion_process.start()
 
-        self.minion_targets = set(['minion', 'sub_minion'])
-        self.pre_setup_minions()
-        self.setup_minions()
+        sub_minion = salt.daemons.flo.IofloMinion(self.sub_minion_opts)
+        self.sub_minion_process = multiprocessing.Process(
+            target=sub_minion.tune_in
+        )
+        self.sub_minion_process.start()
+        # Wait for the daemons to all spin up
+        time.sleep(5)
 
-        if self.parser.options.sysinfo:
-            print_header('~~~~~~~ Versions Report ', inline=True)
-            print('\n'.join(salt.version.versions_report()))
+        #smaster = salt.daemons.flo.IofloMaster(self.syndic_master_opts)
+        #self.smaster_process = multiprocessing.Process(target=smaster.start)
+        #self.smaster_process.start()
 
-            print_header(
-                '~~~~~~~ Minion Grains Information ', inline=True,
-            )
-            grains = self.client.cmd('minion', 'grains.items')
+        # no raet syndic daemon yet
 
-            minion_opts = self.minion_opts.copy()
-            minion_opts['color'] = self.parser.options.no_colors is False
-            salt.output.display_output(grains, 'grains', minion_opts)
+    def prep_ssh(self):
+        '''
+        Generate keys and start an ssh daemon on an alternate port
+        '''
+        print(' * Initializing SSH subsystem')
+        keygen = salt.utils.which('ssh-keygen')
+        sshd = salt.utils.which('sshd')
 
-        print_header('', sep='=', inline=True)
+        if not (keygen and sshd):
+            print('WARNING: Could not initialize SSH subsystem. Tests for salt-ssh may break!')
+            return
+        if not os.path.exists(TMP_CONF_DIR):
+            os.makedirs(TMP_CONF_DIR)
 
-        try:
-            return self
-        finally:
-            self.post_setup_minions()
+        # Generate client key
+        pub_key_test_file = os.path.join(TMP_CONF_DIR, 'key_test.pub')
+        priv_key_test_file = os.path.join(TMP_CONF_DIR, 'key_test')
+        if os.path.exists(pub_key_test_file):
+            os.remove(pub_key_test_file)
+        if os.path.exists(priv_key_test_file):
+            os.remove(priv_key_test_file)
+        keygen_process = subprocess.Popen(
+            [keygen, '-t',
+                     'ecdsa',
+                     '-b',
+                     '521',
+                     '-C',
+                     '"$(whoami)@$(hostname)-$(date -I)"',
+                     '-f',
+                     'key_test',
+                     '-P',
+                     ''],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+            cwd=TMP_CONF_DIR
+        )
+        _, keygen_err = keygen_process.communicate()
+        if keygen_err:
+            print('ssh-keygen had errors: {0}'.format(keygen_err))
+        sshd_config_path = os.path.join(FILES, 'conf/_ssh/sshd_config')
+        shutil.copy(sshd_config_path, TMP_CONF_DIR)
+        auth_key_file = os.path.join(TMP_CONF_DIR, 'key_test.pub')
+
+        # Generate server key
+        server_key_dir = os.path.join(TMP_CONF_DIR, 'server')
+        if not os.path.exists(server_key_dir):
+            os.makedirs(server_key_dir)
+        server_dsa_priv_key_file = os.path.join(server_key_dir, 'ssh_host_dsa_key')
+        server_dsa_pub_key_file = os.path.join(server_key_dir, 'ssh_host_dsa_key.pub')
+        server_ecdsa_priv_key_file = os.path.join(server_key_dir, 'ssh_host_ecdsa_key')
+        server_ecdsa_pub_key_file = os.path.join(server_key_dir, 'ssh_host_ecdsa_key.pub')
+        server_ed25519_priv_key_file = os.path.join(server_key_dir, 'ssh_host_ed25519_key')
+        server_ed25519_pub_key_file = os.path.join(server_key_dir, 'ssh_host.ed25519_key.pub')
+
+        for server_key_file in (server_dsa_priv_key_file,
+                                server_dsa_pub_key_file,
+                                server_ecdsa_priv_key_file,
+                                server_ecdsa_pub_key_file,
+                                server_ed25519_priv_key_file,
+                                server_ed25519_pub_key_file):
+            if os.path.exists(server_key_file):
+                os.remove(server_key_file)
+
+        keygen_process_dsa = subprocess.Popen(
+            [keygen, '-t',
+                     'dsa',
+                     '-b',
+                     '1024',
+                     '-C',
+                     '"$(whoami)@$(hostname)-$(date -I)"',
+                     '-f',
+                     'ssh_host_dsa_key',
+                     '-P',
+                     ''],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+            cwd=server_key_dir
+        )
+        _, keygen_dsa_err = keygen_process_dsa.communicate()
+        if keygen_dsa_err:
+            print('ssh-keygen had errors: {0}'.format(keygen_dsa_err))
+
+        keygen_process_ecdsa = subprocess.Popen(
+            [keygen, '-t',
+                     'ecdsa',
+                     '-b',
+                     '521',
+                     '-C',
+                     '"$(whoami)@$(hostname)-$(date -I)"',
+                     '-f',
+                     'ssh_host_ecdsa_key',
+                     '-P',
+                     ''],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+            cwd=server_key_dir
+        )
+        _, keygen_escda_err = keygen_process_ecdsa.communicate()
+        if keygen_escda_err:
+            print('ssh-keygen had errors: {0}'.format(keygen_escda_err))
+
+        keygen_process_ed25519 = subprocess.Popen(
+            [keygen, '-t',
+                     'ed25519',
+                     '-b',
+                     '521',
+                     '-C',
+                     '"$(whoami)@$(hostname)-$(date -I)"',
+                     '-f',
+                     'ssh_host_ed25519_key',
+                     '-P',
+                     ''],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+            cwd=server_key_dir
+        )
+        _, keygen_ed25519_err = keygen_process_ed25519.communicate()
+        if keygen_ed25519_err:
+            print('ssh-keygen had errors: {0}'.format(keygen_ed25519_err))
+
+        with open(os.path.join(TMP_CONF_DIR, 'sshd_config'), 'a') as ssh_config:
+            ssh_config.write('AuthorizedKeysFile {0}\n'.format(auth_key_file))
+            ssh_config.write('HostKey {0}\n'.format(server_dsa_priv_key_file))
+            ssh_config.write('HostKey {0}\n'.format(server_ecdsa_priv_key_file))
+            ssh_config.write('HostKey {0}\n'.format(server_ed25519_priv_key_file))
+
+        self.sshd_pidfile = os.path.join(TMP_CONF_DIR, 'sshd.pid')
+        self.sshd_process = subprocess.Popen(
+            [sshd, '-f', 'sshd_config', '-oPidFile={0}'.format(self.sshd_pidfile)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+            cwd=TMP_CONF_DIR
+        )
+        _, sshd_err = self.sshd_process.communicate()
+        if sshd_err:
+            print('sshd had errors on startup: {0}'.format(sshd_err))
+        roster_path = os.path.join(FILES, 'conf/_ssh/roster')
+        shutil.copy(roster_path, TMP_CONF_DIR)
+        with open(os.path.join(TMP_CONF_DIR, 'roster'), 'a') as roster:
+            roster.write('  priv: {0}/{1}'.format(TMP_CONF_DIR, 'key_test'))
 
     @property
     def client(self):
@@ -331,30 +424,215 @@ class TestDaemon(object):
         Return a local client which will be used for example to ping and sync
         the test minions.
 
-        This client is defined as a class attribute because it's creation needs
+        This client is defined as a class attribute because its creation needs
         to be deferred to a latter stage. If created it on `__enter__` like it
         previously was, it would not receive the master events.
         '''
-        return salt.client.LocalClient(
-            mopts=self.master_opts
+        if 'runtime_client' not in RUNTIME_CONFIGS:
+            RUNTIME_CONFIGS['runtime_client'] = salt.client.get_local_client(
+                mopts=self.master_opts
+            )
+        return RUNTIME_CONFIGS['runtime_client']
+
+    @classmethod
+    def transplant_configs(cls, transport='zeromq'):
+        if os.path.isdir(TMP_CONF_DIR):
+            shutil.rmtree(TMP_CONF_DIR)
+        os.makedirs(TMP_CONF_DIR)
+        print(' * Transplanting configuration files to {0!r}'.format(TMP_CONF_DIR))
+        running_tests_user = pwd.getpwuid(os.getuid()).pw_name
+        master_opts = salt.config._read_conf_file(os.path.join(CONF_DIR, 'master'))
+        master_opts['user'] = running_tests_user
+        tests_know_hosts_file = os.path.join(TMP_CONF_DIR, 'salt_ssh_known_hosts')
+        with salt.utils.fopen(tests_know_hosts_file, 'w') as known_hosts:
+            known_hosts.write('')
+        master_opts['known_hosts_file'] = tests_know_hosts_file
+
+        minion_config_path = os.path.join(CONF_DIR, 'minion')
+        minion_opts = salt.config._read_conf_file(minion_config_path)
+        minion_opts['user'] = running_tests_user
+        minion_opts['root_dir'] = master_opts['root_dir'] = os.path.join(TMP, 'master-minion-root')
+
+        syndic_opts = salt.config._read_conf_file(os.path.join(CONF_DIR, 'syndic'))
+        syndic_opts['user'] = running_tests_user
+
+        sub_minion_opts = salt.config._read_conf_file(os.path.join(CONF_DIR, 'sub_minion'))
+        sub_minion_opts['root_dir'] = os.path.join(TMP, 'sub-minion-root')
+        sub_minion_opts['user'] = running_tests_user
+
+        syndic_master_opts = salt.config._read_conf_file(os.path.join(CONF_DIR, 'syndic_master'))
+        syndic_master_opts['user'] = running_tests_user
+        syndic_master_opts['root_dir'] = os.path.join(TMP, 'syndic-master-root')
+
+        if transport == 'raet':
+            master_opts['transport'] = 'raet'
+            master_opts['raet_port'] = 64506
+            minion_opts['transport'] = 'raet'
+            minion_opts['raet_port'] = 64510
+            sub_minion_opts['transport'] = 'raet'
+            sub_minion_opts['raet_port'] = 64520
+            #syndic_master_opts['transport'] = 'raet'
+
+        # Set up config options that require internal data
+        master_opts['pillar_roots'] = {
+            'base': [os.path.join(FILES, 'pillar', 'base')]
+        }
+        master_opts['file_roots'] = {
+            'base': [
+                os.path.join(FILES, 'file', 'base'),
+                # Let's support runtime created files that can be used like:
+                #   salt://my-temp-file.txt
+                TMP_STATE_TREE
+            ],
+            # Alternate root to test __env__ choices
+            'prod': [
+                os.path.join(FILES, 'file', 'prod'),
+                TMP_PRODENV_STATE_TREE
+            ]
+        }
+        master_opts['ext_pillar'].append(
+            {'cmd_yaml': 'cat {0}'.format(
+                os.path.join(
+                    FILES,
+                    'ext.yaml'
+                )
+            )}
         )
+
+        # We need to copy the extension modules into the new master root_dir or
+        # it will be prefixed by it
+        new_extension_modules_path = os.path.join(master_opts['root_dir'], 'extension_modules')
+        if not os.path.exists(new_extension_modules_path):
+            shutil.copytree(
+                os.path.join(
+                    INTEGRATION_TEST_DIR, 'files', 'extension_modules'
+                ),
+                new_extension_modules_path
+            )
+        master_opts['extension_modules'] = os.path.join(TMP, 'master-minion-root', 'extension_modules')
+
+        # Point the config values to the correct temporary paths
+        for name in ('hosts', 'aliases'):
+            optname = '{0}.file'.format(name)
+            optname_path = os.path.join(TMP, name)
+            master_opts[optname] = optname_path
+            minion_opts[optname] = optname_path
+            sub_minion_opts[optname] = optname_path
+
+        # ----- Transcribe Configuration ---------------------------------------------------------------------------->
+        for entry in os.listdir(CONF_DIR):
+            if entry in ('master', 'minion', 'sub_minion', 'syndic_master'):
+                # These have runtime computed values and will be handled
+                # differently
+                continue
+            entry_path = os.path.join(CONF_DIR, entry)
+            if os.path.isfile(entry_path):
+                shutil.copy(
+                    entry_path,
+                    os.path.join(TMP_CONF_DIR, entry)
+                )
+            elif os.path.isdir(entry_path):
+                shutil.copytree(
+                    entry_path,
+                    os.path.join(TMP_CONF_DIR, entry)
+                )
+
+        for entry in ('master', 'minion', 'sub_minion', 'syndic_master'):
+            computed_config = copy.deepcopy(locals()['{0}_opts'.format(entry)])
+            open(os.path.join(TMP_CONF_DIR, entry), 'w').write(
+                yaml.dump(computed_config, default_flow_style=False)
+            )
+        # <---- Transcribe Configuration -----------------------------------------------------------------------------
+
+        # ----- Verify Environment ---------------------------------------------------------------------------------->
+        master_opts = salt.config.master_config(os.path.join(TMP_CONF_DIR, 'master'))
+        minion_config_path = os.path.join(TMP_CONF_DIR, 'minion')
+        minion_opts = salt.config.minion_config(minion_config_path)
+
+        syndic_opts = salt.config.syndic_config(
+            os.path.join(TMP_CONF_DIR, 'syndic'),
+            minion_config_path
+        )
+        sub_minion_opts = salt.config.minion_config(os.path.join(TMP_CONF_DIR, 'sub_minion'))
+        syndic_master_opts = salt.config.master_config(os.path.join(TMP_CONF_DIR, 'syndic_master'))
+
+        RUNTIME_CONFIGS['master'] = freeze(master_opts)
+        RUNTIME_CONFIGS['minion'] = freeze(minion_opts)
+        RUNTIME_CONFIGS['syndic'] = freeze(syndic_opts)
+        RUNTIME_CONFIGS['sub_minion'] = freeze(sub_minion_opts)
+        RUNTIME_CONFIGS['syndic_master'] = freeze(syndic_master_opts)
+
+        verify_env([os.path.join(master_opts['pki_dir'], 'minions'),
+                    os.path.join(master_opts['pki_dir'], 'minions_pre'),
+                    os.path.join(master_opts['pki_dir'], 'minions_rejected'),
+                    os.path.join(master_opts['cachedir'], 'jobs'),
+                    os.path.join(master_opts['cachedir'], 'raet'),
+                    os.path.join(master_opts['root_dir'], 'cache', 'tokens'),
+                    os.path.join(syndic_master_opts['pki_dir'], 'minions'),
+                    os.path.join(syndic_master_opts['pki_dir'], 'minions_pre'),
+                    os.path.join(syndic_master_opts['pki_dir'], 'minions_rejected'),
+                    os.path.join(syndic_master_opts['cachedir'], 'jobs'),
+                    os.path.join(syndic_master_opts['cachedir'], 'raet'),
+                    os.path.join(syndic_master_opts['root_dir'], 'cache', 'tokens'),
+                    os.path.join(master_opts['pki_dir'], 'accepted'),
+                    os.path.join(master_opts['pki_dir'], 'rejected'),
+                    os.path.join(master_opts['pki_dir'], 'pending'),
+                    os.path.join(syndic_master_opts['pki_dir'], 'accepted'),
+                    os.path.join(syndic_master_opts['pki_dir'], 'rejected'),
+                    os.path.join(syndic_master_opts['pki_dir'], 'pending'),
+                    os.path.join(syndic_master_opts['cachedir'], 'raet'),
+
+                    os.path.join(minion_opts['pki_dir'], 'accepted'),
+                    os.path.join(minion_opts['pki_dir'], 'rejected'),
+                    os.path.join(minion_opts['pki_dir'], 'pending'),
+                    os.path.join(minion_opts['cachedir'], 'raet'),
+                    os.path.join(sub_minion_opts['pki_dir'], 'accepted'),
+                    os.path.join(sub_minion_opts['pki_dir'], 'rejected'),
+                    os.path.join(sub_minion_opts['pki_dir'], 'pending'),
+                    os.path.join(sub_minion_opts['cachedir'], 'raet'),
+                    os.path.dirname(master_opts['log_file']),
+                    minion_opts['extension_modules'],
+                    sub_minion_opts['extension_modules'],
+                    sub_minion_opts['pki_dir'],
+                    master_opts['sock_dir'],
+                    syndic_master_opts['sock_dir'],
+                    sub_minion_opts['sock_dir'],
+                    minion_opts['sock_dir'],
+                    TMP_STATE_TREE,
+                    TMP_PRODENV_STATE_TREE,
+                    TMP,
+                    ],
+                   running_tests_user)
+
+        cls.master_opts = master_opts
+        cls.minion_opts = minion_opts
+        cls.sub_minion_opts = sub_minion_opts
+        cls.syndic_opts = syndic_opts
+        cls.syndic_master_opts = syndic_master_opts
+        # <---- Verify Environment -----------------------------------------------------------------------------------
 
     def __exit__(self, type, value, traceback):
         '''
         Kill the minion and master processes
         '''
-        salt.master.clean_proc(self.sub_minion_process, wait_for_kill=50)
+        salt.utils.process.clean_proc(self.sub_minion_process, wait_for_kill=50)
         self.sub_minion_process.join()
-        salt.master.clean_proc(self.minion_process, wait_for_kill=50)
+        salt.utils.process.clean_proc(self.minion_process, wait_for_kill=50)
         self.minion_process.join()
-        salt.master.clean_proc(self.master_process, wait_for_kill=50)
+        salt.utils.process.clean_proc(self.master_process, wait_for_kill=50)
         self.master_process.join()
-        salt.master.clean_proc(self.syndic_process, wait_for_kill=50)
-        self.syndic_process.join()
-        salt.master.clean_proc(self.smaster_process, wait_for_kill=50)
-        self.smaster_process.join()
+        try:
+            salt.utils.process.clean_proc(self.syndic_process, wait_for_kill=50)
+            self.syndic_process.join()
+        except AttributeError:
+            pass
+        try:
+            salt.utils.process.clean_proc(self.smaster_process, wait_for_kill=50)
+            self.smaster_process.join()
+        except AttributeError:
+            pass
         self._exit_mockbin()
-        self._clean()
+        self._exit_ssh()
 
     def pre_setup_minions(self):
         '''
@@ -373,7 +651,7 @@ class TestDaemon(object):
         if wait_minion_connections.exitcode > 0:
             print(
                 '\n {RED_BOLD}*{ENDC} ERROR: Minions failed to connect'.format(
-                **self.colors
+                    **self.colors
                 )
             )
             return False
@@ -440,6 +718,19 @@ class TestDaemon(object):
             path_items.insert(0, MOCKBIN)
         os.environ['PATH'] = os.pathsep.join(path_items)
 
+    def _exit_ssh(self):
+        if hasattr(self, 'sshd_process'):
+            try:
+                self.sshd_process.kill()
+            except OSError as exc:
+                if exc.errno != 3:
+                    raise
+            try:
+                os.kill(int(open(self.sshd_pidfile).read()), signal.SIGKILL)
+            except OSError as exc:
+                if exc.errno != 3:
+                    raise
+
     def _exit_mockbin(self):
         path = os.environ.get('PATH', '')
         path_items = path.split(os.pathsep)
@@ -449,19 +740,11 @@ class TestDaemon(object):
             pass
         os.environ['PATH'] = os.pathsep.join(path_items)
 
-    def _clean(self):
+    @classmethod
+    def clean(cls):
         '''
         Clean out the tmp files
         '''
-        if not self.parser.options.clean:
-            return
-        if os.path.isdir(self.sub_minion_opts['root_dir']):
-            shutil.rmtree(self.sub_minion_opts['root_dir'])
-        if os.path.isdir(self.master_opts['root_dir']):
-            shutil.rmtree(self.master_opts['root_dir'])
-        if os.path.isdir(self.smaster_opts['root_dir']):
-            shutil.rmtree(self.smaster_opts['root_dir'])
-
         for dirname in (TMP, TMP_STATE_TREE, TMP_PRODENV_STATE_TREE):
             if os.path.isdir(dirname):
                 shutil.rmtree(dirname)
@@ -473,7 +756,11 @@ class TestDaemon(object):
         job_finished = False
         while now <= expire:
             running = self.__client_job_running(targets, jid)
-            sys.stdout.write('\r' + ' ' * PNUM + '\r')
+            sys.stdout.write(
+                '\r{0}\r'.format(
+                    ' ' * getattr(self.parser.options, 'output_columns', PNUM)
+                )
+            )
             if not running and job_finished is False:
                 # Let's not have false positives and wait one more seconds
                 job_finished = True
@@ -525,7 +812,11 @@ class TestDaemon(object):
         now = datetime.now()
         expire = now + timedelta(seconds=timeout)
         while now <= expire:
-            sys.stdout.write('\r' + ' ' * PNUM + '\r')
+            sys.stdout.write(
+                '\r{0}\r'.format(
+                    ' ' * getattr(self.parser.options, 'output_columns', PNUM)
+                )
+            )
             sys.stdout.write(
                 ' * {YELLOW}[Quit in {0}]{ENDC} Waiting for {1}'.format(
                     '{0}'.format(expire - now).rsplit('.', 1)[0],
@@ -543,7 +834,12 @@ class TestDaemon(object):
                     # Someone(minion) else "listening"?
                     continue
                 expected_connections.remove(target)
-                sys.stdout.write('\r' + ' ' * PNUM + '\r')
+                sys.stdout.write(
+                    '\r{0}\r'.format(
+                        ' ' * getattr(self.parser.options, 'output_columns',
+                                      PNUM)
+                    )
+                )
                 sys.stdout.write(
                     '   {LIGHT_GREEN}*{ENDC} {0} connected.\n'.format(
                         target, **self.colors
@@ -561,7 +857,14 @@ class TestDaemon(object):
                 '\n {RED_BOLD}*{ENDC} WARNING: Minions failed to connect '
                 'back. Tests requiring them WILL fail'.format(**self.colors)
             )
-            print_header('=', sep='=', inline=True)
+            try:
+                print_header(
+                    '=', sep='=', inline=True,
+                    width=getattr(self.parser.options, 'output_columns', PNUM)
+
+                )
+            except TypeError:
+                print_header('=', sep='=', inline=True)
             raise SystemExit()
 
     def sync_minion_modules_(self, modules_kind, targets, timeout=None):
@@ -603,7 +906,7 @@ class TestDaemon(object):
                     if isinstance(output['ret'], salt._compat.string_types):
                         # An errors has occurred
                         print(
-                            ' {RED_BOLD}*{ENDC} {0} Failed so sync {2}: '
+                            ' {RED_BOLD}*{ENDC} {0} Failed to sync {2}: '
                             '{1}'.format(
                                 name, output['ret'],
                                 modules_kind,
@@ -640,45 +943,54 @@ class AdaptedConfigurationTestCaseMixIn(object):
 
     __slots__ = ()
 
-    def get_config_dir(self):
-        integration_config_dir = os.path.join(
-            INTEGRATION_TEST_DIR, 'files', 'conf'
-        )
-        if os.getuid() == 0:
-            # Running as root, the running user does not need to be updated
-            return integration_config_dir
+    def get_config(self, config_for, from_scratch=False):
+        if from_scratch:
+            if config_for in ('master', 'syndic_master'):
+                return salt.config.master_config(self.get_config_file_path(config_for))
+            elif config_for in ('minion', 'sub_minion'):
+                return salt.config.minion_config(self.get_config_file_path(config_for))
+            elif config_for in ('syndic',):
+                return salt.config.syndic_config(
+                    self.get_config_file_path(config_for),
+                    self.get_config_file_path('minion')
+                )
+            elif config_for == 'client_config':
+                return salt.config.client_config(self.get_config_file_path('master'))
 
-        for triplet in os.walk(integration_config_dir):
-            partial = triplet[0].replace(integration_config_dir, "")[1:]
-            for fname in triplet[2]:
-                if fname.startswith(('.', '_')):
-                    continue
-                self.get_config_file_path(os.path.join(partial, fname))
+        if config_for not in RUNTIME_CONFIGS:
+            if config_for in ('master', 'syndic_master'):
+                RUNTIME_CONFIGS[config_for] = freeze(
+                    salt.config.master_config(self.get_config_file_path(config_for))
+                )
+            elif config_for in ('minion', 'sub_minion'):
+                RUNTIME_CONFIGS[config_for] = freeze(
+                    salt.config.minion_config(self.get_config_file_path(config_for))
+                )
+            elif config_for in ('syndic',):
+                RUNTIME_CONFIGS[config_for] = freeze(
+                    salt.config.syndic_config(
+                        self.get_config_file_path(config_for),
+                        self.get_config_file_path('minion')
+                    )
+                )
+            elif config_for == 'client_config':
+                RUNTIME_CONFIGS[config_for] = freeze(
+                    salt.config.client_config(self.get_config_file_path('master'))
+                )
+        return RUNTIME_CONFIGS[config_for]
+
+    def get_config_dir(self):
         return TMP_CONF_DIR
 
     def get_config_file_path(self, filename):
-        integration_config_file = os.path.join(
-            INTEGRATION_TEST_DIR, 'files', 'conf', filename
-        )
-        if os.getuid() == 0:
-            # Running as root, the running user does not need to be updated
-            return integration_config_file
+        return os.path.join(TMP_CONF_DIR, filename)
 
-        updated_config_path = os.path.join(TMP_CONF_DIR, filename)
-        partial = os.path.dirname(updated_config_path)
-        if not os.path.isdir(partial):
-            os.makedirs(partial)
-
-        if not os.path.isfile(updated_config_path):
-            self.__update_config(integration_config_file, updated_config_path)
-        return updated_config_path
-
-    def __update_config(self, source, dest):
-        if not os.path.isfile(dest):
-            running_tests_user = pwd.getpwuid(os.getuid()).pw_name
-            configuration = yaml.load(open(source).read())
-            configuration['user'] = running_tests_user
-            open(dest, 'w').write(yaml.dump(configuration))
+    @property
+    def master_opts(self):
+        '''
+        Return the options used for the minion
+        '''
+        return self.get_config('master')
 
 
 class SaltClientTestCaseMixIn(AdaptedConfigurationTestCaseMixIn):
@@ -688,9 +1000,11 @@ class SaltClientTestCaseMixIn(AdaptedConfigurationTestCaseMixIn):
 
     @property
     def client(self):
-        return salt.client.LocalClient(
-            self.get_config_file_path(self._salt_client_config_file_name_)
-        )
+        if 'runtime_client' not in RUNTIME_CONFIGS:
+            RUNTIME_CONFIGS['runtime_client'] = salt.client.get_local_client(
+                mopts=self.get_config(self._salt_client_config_file_name_, from_scratch=True)
+            )
+        return RUNTIME_CONFIGS['runtime_client']
 
 
 class ModuleCase(TestCase, SaltClientTestCaseMixIn):
@@ -735,7 +1049,7 @@ class ModuleCase(TestCase, SaltClientTestCaseMixIn):
 
         # Try to match stalled state functions
         orig[minion_tgt] = self._check_state_return(
-            orig[minion_tgt], func=function
+            orig[minion_tgt]
         )
 
         return orig[minion_tgt]
@@ -752,29 +1066,16 @@ class ModuleCase(TestCase, SaltClientTestCaseMixIn):
         '''
         Return the options used for the minion
         '''
-        return salt.config.minion_config(
-            self.get_config_file_path('minion')
-        )
+        return self.get_config('minion')
 
     @property
     def sub_minion_opts(self):
         '''
         Return the options used for the minion
         '''
-        return salt.config.minion_config(
-            self.get_config_file_path('sub_minion')
-        )
+        return self.get_config('sub_minion')
 
-    @property
-    def master_opts(self):
-        '''
-        Return the options used for the minion
-        '''
-        return salt.config.master_config(
-            self.get_config_file_path('master')
-        )
-
-    def _check_state_return(self, ret, func='state.single'):
+    def _check_state_return(self, ret):
         if isinstance(ret, dict):
             # This is the supposed return format for state calls
             return ret
@@ -847,6 +1148,13 @@ class ShellCase(AdaptedConfigurationTestCaseMixIn, ShellTestCase):
         arg_str = '-c {0} {1}'.format(self.get_config_dir(), arg_str)
         return self.run_script('salt', arg_str, with_retcode=with_retcode, catch_stderr=catch_stderr)
 
+    def run_ssh(self, arg_str, with_retcode=False, catch_stderr=False):
+        '''
+        Execute salt-ssh
+        '''
+        arg_str = '-c {0} -i --priv {1} --roster-file {2} localhost {3} --out=json'.format(self.get_config_dir(), os.path.join(TMP_CONF_DIR, 'key_test'), os.path.join(TMP_CONF_DIR, 'roster'), arg_str)
+        return self.run_script('salt-ssh', arg_str, with_retcode=with_retcode, catch_stderr=catch_stderr, raw=True)
+
     def run_run(self, arg_str, with_retcode=False, catch_stderr=False):
         '''
         Execute salt-run
@@ -863,9 +1171,8 @@ class ShellCase(AdaptedConfigurationTestCaseMixIn, ShellTestCase):
         ret['out'] = self.run_run(
             '{0} {1} {2}'.format(options, fun, ' '.join(arg)), catch_stderr=kwargs.get('catch_stderr', None)
         )
-        opts = salt.config.master_config(
-            self.get_config_file_path('master')
-        )
+        opts = {}
+        opts.update(self.get_config('master'))
         opts.update({'doc': False, 'fun': fun, 'arg': arg})
         with RedirectStdStreams():
             runner = salt.runner.Runner(opts)
@@ -953,6 +1260,21 @@ class ShellCaseCommonTestsMixIn(CheckShellBinaryNameAndVersionMixIn):
             )
         out = '\n'.join(self.run_script(self._call_binary_, '--version'))
         self.assertIn(parsed_version.string, out)
+
+
+class SSHCase(ShellCase):
+    '''
+    Execute a command via salt-ssh
+    '''
+    def _arg_str(self, function, arg):
+        return '{0} {1}'.format(function, ' '.join(arg))
+
+    def run_function(self, function, arg=(), timeout=25, **kwargs):
+        ret = self.run_ssh(self._arg_str(function, arg))
+        try:
+            return json.loads(ret)['localhost']
+        except Exception:
+            return ret
 
 
 class SaltReturnAssertsMixIn(object):
@@ -1111,21 +1433,3 @@ class SaltReturnAssertsMixIn(object):
         return self.assertNotEqual(
             self.__getWithinSaltReturn(ret, keys), comparison
         )
-
-
-class ClientCase(AdaptedConfigurationTestCaseMixIn, TestCase):
-    '''
-    A base class containing relevant options for starting the various Salt
-    Python API entrypoints
-    '''
-    def get_opts(self):
-        return salt.config.client_config(self.get_config_file_path('master'))
-
-    def mkdir_p(self, path):
-        try:
-            os.makedirs(path)
-        except OSError as exc:  # Python >2.5
-            if exc.errno == errno.EEXIST and os.path.isdir(path):
-                pass
-            else:
-                raise

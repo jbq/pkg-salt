@@ -7,9 +7,13 @@ The network module is used to create and manage network settings,
 interfaces can be set as either managed or ignored. By default
 all interfaces are ignored unless specified.
 
-Please note that only Redhat and Debian style networking is currently
-supported. This module will therefore only work on RH/CentOS/Fedora and
-Debian/Ubuntu.
+.. note::
+
+    Prior to version 2014.1.0, only RedHat-based systems (RHEL,
+    CentOS, Scientific Linux, etc.) are supported. Support for Debian/Ubuntu is
+    new in 2014.1.0 and should be considered experimental.
+
+    Other platforms are not yet supported.
 
 .. code-block:: yaml
 
@@ -154,10 +158,8 @@ Debian/Ubuntu.
 # Import python libs
 import difflib
 import salt.utils
+import salt.utils.network
 from salt.loader import _create_loader
-
-# Define the module's virtual name
-__virtualname__ = 'network'
 
 # Set up logging
 import logging
@@ -170,7 +172,7 @@ def __virtual__():
     module available.
     '''
     if not salt.utils.is_windows() and 'ip.get_interface' in __salt__:
-        return __virtualname__
+        return True
     return False
 
 
@@ -202,7 +204,7 @@ def managed(name, type, enabled=True, **kwargs):
         'result': True,
         'comment': 'Interface {0} is up to date.'.format(name),
     }
-    if not 'test' in kwargs:
+    if 'test' not in kwargs:
         kwargs['test'] = __opts__.get('test', False)
 
     # Build interface
@@ -234,7 +236,7 @@ def managed(name, type, enabled=True, **kwargs):
                 ret['changes']['interface'] = ''.join(diff)
     except AttributeError as error:
         ret['result'] = False
-        ret['comment'] = error.message
+        ret['comment'] = str(error)
         return ret
 
     # Setup up bond modprobe script if required
@@ -268,7 +270,7 @@ def managed(name, type, enabled=True, **kwargs):
         except AttributeError as error:
             #TODO Add a way of reversing the interface changes.
             ret['result'] = False
-            ret['comment'] = error.message
+            ret['comment'] = str(error)
             return ret
 
     if kwargs['test']:
@@ -276,13 +278,26 @@ def managed(name, type, enabled=True, **kwargs):
 
     # Bring up/shutdown interface
     try:
+        # Get Interface current status
+        interface_status = salt.utils.network.interfaces()[name].get('up')
         if enabled:
-            __salt__['ip.up'](name, type)
+            if interface_status:
+                if ret['changes']:
+                    # Interface should restart to validate if it's up
+                    __salt__['ip.down'](name, type)
+                    __salt__['ip.up'](name, type)
+                    ret['changes']['status'] = 'Interface {0} restart to validate'.format(name)
+                    return ret
+            else:
+                __salt__['ip.up'](name, type)
+                ret['changes']['status'] = 'Interface {0} is up'.format(name)
         else:
-            __salt__['ip.down'](name, type)
+            if interface_status:
+                __salt__['ip.down'](name, type)
+                ret['changes']['status'] = 'Interface {0} down'.format(name)
     except Exception as error:
         ret['result'] = False
-        ret['comment'] = error.message
+        ret['comment'] = str(error)
         return ret
 
     load = _create_loader(__opts__, 'grains', 'grain', ext_dirs=False)
@@ -309,7 +324,7 @@ def routes(name, **kwargs):
         'comment': 'Interface {0} routes are up to date.'.format(name),
     }
     apply_routes = False
-    if not 'test' in kwargs:
+    if 'test' not in kwargs:
         kwargs['test'] = __opts__.get('test', False)
 
     # Build interface routes
@@ -340,7 +355,7 @@ def routes(name, **kwargs):
             ret['changes']['network_routes'] = ''.join(diff)
     except AttributeError as error:
         ret['result'] = False
-        ret['comment'] = error.message
+        ret['comment'] = str(error)
         return ret
 
     # Apply interface routes
@@ -349,7 +364,7 @@ def routes(name, **kwargs):
             __salt__['ip.apply_network_settings'](**kwargs)
         except AttributeError as error:
             ret['result'] = False
-            ret['comment'] = error.message
+            ret['comment'] = str(error)
             return ret
 
     return ret
@@ -400,7 +415,7 @@ def system(name, **kwargs):
             ret['changes']['network_settings'] = ''.join(diff)
     except AttributeError as error:
         ret['result'] = False
-        ret['comment'] = error.message
+        ret['comment'] = str(error)
         return ret
 
     # Apply global network settings
@@ -409,7 +424,7 @@ def system(name, **kwargs):
             __salt__['ip.apply_network_settings'](**kwargs)
         except AttributeError as error:
             ret['result'] = False
-            ret['comment'] = error.message
+            ret['comment'] = str(error)
             return ret
 
     return ret

@@ -1,0 +1,59 @@
+# Salt Master Floscript
+
+house master
+
+#init .salt.road.manor.local to main true role "master"
+#init .salt.lane.manor.local to lanename "master"
+
+framer masterudpstack be active first setup
+    frame setup
+        enter
+            do salt raet cleanup
+            do salt raet road stack setup per inode ".salt.road.manor"
+            do salt raet manor lane setup per inode ".salt.lane.manor"
+        go spawnmaint
+
+    frame spawnmaint
+        enter
+            do fork maint
+        go spawnworkers
+
+    frame spawnworkers
+        enter
+            do salt raet worker fork
+        go start
+
+    frame start
+        bid start inbound
+        bid start uxdrouter
+        bid start events
+        bid start publish
+        bid start manager
+        bid start outbound
+        exit
+            do salt raet road stack closer per inode ".salt.road.manor."
+            do salt raet lane stack closer per inode ".salt.lane.manor."
+
+framer inbound be inactive first start
+    frame start
+        do salt raet road stack service rx
+
+framer uxdrouter be inactive first start
+    frame start
+        do salt raet router
+
+framer events be inactive first start
+    frame start
+        do salt raet eventer
+
+framer publish be inactive first start
+    frame start
+        do salt raet publisher
+
+framer manager be inactive first start at 10.0
+    frame start
+         do salt raet road stack manager per inode ".salt.road.manor"
+
+framer outbound be inactive first start
+    frame start
+        do salt raet road stack service tx

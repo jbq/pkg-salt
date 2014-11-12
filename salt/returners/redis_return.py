@@ -9,10 +9,17 @@ config, these are the defaults:
     redis.db: '0'
     redis.host: 'salt'
     redis.port: 6379
+
+  To use the redis returner, append '--return redis' to the salt command. ex:
+
+    salt '*' test.ping --return redis
 '''
 
 # Import python libs
 import json
+
+# Import Salt libs
+import salt.utils
 
 # Import third party libs
 try:
@@ -35,10 +42,17 @@ def _get_serv():
     '''
     Return a redis server object
     '''
-    return redis.Redis(
-            host=__salt__['config.option']('redis.host'),
-            port=__salt__['config.option']('redis.port'),
-            db=__salt__['config.option']('redis.db'))
+    if 'config.option' in __salt__:
+        return redis.Redis(
+                host=__salt__['config.option']('redis.host'),
+                port=__salt__['config.option']('redis.port'),
+                db=__salt__['config.option']('redis.db'))
+    else:
+        cfg = __opts__
+        return redis.Redis(
+                host=cfg.get('redis.host', None),
+                port=cfg.get('redis.port', None),
+                db=cfg.get('redis.db', None))
 
 
 def returner(ret):
@@ -117,3 +131,10 @@ def get_minions():
     '''
     serv = _get_serv()
     return list(serv.smembers('minions'))
+
+
+def prep_jid(nocache, passed_jid=None):  # pylint: disable=unused-argument
+    '''
+    Do any work necessary to prepare a JID, including sending a custom id
+    '''
+    return passed_jid if passed_jid is not None else salt.utils.gen_jid()

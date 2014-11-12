@@ -13,6 +13,7 @@ import yaml
 
 # Import salt libs
 import salt.utils
+from salt._compat import string_types
 
 log = logging.getLogger(__name__)
 __SUFFIX_NOT_NEEDED = ('x86_64', 'noarch')
@@ -47,7 +48,7 @@ def pack_sources(sources):
         salt '*' pkg_resource.pack_sources '[{"foo": "salt://foo.rpm"}, {"bar": "salt://bar.rpm"}]'
     '''
     _normalize_name = __salt__.get('pkg.normalize_name', lambda pkgname: pkgname)
-    if isinstance(sources, basestring):
+    if isinstance(sources, string_types):
         try:
             sources = yaml.safe_load(sources)
         except yaml.parser.ParserError as err:
@@ -69,6 +70,7 @@ def parse_targets(name=None,
                   pkgs=None,
                   sources=None,
                   saltenv='base',
+                  normalize=True,
                   **kwargs):
     '''
     Parses the input to pkg.install and returns back the package(s) to be
@@ -127,9 +129,12 @@ def parse_targets(name=None,
         return [x[2] for x in srcinfo], 'file'
 
     elif name:
-        _normalize_name = \
-            __salt__.get('pkg.normalize_name', lambda pkgname: pkgname)
-        packed = dict([(_normalize_name(x), None) for x in name.split(',')])
+        if normalize:
+            _normalize_name = \
+                __salt__.get('pkg.normalize_name', lambda pkgname: pkgname)
+            packed = dict([(_normalize_name(x), None) for x in name.split(',')])
+        else:
+            packed = dict([(x, None) for x in name.split(',')])
         return packed, 'repository'
 
     else:
@@ -206,7 +211,9 @@ def sort_pkglist(pkgs):
     # so long as the sorting is consistent.
     try:
         for key in pkgs.keys():
-            pkgs[key].sort()
+            # Passing the pkglist to set() also removes duplicate version
+            # numbers (if present).
+            pkgs[key] = sorted(set(pkgs[key]))
     except AttributeError as e:
         log.exception(e)
 

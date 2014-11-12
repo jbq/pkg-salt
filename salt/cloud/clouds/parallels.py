@@ -35,7 +35,7 @@ from salt._compat import ElementTree as ET
 # Import salt cloud libs
 import salt.utils.cloud
 import salt.config as config
-from salt.cloud.exceptions import (
+from salt.exceptions import (
     SaltCloudNotFound,
     SaltCloudSystemExit,
     SaltCloudExecutionFailure,
@@ -247,6 +247,7 @@ def create_node(vm_):
         'requesting instance',
         'salt/cloud/{0}/requesting'.format(vm_['name']),
         {'kwargs': data},
+        transport=__opts__['transport']
     )
 
     node = query(action='ve', method='POST', data=data)
@@ -273,6 +274,7 @@ def create(vm_):
             'profile': vm_['profile'],
             'provider': vm_['provider'],
         },
+        transport=__opts__['transport']
     )
 
     log.info('Creating Cloud VM {0}'.format(vm_['name']))
@@ -284,10 +286,10 @@ def create(vm_):
             'Error creating {0} on PARALLELS\n\n'
             'The following exception was thrown when trying to '
             'run the initial deployment: \n{1}'.format(
-                vm_['name'], exc.message
+                vm_['name'], str(exc)
             ),
             # Show the traceback if the debug logging level is enabled
-            exc_info=log.isEnabledFor(logging.DEBUG)
+            exc_info_on_loglevel=logging.DEBUG
         )
         return False
 
@@ -322,7 +324,7 @@ def create(vm_):
         except SaltCloudSystemExit:
             pass
         finally:
-            raise SaltCloudSystemExit(exc.message)
+            raise SaltCloudSystemExit(str(exc))
 
     comps = data['network']['public-ip']['address'].split('/')
     public_ip = comps[0]
@@ -334,6 +336,7 @@ def create(vm_):
     if config.get_cloud_config_value('deploy', vm_, __opts__) is True:
         deploy_script = script(vm_)
         deploy_kwargs = {
+            'opts': __opts__,
             'host': public_ip,
             'username': ssh_username,
             'password': config.get_cloud_config_value(
@@ -416,6 +419,7 @@ def create(vm_):
             'executing deploy script',
             'salt/cloud/{0}/deploying'.format(vm_['name']),
             {'kwargs': event_kwargs},
+            transport=__opts__['transport']
         )
 
         deployed = False
@@ -449,6 +453,7 @@ def create(vm_):
             'profile': vm_['profile'],
             'provider': vm_['provider'],
         },
+        transport=__opts__['transport']
     )
 
     return data
@@ -492,9 +497,8 @@ def query(action=None, command=None, args=None, method='GET', data=None):
         }
 
     if args:
-        path += '?%s'
         params = urllib.urlencode(args)
-        req = urllib2.Request(url=path % params, **kwargs)
+        req = urllib2.Request(url='{0}?{1}'.format(path, params), **kwargs)
     else:
         req = urllib2.Request(url=path, **kwargs)
 
@@ -555,7 +559,14 @@ def show_image(kwargs, call=None):
         )
 
     items = query(action='template', command=kwargs['image'])
-    return {items.attrib['name']: items.attrib}
+    if 'error' in items:
+        return items['error']
+
+    ret = {}
+    for item in items:
+        ret.update({item.attrib['name']: item.attrib})
+
+    return ret
 
 
 def show_instance(name, call=None):
@@ -581,6 +592,8 @@ def show_instance(name, call=None):
             children = item._children
             for child in children:
                 ret[item.tag][child.tag] = child.attrib
+
+    salt.utils.cloud.cache_node(ret, __active_provider_name__, __opts__)
     return ret
 
 
@@ -603,7 +616,9 @@ def destroy(name, call=None):
     '''
     Destroy a node.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt-cloud --destroy mymachine
     '''
@@ -618,6 +633,7 @@ def destroy(name, call=None):
         'destroying instance',
         'salt/cloud/{0}/destroying'.format(name),
         {'name': name},
+        transport=__opts__['transport']
     )
 
     node = show_instance(name, call='action')
@@ -640,7 +656,11 @@ def destroy(name, call=None):
         'destroyed instance',
         'salt/cloud/{0}/destroyed'.format(name),
         {'name': name},
+        transport=__opts__['transport']
     )
+
+    if __opts__.get('update_cachedir', False) is True:
+        salt.utils.cloud.delete_minion_cachedir(name, __active_provider_name__.split(':')[0], __opts__)
 
     return {'Destroyed': '{0} was destroyed.'.format(name)}
 
@@ -649,7 +669,9 @@ def start(name, call=None):
     '''
     Start a node.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt-cloud -a start mymachine
     '''
@@ -670,7 +692,9 @@ def stop(name, call=None):
     '''
     Stop a node.
 
-    CLI Example::
+    CLI Example:
+
+    .. code-block:: bash
 
         salt-cloud -a stop mymachine
     '''

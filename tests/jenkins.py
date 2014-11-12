@@ -10,14 +10,13 @@ This script is intended to be shell-centric!!
 
 # Import python libs
 from __future__ import print_function
+import glob
 import os
 import re
 import sys
 import json
 import time
-import random
 import shutil
-import hashlib
 import optparse
 import subprocess
 
@@ -57,7 +56,8 @@ def build_pillar_data(options):
     '''
     Build a YAML formatted string to properly pass pillar data
     '''
-    pillar = {}
+    pillar = {'test_transport': options.test_transport,
+              'cloud_only': options.cloud_only}
     if options.test_git_commit is not None:
         pillar['test_git_commit'] = options.test_git_commit
     if options.test_git_url is not None:
@@ -66,6 +66,12 @@ def build_pillar_data(options):
         pillar['bootstrap_salt_url'] = options.bootstrap_salt_url
     if options.bootstrap_salt_commit is not None:
         pillar['bootstrap_salt_commit'] = options.bootstrap_salt_commit
+    if options.package_source_dir:
+        pillar['package_source_dir'] = options.package_source_dir
+    if options.package_build_dir:
+        pillar['package_build_dir'] = options.package_build_dir
+    if options.package_artifact_dir:
+        pillar['package_artifact_dir'] = options.package_artifact_dir
     if options.pillar:
         pillar.update(dict(options.pillar))
     return yaml.dump(pillar, default_flow_style=True, indent=0, width=sys.maxint).rstrip()
@@ -75,8 +81,8 @@ def build_minion_target(options, vm_name):
     target = vm_name
     for grain in options.grain_target:
         target += ' and G@{0}'.format(grain)
-    if options.grain_target is not None:
-        return '-C "{0}"'.format(target)
+    if options.grain_target:
+        return '"{0}"'.format(target)
     return target
 
 
@@ -87,8 +93,7 @@ def generate_vm_name(options):
     if 'BUILD_NUMBER' in os.environ:
         random_part = 'BUILD{0:0>6}'.format(os.environ.get('BUILD_NUMBER'))
     else:
-        random_part = hashlib.md5(
-            str(random.randint(1, 100000000))).hexdigest()[:6]
+        random_part = os.urandom(3).encode('hex')
 
     return '{0}-{1}-{2}'.format(options.vm_prefix, options.platform, random_part)
 
@@ -309,6 +314,52 @@ def download_remote_logs(options):
         time.sleep(0.25)
 
 
+def download_packages(options):
+    print('Downloading packages...')
+    sys.stdout.flush()
+
+    workspace = options.workspace
+    vm_name = options.download_packages
+
+    for fglob in ('salt-*.rpm',
+                  'salt-*.deb',
+                  'salt-*.pkg.xz',
+                  'salt-buildpackage.log'):
+        for fname in glob.glob(os.path.join(workspace, fglob)):
+            if os.path.isfile(fname):
+                os.unlink(fname)
+
+    cmds = [
+        ('salt {{0}} archive.tar czf {0}.tar.gz sources=\'*.*\' cwd={0}'
+         .format(options.package_artifact_dir)),
+        'salt {{0}} cp.push {0}.tar.gz'.format(options.package_artifact_dir),
+        ('tar -C {{2}} -xzf /var/cache/salt/master/minions/{{1}}/files{0}.tar.gz'
+         .format(options.package_artifact_dir)),
+    ]
+
+    for cmd in cmds:
+        cmd = cmd.format(build_minion_target(options, vm_name), vm_name, workspace)
+        print('Running CMD: {0}'.format(cmd))
+        sys.stdout.flush()
+
+        proc = NonBlockingPopen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stream_stds=True
+        )
+        proc.poll_and_read_until_finish()
+        proc.communicate()
+        if proc.returncode != 0:
+            print(
+                '\nFailed to execute command. Exit code: {0}'.format(
+                    proc.returncode
+                )
+            )
+        time.sleep(0.25)
+
+
 def run(opts):
     '''
     RUN!
@@ -321,19 +372,34 @@ def run(opts):
     if opts.download_remote_reports:
         opts.download_coverage_report = vm_name
         opts.download_unittest_reports = vm_name
+        opts.download_packages = vm_name
 
     if opts.bootstrap_salt_commit is not None:
         if opts.bootstrap_salt_url is None:
             opts.bootstrap_salt_url = 'https://github.com/saltstack/salt.git'
         cmd = (
             'salt-cloud -l debug'
-            ' --script-args "-D -g {bootstrap_salt_url} -n git {bootstrap_salt_commit}"'
-            ' -p {provider}_{platform} {0}'.format(vm_name, **opts.__dict__)
+            ' --script-args "-D -g {bootstrap_salt_url} -n git {1}"'
+            ' -p {provider}_{platform} {0}'.format(
+                vm_name,
+                os.environ.get(
+                    'SALT_MINION_BOOTSTRAP_RELEASE',
+                    opts.bootstrap_salt_commit
+                ),
+                **opts.__dict__
+            )
         )
     else:
         cmd = (
             'salt-cloud -l debug'
-            ' --script-args "-D" -p {provider}_{platform} {0}'.format(vm_name, **opts.__dict__)
+            ' --script-args "-D -n git {1}" -p {provider}_{platform} {0}'.format(
+                vm_name,
+                os.environ.get(
+                    'SALT_MINION_BOOTSTRAP_RELEASE',
+                    opts.bootstrap_salt_commit
+                ),
+                **opts.__dict__
+            )
         )
     print('Running CMD: {0}'.format(cmd))
     sys.stdout.flush()
@@ -386,7 +452,7 @@ def run(opts):
                 delete_vm(opts)
             sys.exit(retcode)
 
-        if not stdout:
+        if not stdout.strip():
             print('Failed to get the bootstrapped minion version(no output). Exit code: {0}'.format(retcode))
             sys.stdout.flush()
             if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
@@ -395,10 +461,14 @@ def run(opts):
 
         try:
             version_info = json.loads(stdout.strip())
-            if opts.bootstrap_salt_commit[:7] not in version_info[vm_name]:
+            bootstrap_minion_version = os.environ.get(
+                'SALT_MINION_BOOTSTRAP_RELEASE',
+                opts.bootstrap_salt_commit[:7]
+            )
+            if bootstrap_minion_version not in version_info[vm_name]:
                 print('\n\nATTENTION!!!!\n')
                 print('The boostrapped minion version commit does not contain the desired commit:')
-                print(' {0!r} does not contain {1!r}'.format(version_info[vm_name], opts.bootstrap_salt_commit[:7]))
+                print(' {0!r} does not contain {1!r}'.format(version_info[vm_name], bootstrap_minion_version))
                 print('\n\n')
                 sys.stdout.flush()
                 #if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
@@ -409,16 +479,28 @@ def run(opts):
         except ValueError:
             print('Failed to load any JSON from {0!r}'.format(stdout.strip()))
 
-    # Run preparation SLS
-    time.sleep(3)
-    cmd = (
-        'salt -t 1800 {target} state.sls {prep_sls} pillar="{pillar}" '
-        '--no-color'.format(
-            target=build_minion_target(opts, vm_name),
-            prep_sls=opts.prep_sls,
-            pillar=build_pillar_data(opts),
+    if opts.cloud_only:
+        # Run Cloud Provider tests preparation SLS
+        time.sleep(3)
+        cmd = (
+            'salt -t 900 {target} state.sls {cloud_prep_sls} pillar="{pillar}" '
+            '--no-color'.format(
+                target=build_minion_target(opts, vm_name),
+                cloud_prep_sls='cloud-only',
+                pillar=build_pillar_data(opts),
+            )
         )
-    )
+    else:
+        # Run standard preparation SLS
+        time.sleep(3)
+        cmd = (
+            'salt -t 1800 {target} state.sls {prep_sls} pillar="{pillar}" '
+            '--no-color'.format(
+                target=build_minion_target(opts, vm_name),
+                prep_sls=opts.prep_sls,
+                pillar=build_pillar_data(opts),
+            )
+        )
     print('Running CMD: {0}'.format(cmd))
     sys.stdout.flush()
 
@@ -428,11 +510,14 @@ def run(opts):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    stdout, _ = proc.communicate()
+    stdout, stderr = proc.communicate()
 
     if stdout:
         print(stdout)
     sys.stdout.flush()
+    if stderr:
+        print(stderr)
+    sys.stderr.flush()
 
     retcode = proc.returncode
     if retcode != 0:
@@ -441,6 +526,44 @@ def run(opts):
         if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
             delete_vm(opts)
         sys.exit(retcode)
+
+    if opts.cloud_only:
+        time.sleep(3)
+        # Run Cloud Provider tests pillar preparation SLS
+        cmd = (
+            'salt -t 600 {target} state.sls {cloud_prep_sls} pillar="{pillar}" '
+            '--no-color'.format(
+                target=build_minion_target(opts, vm_name),
+                cloud_prep_sls='cloud-test-configs',
+                pillar=build_pillar_data(opts),
+            )
+        )
+        print('Running CMD: {0}'.format(cmd))
+        sys.stdout.flush()
+
+        proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        stdout, stderr = proc.communicate()
+
+        if stdout:
+            # DO NOT print the state return here!
+            print('Cloud configuration files provisioned via pillar.')
+        sys.stdout.flush()
+        if stderr:
+            print(stderr)
+        sys.stderr.flush()
+
+        retcode = proc.returncode
+        if retcode != 0:
+            print('Failed to execute the preparation SLS file. Exit code: {0}'.format(retcode))
+            sys.stdout.flush()
+            if opts.clean and 'JENKINS_SALTCLOUD_VM_NAME' not in os.environ:
+                delete_vm(opts)
+            sys.exit(retcode)
 
     if opts.prep_sls_2 is not None:
         time.sleep(3)
@@ -463,11 +586,14 @@ def run(opts):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
-        stdout, _ = proc.communicate()
+        stdout, stderr = proc.communicate()
 
         if stdout:
             print(stdout)
         sys.stdout.flush()
+        if stderr:
+            print(stderr)
+        sys.stderr.flush()
 
         retcode = proc.returncode
         if retcode != 0:
@@ -492,8 +618,8 @@ def run(opts):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        stdout, _ = proc.communicate()
-        sys.stdout.flush()
+
+        proc.communicate()
 
         retcode = proc.returncode
         if retcode != 0:
@@ -587,11 +713,14 @@ def run(opts):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    stdout, _ = proc.communicate()
+    stdout, stderr = proc.communicate()
 
     if stdout:
         print(stdout)
     sys.stdout.flush()
+    if stderr:
+        print(stderr)
+    sys.stderr.flush()
 
     try:
         match = re.search(r'Test Suite Exit Code: (?P<exitcode>[\d]+)', stdout)
@@ -608,6 +737,37 @@ def run(opts):
         if stdout:
             # Anything else, raise the exception
             raise
+
+    if retcode == 0:
+        # Build packages
+        time.sleep(3)
+        cmd = (
+            'salt -t 1800 {target} state.sls buildpackage pillar="{pillar}" --no-color'.format(
+                pillar=build_pillar_data(opts),
+                target=build_minion_target(opts, vm_name),
+            )
+        )
+        print('Running CMD: {0}'.format(cmd))
+        sys.stdout.flush()
+
+        proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        stdout, stderr = proc.communicate()
+
+        if stdout:
+            print(stdout)
+        sys.stdout.flush()
+        if stderr:
+            print(stderr)
+        sys.stderr.flush()
+
+        # Download packages only if the script ran and was successful
+        if 'Build complete' in stdout:
+            download_packages(opts)
 
     if opts.download_remote_reports:
         # Download unittest reports
@@ -664,6 +824,11 @@ def parse():
         '--test-git-commit',
         default=None,
         help='The testing git commit to track')
+    parser.add_option(
+        '--test-transport',
+        default='zeromq',
+        choices=('zeromq', 'raet'),
+        help='Set to raet to run integration tests with raet transport. Default: %default')
     parser.add_option(
         '--prep-sls',
         default='git.salt',
@@ -736,6 +901,36 @@ def parse():
         action='append',
         default=[],
         help='Match minions using compound matchers, the minion ID, plus the passed grain.'
+    )
+    parser.add_option(
+        '--cloud-only',
+        default=False,
+        action='store_true',
+        help='Run the cloud provider tests only.'
+    )
+    parser.add_option(
+        '--build-packages',
+        default=True,
+        action='store_true',
+        help='Run buildpackage.py to create packages off of the git build.'
+    )
+    # These next three options are ignored if --build-packages is False
+    parser.add_option(
+        '--package-source-dir',
+        default='/testing',
+        help='Directory where the salt source code checkout is found '
+             '(default: %default)',
+    )
+    parser.add_option(
+        '--package-build-dir',
+        default='/tmp/salt-buildpackage',
+        help='Build root for automated package builds (default: %default)',
+    )
+    parser.add_option(
+        '--package-artifact-dir',
+        default='/tmp/salt-packages',
+        help='Location on the minion from which packages should be '
+             'retrieved (default: %default)',
     )
 
     options, args = parser.parse_args()
