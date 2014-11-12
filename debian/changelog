@@ -1,3 +1,16 @@
+salt (2014.7.0+ds-2precise1) precise; urgency=medium
+
+  * [05986b9] Update to dependencies for saucy
+  * [0e88689] Update of ubuntu packaging files from upstream
+  * [adb0c8c] Dependencies for precise
+  * [2122661] Fix for salt issues #11274 and #10967
+  * [dec41ba] Re-added salt ufw config file
+  * [11b2bb5] Removed js dependencies
+  * [3692638] Added /etc/default/salt-minion file to pick up env vars
+  * [51b614b] Removed "su -c" from minion upstart script
+
+ -- Joe Healy <joehealy@gmail.com>  Wed, 12 Nov 2014 21:32:58 +1100
+
 salt (2014.7.0+ds-2) experimental; urgency=medium
 
   * [9954f59] Added python-requests as a dependency
