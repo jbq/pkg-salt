@@ -25,11 +25,11 @@ def _get_files(pillar_name):
     and fetches them from the Salt master.
     '''
     _mk_client()
-    pillar_name = pillar_name.replace(".", "/")
+    pillar_name = pillar_name.replace('.', '/')
     paths = []
 
     for ext in ('yaml', 'json'):
-        source_url = 'salt://%s/%s' % (pillar_name, 'defaults.' + ext)
+        source_url = 'salt://{0}/{1}'.format(pillar_name, 'defaults.' + ext)
         paths.append(source_url)
 
     return __context__['cp.fileclient'].cache_files(paths)
@@ -117,8 +117,14 @@ def get(key, default=''):
     _get_files(pillar_name)
 
     defaults = _load(pillar_name, defaults_path)
-    data = salt.utils.dictupdate.update(defaults, __salt__['pillar.get'](pillar_name, {}))
-    value = salt.utils.traverse_dict(data, key, default)
+
+    value = __salt__['pillar.get']('{0}:{1}'.format(pillar_name, key), None)
+
+    if value is None:
+        value = salt.utils.traverse_dict_and_list(defaults, key, None)
+
+    if value is None:
+        value = default
 
     if isinstance(value, unicode):
         value = str(value)

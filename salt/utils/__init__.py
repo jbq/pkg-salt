@@ -3,12 +3,15 @@
 Some of the utils used by salt
 '''
 from __future__ import absolute_import
+from __future__ import print_function
 
 # Import python libs
+import contextlib
 import copy
 import collections
 import datetime
 import distutils.version  # pylint: disable=E0611
+import errno
 import fnmatch
 import hashlib
 import imp
@@ -32,6 +35,7 @@ import types
 import warnings
 import yaml
 from calendar import month_abbr as months
+from string import maketrans
 
 # Try to load pwd, fallback to getpass if unsuccessful
 try:
@@ -86,16 +90,23 @@ except ImportError:
     # pwd is not available on windows
     HAS_PWD = False
 
+try:
+    import setproctitle
+    HAS_SETPROCTITLE = True
+except ImportError:
+    HAS_SETPROCTITLE = False
+
 # Import salt libs
 import salt._compat
 import salt.log
-import salt.minion
 import salt.payload
 import salt.version
 from salt._compat import string_types
 from salt.utils.decorators import memoize as real_memoize
 from salt.exceptions import (
-    SaltClientError, CommandNotFoundError, SaltSystemExit, SaltInvocationError
+    CommandExecutionError, SaltClientError,
+    CommandNotFoundError, SaltSystemExit,
+    SaltInvocationError
 )
 
 
@@ -120,9 +131,6 @@ WHITE = '\033[1;37m'
 DEFAULT_COLOR = '\033[00m'
 RED_BOLD = '\033[01;31m'
 ENDC = '\033[0m'
-
-#KWARG_REGEX = re.compile(r'^([^\d\W][\w.-]*)=(?!=)(.*)$', re.UNICODE)  # python 3
-KWARG_REGEX = re.compile(r'^([^\d\W][\w.-]*)=(?!=)(.*)$')
 
 log = logging.getLogger(__name__)
 _empty = object()
@@ -266,12 +274,12 @@ def daemonize(redirect_out=True):
         pid = os.fork()
         if pid > 0:
             # exit first parent
-            sys.exit(0)
+            sys.exit(os.EX_OK)
     except OSError as exc:
         log.error(
             'fork #1 failed: {0} ({1})'.format(exc.errno, exc.strerror)
         )
-        sys.exit(1)
+        sys.exit(salt.exitcodes.EX_GENERIC)
 
     # decouple from parent environment
     os.chdir('/')
@@ -283,14 +291,14 @@ def daemonize(redirect_out=True):
     try:
         pid = os.fork()
         if pid > 0:
-            sys.exit(0)
+            sys.exit(os.EX_OK)
     except OSError as exc:
         log.error(
             'fork #2 failed: {0} ({1})'.format(
                 exc.errno, exc.strerror
             )
         )
-        sys.exit(1)
+        sys.exit(salt.exitcodes.EX_GENERIC)
 
     # A normal daemonization redirects the process output to /dev/null.
     # Unfortunately when a python multiprocess is called the output is
@@ -392,7 +400,7 @@ def which(exe=None):
                 # Allows both 'cmd' and 'cmd.exe' to be matched.
                 for ext in ext_list:
                     # Windows filesystem is case insensitive so we
-                    # safely rely on that behaviour
+                    # safely rely on that behavior
                     if os.access(full_path + ext, os.X_OK):
                         return full_path + ext
         log.trace(
@@ -480,8 +488,10 @@ def gen_mac(prefix='AC:DE:48'):
      - https://www.wireshark.org/tools/oui-lookup.html
      - https://en.wikipedia.org/wiki/MAC_address
     '''
-    r = random.randint
-    return '%s:%02X:%02X:%02X' % (prefix, r(0, 0xff), r(0, 0xff), r(0, 0xff))
+    return '{0}:{1:02X}:{2:02X}:{3:02X}'.format(prefix,
+                                                random.randint(0, 0xff),
+                                                random.randint(0, 0xff),
+                                                random.randint(0, 0xff))
 
 
 def ip_bracket(addr):
@@ -515,15 +525,13 @@ def dns_check(addr, safe=False, ipv6=False):
             if not addr:
                 error = True
     except TypeError:
-        err = ('Attempt to resolve address failed. Invalid or unresolveable address')
+        err = ('Attempt to resolve address \'{0}\' failed. Invalid or unresolveable address').format(addr)
         raise SaltSystemExit(code=42, msg=err)
     except socket.error:
         error = True
 
     if error:
-        err = ('This master address: \'{0}\' was previously resolvable '
-               'but now fails to resolve! The previously resolved ip addr '
-               'will continue to be used').format(addr)
+        err = ('DNS lookup of \'{0}\' failed.').format(addr)
         if safe:
             if salt.log.is_console_configured():
                 # If logging is not configured it also means that either
@@ -576,6 +584,12 @@ def prep_jid(cachedir, sum_type, user='root', nocache=False):
     '''
     Return a job id and prepare the job id directory
     '''
+    salt.utils.warn_until(
+                    'Boron',
+                    'All job_cache management has been moved into the local_cache '
+                    'returner, this util function will be removed-- please use '
+                    'the returner'
+                )
     jid = gen_jid()
 
     jid_dir_ = jid_dir(jid, cachedir, sum_type)
@@ -599,6 +613,12 @@ def jid_dir(jid, cachedir, sum_type):
     '''
     Return the jid_dir for the given job id
     '''
+    salt.utils.warn_until(
+                    'Boron',
+                    'All job_cache management has been moved into the local_cache '
+                    'returner, this util function will be removed-- please use '
+                    'the returner'
+                )
     jid = str(jid)
     jhash = getattr(hashlib, sum_type)(jid).hexdigest()
     return os.path.join(cachedir, 'jobs', jhash[:2], jhash[2:])
@@ -608,6 +628,11 @@ def jid_load(jid, cachedir, sum_type, serial='msgpack'):
     '''
     Return the load data for a given job id
     '''
+    salt.utils.warn_until(
+                    'Boron',
+                    'Getting the load has been moved into the returner interface '
+                    'please get the data from the master_job_cache '
+                )
     _dir = jid_dir(jid, cachedir, sum_type)
     load_fn = os.path.join(_dir, '.load.p')
     if not os.path.isfile(load_fn):
@@ -647,74 +672,32 @@ def check_or_die(command):
         raise CommandNotFoundError(command)
 
 
-def copyfile(source, dest, backup_mode='', cachedir=''):
-    '''
-    Copy files from a source to a destination in an atomic way, and if
-    specified cache the file.
-    '''
-    if not os.path.isfile(source):
-        raise IOError(
-            '[Errno 2] No such file or directory: {0}'.format(source)
-        )
-    if not os.path.isdir(os.path.dirname(dest)):
-        raise IOError(
-            '[Errno 2] No such file or directory: {0}'.format(dest)
-        )
-    bname = os.path.basename(dest)
-    dname = os.path.dirname(os.path.abspath(dest))
-    tgt = mkstemp(prefix=bname, dir=dname)
-    shutil.copyfile(source, tgt)
-    bkroot = ''
-    if cachedir:
-        bkroot = os.path.join(cachedir, 'file_backup')
-    if backup_mode == 'minion' or backup_mode == 'both' and bkroot:
-        if os.path.exists(dest):
-            backup_minion(dest, bkroot)
-    if backup_mode == 'master' or backup_mode == 'both' and bkroot:
-        # TODO, backup to master
-        pass
-    # Get current file stats to they can be replicated after the new file is
-    # moved to the destination path.
-    fstat = None
-    if not salt.utils.is_windows():
-        try:
-            fstat = os.stat(dest)
-        except OSError:
-            pass
-    shutil.move(tgt, dest)
-    if fstat is not None:
-        os.chown(dest, fstat.st_uid, fstat.st_gid)
-        os.chmod(dest, fstat.st_mode)
-    # If SELINUX is available run a restorecon on the file
-    rcon = which('restorecon')
-    if rcon:
-        with fopen(os.devnull, 'w') as dev_null:
-            cmd = [rcon, dest]
-            subprocess.call(cmd, stdout=dev_null, stderr=dev_null)
-    if os.path.isfile(tgt):
-        # The temp file failed to move
-        try:
-            os.remove(tgt)
-        except Exception:
-            pass
-
-
 def backup_minion(path, bkroot):
     '''
     Backup a file on the minion
     '''
     dname, bname = os.path.split(path)
-    fstat = os.stat(path)
+    if salt.utils.is_windows():
+        src_dir = dname.replace(':', '_')
+    else:
+        src_dir = dname[1:]
+    if not salt.utils.is_windows():
+        fstat = os.stat(path)
     msecs = str(int(time.time() * 1000000))[-6:]
-    stamp = time.strftime('%a_%b_%d_%H:%M:%S_%Y')
+    if salt.utils.is_windows():
+        # ':' is an illegal filesystem path character on Windows
+        stamp = time.strftime('%a_%b_%d_%H-%M-%S_%Y')
+    else:
+        stamp = time.strftime('%a_%b_%d_%H:%M:%S_%Y')
     stamp = '{0}{1}_{2}'.format(stamp[:-4], msecs, stamp[-4:])
     bkpath = os.path.join(bkroot,
-                          dname[1:],
+                          src_dir,
                           '{0}_{1}'.format(bname, stamp))
     if not os.path.isdir(os.path.dirname(bkpath)):
         os.makedirs(os.path.dirname(bkpath))
     shutil.copyfile(path, bkpath)
-    os.chown(bkpath, fstat.st_uid, fstat.st_gid)
+    if not salt.utils.is_windows():
+        os.chown(bkpath, fstat.st_uid, fstat.st_gid)
 
 
 def path_join(*parts):
@@ -742,15 +725,21 @@ def path_join(*parts):
     ))
 
 
-def pem_finger(path, sum_type='md5'):
+def pem_finger(path=None, key=None, sum_type='md5'):
     '''
-    Pass in the location of a pem file and the type of cryptographic hash to
-    use. The default is md5.
+    Pass in either a raw pem string, or the path on disk to the location of a
+    pem file, and the type of cryptographic hash to use. The default is md5.
+    The fingerprint of the pem will be returned.
+
+    If neither a key nor a path are passed in, a blank string will be returned.
     '''
-    if not os.path.isfile(path):
-        return ''
-    with fopen(path, 'rb') as fp_:
-        key = ''.join(fp_.readlines()[1:-1])
+    if not key:
+        if not os.path.isfile(path):
+            return ''
+
+        with fopen(path, 'rb') as fp_:
+            key = ''.join(fp_.readlines()[1:-1])
+
     pre = getattr(hashlib, sum_type)(key).hexdigest()
     finger = ''
     for ind in range(len(pre)):
@@ -767,7 +756,9 @@ def build_whitespace_split_regex(text):
     Create a regular expression at runtime which should match ignoring the
     addition or deletion of white space or line breaks, unless between commas
 
-    Example::
+    Example:
+
+    .. code-block:: yaml
 
     >>> import re
     >>> from salt.utils import *
@@ -1062,12 +1053,17 @@ def fopen(*args, **kwargs):
 
     This flag specifies that the file descriptor should be closed when an exec
     function is invoked;
-    When a file descriptor is allocated (as with open or dup ), this bit is
+    When a file descriptor is allocated (as with open or dup), this bit is
     initially cleared on the new file descriptor, meaning that descriptor will
     survive into the new program after exec.
+
+    NB! We still have small race condition between open and fcntl.
     '''
+    # Remove lock from kwargs if present
+    lock = kwargs.pop('lock', False)
+
     fhandle = open(*args, **kwargs)
-    if HAS_FCNTL:
+    if is_fcntl_available():
         # modify the file descriptor on systems with fcntl
         # unix and unix-like systems only
         try:
@@ -1075,25 +1071,86 @@ def fopen(*args, **kwargs):
         except AttributeError:
             FD_CLOEXEC = 1                  # pylint: disable=C0103
         old_flags = fcntl.fcntl(fhandle.fileno(), fcntl.F_GETFD)
-        if 'lock' in kwargs:
+        if lock and is_fcntl_available(check_sunos=True):
             fcntl.flock(fhandle.fileno(), fcntl.LOCK_SH)
         fcntl.fcntl(fhandle.fileno(), fcntl.F_SETFD, old_flags | FD_CLOEXEC)
     return fhandle
 
 
+@contextlib.contextmanager
 def flopen(*args, **kwargs):
-    fhandle = open(*args, **kwargs)
-    if HAS_FCNTL:
-        # modify the file descriptor on systems with fcntl
-        # unix and unix-like systems only
+    '''
+    Shortcut for fopen with lock and context manager
+    '''
+    with fopen(*args, lock=True, **kwargs) as fp_:
         try:
-            FD_CLOEXEC = fcntl.FD_CLOEXEC   # pylint: disable=C0103
-        except AttributeError:
-            FD_CLOEXEC = 1                  # pylint: disable=C0103
-        old_flags = fcntl.fcntl(fhandle.fileno(), fcntl.F_GETFD)
-        fcntl.flock(fhandle.fileno(), fcntl.LOCK_SH)
-        fcntl.fcntl(fhandle.fileno(), fcntl.F_SETFD, old_flags | FD_CLOEXEC)
-    return fhandle
+            yield fp_
+        finally:
+            if is_fcntl_available(check_sunos=True):
+                fcntl.flock(fp_.fileno(), fcntl.LOCK_UN)
+
+
+def expr_match(expr, line):
+    '''
+    Evaluate a line of text against an expression. First try a full-string
+    match, next try globbing, and then try to match assuming expr is a regular
+    expression. Originally designed to match minion IDs for
+    whitelists/blacklists.
+    '''
+    if line == expr:
+        return True
+    if fnmatch.fnmatch(line, expr):
+        return True
+    try:
+        if re.match(r'\A{0}\Z'.format(expr), line):
+            return True
+    except re.error:
+        pass
+    return False
+
+
+def check_whitelist_blacklist(value, whitelist=None, blacklist=None):
+    '''
+    Check a whitelist and/or blacklist to see if the value matches it.
+    '''
+    if not any((whitelist, blacklist)):
+        return True
+    in_whitelist = False
+    in_blacklist = False
+    if whitelist:
+        try:
+            for expr in whitelist:
+                if expr_match(expr, value):
+                    in_whitelist = True
+                    break
+        except TypeError:
+            log.error('Non-iterable whitelist {0}'.format(whitelist))
+            whitelist = None
+    else:
+        whitelist = None
+
+    if blacklist:
+        try:
+            for expr in blacklist:
+                if expr_match(expr, value):
+                    in_blacklist = True
+                    break
+        except TypeError:
+            log.error('Non-iterable blacklist {0}'.format(whitelist))
+            blacklist = None
+    else:
+        blacklist = None
+
+    if whitelist and not blacklist:
+        ret = in_whitelist
+    elif blacklist and not whitelist:
+        ret = not in_blacklist
+    elif whitelist and blacklist:
+        ret = in_whitelist and not in_blacklist
+    else:
+        ret = True
+
+    return ret
 
 
 def subdict_match(data, expr, delim=':', regex_match=False):
@@ -1120,7 +1177,7 @@ def subdict_match(data, expr, delim=':', regex_match=False):
         matchstr = delim.join(splits[idx:])
         log.debug('Attempting to match {0!r} in {1!r} using delimiter '
                   '{2!r}'.format(matchstr, key, delim))
-        match = traverse_dict(data, key, {}, delim=delim)
+        match = traverse_dict_and_list(data, key, {}, delim=delim)
         if match == {}:
             continue
         if isinstance(match, dict):
@@ -1131,6 +1188,11 @@ def subdict_match(data, expr, delim=':', regex_match=False):
         if isinstance(match, list):
             # We are matching a single component to a single list member
             for member in match:
+                if isinstance(member, dict):
+                    if matchstr.startswith('*:'):
+                        matchstr = matchstr[2:]
+                    if subdict_match(member, matchstr, regex_match=regex_match):
+                        return True
                 if _match(member, matchstr, regex_match=regex_match):
                     return True
             continue
@@ -1152,6 +1214,47 @@ def traverse_dict(data, key, default, delim=':'):
     except (KeyError, IndexError, TypeError):
         # Encountered a non-indexable value in the middle of traversing
         return default
+    return data
+
+
+def traverse_dict_and_list(data, key, default, delim=':'):
+    '''
+    Traverse a dict or list using a colon-delimited (or otherwise delimited,
+    using the "delim" param) target string. The target 'foo:bar:0' will
+    return data['foo']['bar'][0] if this value exists, and will otherwise
+    return the dict in the default argument.
+    Function will automatically determine the target type.
+    The target 'foo:bar:0' will return data['foo']['bar'][0] if data like
+    {'foo':{'bar':['baz']}} , if data like {'foo':{'bar':{'0':'baz'}}}
+    then return data['foo']['bar']['0']
+    '''
+    for each in key.split(delim):
+        if isinstance(data, list):
+            try:
+                idx = int(each)
+            except ValueError:
+                embed_match = False
+                # Index was not numeric, lets look at any embedded dicts
+                for embedded in (x for x in data if isinstance(x, dict)):
+                    try:
+                        data = embedded[each]
+                        embed_match = True
+                        break
+                    except KeyError:
+                        pass
+                if not embed_match:
+                    # No embedded dicts matched, return the default
+                    return default
+            else:
+                try:
+                    data = data[idx]
+                except IndexError:
+                    return default
+        else:
+            try:
+                data = data[each]
+            except (KeyError, TypeError):
+                return default
     return data
 
 
@@ -1193,6 +1296,20 @@ def is_windows():
     return sys.platform.startswith('win')
 
 
+def sanitize_win_path_string(winpath):
+    '''
+    Remove illegal path characters for windows
+    '''
+    intab = '<>:|?*'
+    outtab = '_' * len(intab)
+    trantab = maketrans(intab, outtab)
+    if isinstance(winpath, str):
+        winpath = winpath.translate(trantab)
+    elif isinstance(winpath, unicode):
+        winpath = winpath.translate(dict((ord(c), u'_') for c in intab))
+    return winpath
+
+
 @real_memoize
 def is_linux():
     '''
@@ -1223,6 +1340,79 @@ def is_darwin():
     return sys.platform.startswith('darwin')
 
 
+@real_memoize
+def is_sunos():
+    '''
+    Simple function to return if host is SunOS or not
+    '''
+    return sys.platform.startswith('sunos')
+
+
+def is_fcntl_available(check_sunos=False):
+    '''
+    Simple function to check if the `fcntl` module is available or not.
+
+    If `check_sunos` is passed as `True` an additional check to see if host is
+    SunOS is also made. For additional information check commit:
+        http://goo.gl/159FF8
+    '''
+    if HAS_FCNTL is False:
+        return False
+    if check_sunos is True:
+        return HAS_FCNTL and is_sunos()
+    return HAS_FCNTL
+
+
+def check_include_exclude(path_str, include_pat=None, exclude_pat=None):
+    '''
+    Check for glob or regexp patterns for include_pat and exclude_pat in the
+    'path_str' string and return True/False conditions as follows.
+      - Default: return 'True' if no include_pat or exclude_pat patterns are
+        supplied
+      - If only include_pat or exclude_pat is supplied: return 'True' if string
+        passes the include_pat test or fails exclude_pat test respectively
+      - If both include_pat and exclude_pat are supplied: return 'True' if
+        include_pat matches AND exclude_pat does not match
+    '''
+    ret = True  # -- default true
+    # Before pattern match, check if it is regexp (E@'') or glob(default)
+    if include_pat:
+        if re.match('E@', include_pat):
+            retchk_include = True if re.search(
+                include_pat[2:],
+                path_str
+            ) else False
+        else:
+            retchk_include = True if fnmatch.fnmatch(
+                path_str,
+                include_pat
+            ) else False
+
+    if exclude_pat:
+        if re.match('E@', exclude_pat):
+            retchk_exclude = False if re.search(
+                exclude_pat[2:],
+                path_str
+            ) else True
+        else:
+            retchk_exclude = False if fnmatch.fnmatch(
+                path_str,
+                exclude_pat
+            ) else True
+
+    # Now apply include/exclude conditions
+    if include_pat and not exclude_pat:
+        ret = retchk_include
+    elif exclude_pat and not include_pat:
+        ret = retchk_exclude
+    elif include_pat and exclude_pat:
+        ret = retchk_include and retchk_exclude
+    else:
+        ret = True
+
+    return ret
+
+
 def check_ipc_path_max_len(uri):
     # The socket path is limited to 107 characters on Solaris and
     # Linux, and 103 characters on BSD-based systems.
@@ -1237,6 +1427,13 @@ def check_ipc_path_max_len(uri):
                 uri, ipc_path_max_len
             )
         )
+
+
+def gen_state_tag(low):
+    '''
+    Generate the running dict tag string from the low data structure
+    '''
+    return '{0[state]}_|-{0[__id__]}_|-{0[name]}_|-{0[fun]}'.format(low)
 
 
 def check_state_result(running):
@@ -1349,12 +1546,15 @@ def option(value, default='', opts=None, pillar=None):
         opts = {}
     if pillar is None:
         pillar = {}
-    if value in opts:
-        return opts[value]
-    if value in pillar.get('master', {}):
-        return pillar['master'][value]
-    if value in pillar:
-        return pillar[value]
+    sources = (
+        (opts, value),
+        (pillar, 'master:{0}'.format(value)),
+        (pillar, value),
+    )
+    for source, val in sources:
+        out = traverse_dict_and_list(source, val, default)
+        if out is not default:
+            return out
     return default
 
 
@@ -1365,6 +1565,14 @@ def valid_url(url, protos):
     if salt._compat.urlparse(url).scheme in protos:
         return True
     return False
+
+
+def strip_proto(uri):
+    '''
+    Return a copy of the string with the protocol designation stripped, if one
+    was present.
+    '''
+    return re.sub('^[^:/]+://', '', uri)
 
 
 def parse_docstring(docstring):
@@ -1403,6 +1611,21 @@ def parse_docstring(docstring):
         deps = dep_list[0].replace(txt, '').strip().split(', ')
         ret['deps'] = deps
         return ret
+
+
+def print_cli(msg):
+    '''
+    Wrapper around print() that suppresses tracebacks on broken pipes (i.e.
+    when salt output is piped to less and less is stopped prematurely).
+    '''
+    try:
+        try:
+            print(msg)
+        except UnicodeEncodeError:
+            print(msg.encode('utf-8'))
+    except IOError as exc:
+        if exc.errno != errno.EPIPE:
+            raise
 
 
 def safe_walk(top, topdown=True, onerror=None, followlinks=True, _seen=None):
@@ -1493,26 +1716,6 @@ def namespaced_function(function, global_dict, defaults=None):
     )
     new_namespaced_function.__dict__.update(function.__dict__)
     return new_namespaced_function
-
-
-def parse_kwarg(string_):
-    '''
-    Parses the string and looks for the kwarg format:
-    "{argument name}={argument value}"
-    For example:
-    "my_message=Hello world"
-    The argument name must have a valid python identifier format (it should
-    match the following regular expression: [^\\d\\W]\\w*).
-    If the string matches, then this function returns the following tuple:
-    ({argument name}, {value})
-    Or else it returns:
-    (None, None)
-    '''
-    match = KWARG_REGEX.match(string_)
-    if match:
-        return match.groups()
-    else:
-        return None, None
 
 
 def _win_console_event_handler(event):
@@ -1813,12 +2016,11 @@ def argspec_report(functions, module=''):
     if module:
         # allow both "sys" and "sys." to match sys, without also matching
         # sysctl
-        comps = module.split('.')
-        comps = filter(None, comps)
-        if len(comps) < 2:
-            module = module + '.' if not module.endswith('.') else module
+        target_module = module + '.' if not module.endswith('.') else module
+    else:
+        target_module = ''
     for fun in functions:
-        if fun.startswith(module):
+        if fun == module or fun.startswith(target_module):
             try:
                 aspec = get_function_argspec(functions[fun])
             except TypeError:
@@ -1834,21 +2036,6 @@ def argspec_report(functions, module=''):
             ret[fun]['kwargs'] = True if kwargs else None
 
     return ret
-
-
-def memoize(func):
-    '''
-    Deprecation warning wrapper since memoize is now on salt.utils.decorators
-    '''
-    warn_until(
-        'Helium',
-        'The \'memoize\' decorator was moved to \'salt.utils.decorators\', '
-        'please start importing it from there. This warning and wrapper '
-        'will be removed in Salt {version}.',
-        stacklevel=3
-
-    )
-    return real_memoize(func)
 
 
 def decode_list(data):
@@ -1981,6 +2168,7 @@ def get_group_list(user=None, include_default=True):
         # Just return an empty list
         return []
     group_names = None
+    ugroups = set()
     if not isinstance(user, string_types):
         raise Exception
     if hasattr(os, 'getgrouplist'):
@@ -1988,7 +2176,6 @@ def get_group_list(user=None, include_default=True):
         log.trace('Trying os.getgrouplist for {0!r}'.format(user))
         try:
             group_names = list(os.getgrouplist(user, pwd.getpwnam(user).pw_gid))
-            log.trace('os.getgrouplist for user {0!r}: {1!r}'.format(user, group_names))
         except Exception:
             pass
     else:
@@ -1997,7 +2184,6 @@ def get_group_list(user=None, include_default=True):
         try:
             import pysss
             group_names = list(pysss.getgrouplist(user))
-            log.trace('pysss.getgrouplist for user {0!r}: {1!r}'.format(user, group_names))
         except Exception:
             pass
     if group_names is None:
@@ -2013,7 +2199,7 @@ def get_group_list(user=None, include_default=True):
         except KeyError:
             # If for some reason the user does not have a default group
             pass
-        log.trace('Generic group list for user {0!r}: {1!r}'.format(user, group_names))
+    ugroups.update(group_names)
     if include_default is False:
         # Historically, saltstack code for getting group lists did not
         # include the default group. Some things may only want
@@ -2021,11 +2207,12 @@ def get_group_list(user=None, include_default=True):
         # default group.
         try:
             default_group = grp.getgrgid(pwd.getpwnam(user).pw_gid).gr_name
-            group_names.remove(default_group)
+            ugroups.remove(default_group)
         except KeyError:
             # If for some reason the user does not have a default group
             pass
-    return sorted(set(group_names))
+    log.trace('Group list for user {0!r}: {1!r}'.format(user, sorted(ugroups)))
+    return sorted(ugroups)
 
 
 def get_group_dict(user=None, include_default=True):
@@ -2058,6 +2245,78 @@ def get_gid_list(user=None, include_default=True):
     return sorted(set(gid_list))
 
 
+def trim_dict(
+        data,
+        max_dict_bytes,
+        percent=50.0,
+        stepper_size=10,
+        replace_with='VALUE_TRIMMED',
+        is_msgpacked=False):
+    '''
+    Takes a dictionary and iterates over its keys, looking for
+    large values and replacing them with a trimmed string.
+
+    If after the first pass over dictionary keys, the dictionary
+    is not sufficiently small, the stepper_size will be increased
+    and the dictionary will be rescanned. This allows for progressive
+    scanning, removing large items first and only making additional
+    passes for smaller items if necessary.
+
+    This function uses msgpack to calculate the size of the dictionary
+    in question. While this might seem like unnecessary overhead, a
+    data structure in python must be serialized in order for sys.getsizeof()
+    to accurately return the items referenced in the structure.
+
+    Ex:
+    >>> salt.utils.trim_dict({'a': 'b', 'c': 'x' * 10000}, 100)
+    {'a': 'b', 'c': 'VALUE_TRIMMED'}
+
+    To improve performance, it is adviseable to pass in msgpacked
+    data structures instead of raw dictionaries. If a msgpack
+    structure is passed in, it will not be unserialized unless
+    necessary.
+
+    If a msgpack is passed in, it will be repacked if necessary
+    before being returned.
+    '''
+    serializer = salt.payload.Serial({'serial': 'msgpack'})
+    if is_msgpacked:
+        dict_size = sys.getsizeof(data)
+    else:
+        dict_size = sys.getsizeof(serializer.dumps(data))
+    if dict_size > max_dict_bytes:
+        if is_msgpacked:
+            data = serializer.loads(data)
+        while True:
+            percent = float(percent)
+            max_val_size = float(max_dict_bytes * (percent / 100))
+            try:
+                for key in data:
+                    if sys.getsizeof(data[key]) > max_val_size:
+                        data[key] = replace_with
+                percent = percent - stepper_size
+                max_val_size = float(max_dict_bytes * (percent / 100))
+                cur_dict_size = sys.getsizeof(serializer.dumps(data))
+                if cur_dict_size < max_dict_bytes:
+                    if is_msgpacked:  # Repack it
+                        return serializer.dumps(data)
+                    else:
+                        return data
+                elif max_val_size == 0:
+                    if is_msgpacked:
+                        return serializer.dumps(data)
+                    else:
+                        return data
+            except ValueError:
+                pass
+        if is_msgpacked:
+            return serializer.dumps(data)
+        else:
+            return data
+    else:
+        return data
+
+
 def total_seconds(td):
     '''
     Takes a timedelta and returns the total number of seconds
@@ -2065,3 +2324,100 @@ def total_seconds(td):
     method which does not exist in versions of Python < 2.7.
     '''
     return (td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / 10**6
+
+
+def import_json():
+    '''
+    Import a json module, starting with the quick ones and going down the list)
+    '''
+    for fast_json in ('ujson', 'yajl', 'json'):
+        try:
+            mod = __import__(fast_json)
+            log.info('loaded {0} json lib'.format(fast_json))
+            return mod
+        except ImportError:
+            continue
+
+
+def appendproctitle(name):
+    '''
+    Append "name" to the current process title
+    '''
+    if HAS_SETPROCTITLE:
+        setproctitle.setproctitle(setproctitle.getproctitle() + ' ' + name)
+
+
+def chugid(runas):
+    '''
+    Change the current process to belong to
+    the imputed user (and the groups he belongs to)
+    '''
+    uinfo = pwd.getpwnam(runas)
+    supgroups = []
+    supgroups_seen = set()
+
+    # The line below used to exclude the current user's primary gid.
+    # However, when root belongs to more than one group
+    # this causes root's primary group of '0' to be dropped from
+    # his grouplist.  On FreeBSD, at least, this makes some
+    # command executions fail with 'access denied'.
+    #
+    # The Python documentation says that os.setgroups sets only
+    # the supplemental groups for a running process.  On FreeBSD
+    # this does not appear to be strictly true.
+    group_list = get_group_dict(runas, include_default=True)
+    if sys.platform == 'darwin':
+        group_list = [a for a in group_list
+                      if not a.startswith('_')]
+    for group_name in group_list:
+        gid = group_list[group_name]
+        if (gid not in supgroups_seen
+           and not supgroups_seen.add(gid)):
+            supgroups.append(gid)
+
+    if os.getgid() != uinfo.pw_gid:
+        try:
+            os.setgid(uinfo.pw_gid)
+        except OSError as err:
+            raise CommandExecutionError(
+                'Failed to change from gid {0} to {1}. Error: {2}'.format(
+                    os.getgid(), uinfo.pw_gid, err
+                )
+            )
+
+    # Set supplemental groups
+    if sorted(os.getgroups()) != sorted(supgroups):
+        try:
+            os.setgroups(supgroups)
+        except OSError as err:
+            raise CommandExecutionError(
+                'Failed to set supplemental groups to {0}. Error: {1}'.format(
+                    supgroups, err
+                )
+            )
+
+    if os.getuid() != uinfo.pw_uid:
+        try:
+            os.setuid(uinfo.pw_uid)
+        except OSError as err:
+            raise CommandExecutionError(
+                'Failed to change from uid {0} to {1}. Error: {2}'.format(
+                    os.getuid(), uinfo.pw_uid, err
+                )
+            )
+
+
+def chugid_and_umask(runas, umask):
+    '''
+    Helper method for for subprocess.Popen to initialise uid/gid and umask
+    for the new process.
+    '''
+    if runas is not None:
+        chugid(runas)
+    if umask is not None:
+        os.umask(umask)
+
+
+def rand_string(size=32):
+    key = os.urandom(size)
+    return key.encode('base64').replace('\n', '')

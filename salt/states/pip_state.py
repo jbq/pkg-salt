@@ -41,7 +41,9 @@ if HAS_PIP is True:
         HAS_PIP = False
         # Remove references to the loaded pip module above so reloading works
         import sys
-        del pip, sys.modules['pip']
+        del pip
+        if 'pip' in sys.modules:
+            del sys.modules['pip']
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +94,7 @@ def installed(name,
               env=None,
               bin_env=None,
               use_wheel=False,
+              no_use_wheel=False,
               log=None,
               proxy=None,
               timeout=None,
@@ -121,7 +124,12 @@ def installed(name,
               no_chown=False,
               cwd=None,
               activate=False,
-              pre_releases=False):
+              pre_releases=False,
+              cert=None,
+              allow_all_external=False,
+              allow_external=None,
+              allow_unverified=None,
+              process_dependency_links=False):
     '''
     Make sure the package is installed
 
@@ -130,7 +138,9 @@ def installed(name,
         numbers here using the standard operators ``==, >=, <=``. If
         ``requirements`` is given, this parameter will be ignored.
 
-    Example::
+    Example:
+
+    .. code-block:: yaml
 
         django:
           pip.installed:
@@ -141,18 +151,124 @@ def installed(name,
     This will install the latest Django version greater than 1.6 but less
     than 1.7.
 
+    requirements
+        Path to a pip requirements file. If the path begins with salt://
+        the file will be transferred from the master file server.
+
     user
         The user under which to run pip
 
     use_wheel : False
         Prefer wheel archives (requires pip>=1.4)
 
+    no_use_wheel : False
+        Force to not use wheel archives (requires pip>=1.4)
+
+    log
+        Log file where a complete (maximum verbosity) record will be kept
+
+    proxy
+        Specify a proxy in the form
+        user:passwd@proxy.server:port. Note that the
+        user:password@ is optional and required only if you
+        are behind an authenticated proxy.  If you provide
+        user@proxy.server:port then you will be prompted for a
+        password.
+
+    timeout
+        Set the socket timeout (default 15 seconds)
+
+    editable
+        install something editable (i.e.
+        git+https://github.com/worldcompany/djangoembed.git#egg=djangoembed)
+
+    find_links
+        URL to look for packages at
+
+    index_url
+        Base URL of Python Package Index
+
+    extra_index_url
+        Extra URLs of package indexes to use in addition to ``index_url``
+
+    no_index
+        Ignore package index
+
+    mirrors
+        Specific mirror URL(s) to query (automatically adds --use-mirrors)
+
+    build
+        Unpack packages into ``build`` dir
+
+    target
+        Install packages into ``target`` dir
+
+    download
+        Download packages into ``download`` instead of installing them
+
+    download_cache
+        Cache downloaded packages in ``download_cache`` dir
+
+    source
+        Check out ``editable`` packages into ``source`` dir
+
+    upgrade
+        Upgrade all packages to the newest available version
+
+    force_reinstall
+        When upgrading, reinstall all packages even if they are already
+        up-to-date.
+
+    ignore_installed
+        Ignore the installed packages (reinstalling instead)
+
+    exists_action
+        Default action when a path already exists: (s)witch, (i)gnore, (w)ipe,
+        (b)ackup
+
+    no_deps
+        Ignore package dependencies
+
+    no_install
+        Download and unpack all packages, but don't actually install them
+
+    no_chown
+        When user is given, do not attempt to copy and chown
+        a requirements file
+
+    cwd
+        Current working directory to run pip from
+
+    activate
+        Activates the virtual environment, if given via bin_env,
+        before running install.
+
+    pre_releases
+        Include pre-releases in the available versions
+
+    cert
+        Provide a path to an alternate CA bundle
+
+    allow_all_external
+        Allow the installation of all externally hosted files
+
+    allow_external
+        Allow the installation of externally hosted files (comma separated list)
+
+    allow_unverified
+        Allow the installation of insecure and unverifiable files (comma separated list)
+
+    process_dependency_links
+        Enable the processing of dependency links
+
     bin_env : None
         Absolute path to a virtual environment directory or absolute path to
         a pip executable. The example below assumes a virtual environment
         has been created at ``/foo/.virtualenvs/bar``.
 
-    Example::
+    Example:
+
+    .. code-block:: yaml
 
         django:
           pip.installed:
@@ -163,7 +279,9 @@ def installed(name,
 
     Or
 
-    Example::
+    Example:
+
+    .. code-block:: yaml
 
         django:
           pip.installed:
@@ -216,12 +334,12 @@ def installed(name,
         Salt from an active `virtualenv`_.
 
         The reason for this requirement is because ``pip`` already does a
-        pretty good job parsing it's own requirements. It makes no sense for
+        pretty good job parsing its own requirements. It makes no sense for
         Salt to do ``pip`` requirements parsing and validation before passing
         them to the ``pip`` library. It's functionality duplication and it's
         more error prone.
 
-    .. _`virtualenv`: http://www.virtualenv.org
+    .. _`virtualenv`: http://www.virtualenv.org/en/latest/
     '''
     if pip_bin and not bin_env:
         bin_env = pip_bin
@@ -237,6 +355,17 @@ def installed(name,
                                            ver2=min_version):
             ret['result'] = False
             ret['comment'] = ('The \'use_wheel\' option is only supported in '
+                              'pip {0} and newer. The version of pip detected '
+                              'was {1}.').format(min_version, cur_version)
+            return ret
+
+    if no_use_wheel:
+        min_version = '1.4'
+        cur_version = __salt__['pip.version'](bin_env)
+        if not salt.utils.compare_versions(ver1=cur_version, oper='>=',
+                                           ver2=min_version):
+            ret['result'] = False
+            ret['comment'] = ('The \'no_use_wheel\' option is only supported in '
                               'pip {0} and newer. The version of pip detected '
                               'was {1}.').format(min_version, cur_version)
             return ret
@@ -386,6 +515,7 @@ def installed(name,
         requirements=requirements,
         bin_env=bin_env,
         use_wheel=use_wheel,
+        no_use_wheel=no_use_wheel,
         log=log,
         proxy=proxy,
         timeout=timeout,
@@ -414,6 +544,11 @@ def installed(name,
         cwd=cwd,
         activate=activate,
         pre_releases=pre_releases,
+        cert=cert,
+        allow_all_external=allow_all_external,
+        allow_external=allow_external,
+        allow_unverified=allow_unverified,
+        process_dependency_links=process_dependency_links,
         saltenv=__env__
     )
 
@@ -423,9 +558,16 @@ def installed(name,
         if requirements or editable:
             comments = []
             if requirements:
+                for eachline in pip_install_call.get('stdout', '').split('\n'):
+                    if not eachline.startswith('Requirement already satisfied') and eachline != 'Cleaning up...':
+                        ret['changes']['requirements'] = True
+                if ret['changes'].get('requirements'):
+                    comments.append('Successfully processed requirements file '
+                                    '{0}.'.format(requirements))
+                else:
+                    comments.append('Requirements was successfully installed')
                 comments.append('Successfully processed requirements file '
                                 '{0}.'.format(requirements))
-                ret['changes']['requirements'] = True
             if editable:
                 comments.append('Package successfully installed from VCS '
                                 'checkout {0}.'.format(editable))

@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 
+# Import Python Libs
+from distutils.version import LooseVersion
+
 # Import Salt Testing libs
+from salttesting import skipIf
 from salttesting.helpers import (
     ensure_in_syspath,
     requires_network
@@ -9,6 +13,16 @@ ensure_in_syspath('../../')
 
 # Import salt libs
 import integration
+
+GIT_PYTHON = '0.3.2'
+HAS_GIT_PYTHON = False
+
+try:
+    import git
+    if LooseVersion(git.__version__) >= LooseVersion(GIT_PYTHON):
+        HAS_GIT_PYTHON = True
+except ImportError:
+    pass
 
 
 class PillarModuleTest(integration.ModuleCase):
@@ -29,6 +43,8 @@ class PillarModuleTest(integration.ModuleCase):
             self.assertEqual(pillar['class'], 'other')
 
     @requires_network()
+    @skipIf(HAS_GIT_PYTHON is False,
+            'GitPython must be installed and >= version {0}'.format(GIT_PYTHON))
     def test_two_ext_pillar_sources_override(self):
         '''
         https://github.com/saltstack/salt/issues/12647
@@ -40,6 +56,8 @@ class PillarModuleTest(integration.ModuleCase):
         )
 
     @requires_network()
+    @skipIf(HAS_GIT_PYTHON is False,
+            'GitPython must be installed and >= version {0}'.format(GIT_PYTHON))
     def test_two_ext_pillar_sources(self):
         '''
         https://github.com/saltstack/salt/issues/12647
@@ -75,6 +93,25 @@ class PillarModuleTest(integration.ModuleCase):
             integration.TMP_STATE_TREE,
             self.run_function('pillar.data')['test_ext_pillar_opts']['file_roots']['base']
         )
+
+    def no_test_issue_10408_ext_pillar_gitfs_url_update(self):
+        import os
+        from salt.pillar import git_pillar
+        import git
+        original_url = 'git+ssh://original@example.com/home/git/test'
+        changed_url = 'git+ssh://changed@example.com/home/git/test'
+        rp_location = os.path.join(self.master_opts['cachedir'], 'pillar_gitfs/0/.git')
+        opts = {
+            'ext_pillar': [{'git': 'master {0}'.format(original_url)}],
+            'cachedir': self.master_opts['cachedir'],
+        }
+
+        git_pillar.GitPillar('master', original_url, opts)
+        opts['ext_pillar'] = [{'git': 'master {0}'.format(changed_url)}]
+        grepo = git_pillar.GitPillar('master', changed_url, opts)
+        repo = git.Repo(rp_location)
+
+        self.assertEqual(grepo.rp_location, repo.remotes.origin.url)
 
 if __name__ == '__main__':
     from integration import run_tests

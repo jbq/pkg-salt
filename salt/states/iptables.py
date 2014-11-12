@@ -24,12 +24,91 @@ at some point be deprecated in favor of a more generic `firewall` state.
     httpd:
       iptables.append:
         - table: filter
+        - chain: INPUT
+        - jump: ACCEPT
+        - match:
+            - state
+            - comment
+        - comment: "Allow HTTP"
+        - connstate: NEW
+        - dport: 80
+        - proto: tcp
+        - sport: 1025:65535
+        - save: True
+
+    httpd:
+      iptables.append:
+        - table: filter
+        - chain: INPUT
+        - jump: ACCEPT
+        - match:
+            - state
+            - comment
+        - comment: "Allow HTTP"
+        - connstate: NEW
+        - source: '127.0.0.1'
+        - dport: 80
+        - proto: tcp
+        - sport: 1025:65535
+        - save: True
+
+    .. Invert Rule
+    httpd:
+      iptables.append:
+        - table: filter
+        - chain: INPUT
+        - jump: ACCEPT
+        - match:
+            - state
+            - comment
+        - comment: "Allow HTTP"
+        - connstate: NEW
+        - source: '! 127.0.0.1'
+        - dport: 80
+        - proto: tcp
+        - sport: 1025:65535
+        - save: True
+
+    httpd:
+      iptables.append:
+        - table: filter
+        - chain: INPUT
+        - jump: ACCEPT
+        - match:
+            - state
+            - comment
+        - comment: "Allow HTTP"
+        - connstate: NEW
+        - source: 'not 127.0.0.1'
+        - dport: 80
+        - proto: tcp
+        - sport: 1025:65535
+        - save: True
+
+    httpd:
+      iptables.append:
+        - table: filter
         - family: ipv6
         - chain: INPUT
         - jump: ACCEPT
         - match: state
         - connstate: NEW
         - dport: 80
+        - proto: tcp
+        - sport: 1025:65535
+        - save: True
+
+    httpd:
+      iptables.append:
+        - table: filter
+        - family: ipv4
+        - chain: INPUT
+        - jump: ACCEPT
+        - match: state
+        - connstate: NEW
+        - dports:
+            - 80
+            - 443
         - proto: tcp
         - sport: 1025:65535
         - save: True
@@ -110,12 +189,12 @@ def __virtual__():
     '''
     Only load if the locale module is available in __salt__
     '''
-    return 'iptables' if 'iptables.version' in __salt__ else False
+    return 'iptables.version' in __salt__
 
 
 def chain_present(name, table='filter', family='ipv4'):
     '''
-    .. versionadded:: 2014.1.0 (Hydrogen)
+    .. versionadded:: 2014.1.0
 
     Verify the chain is exist.
 
@@ -141,6 +220,12 @@ def chain_present(name, table='filter', family='ipv4'):
                           .format(name, table, family))
         return ret
 
+    if __opts__['test']:
+        ret['comment'] = 'iptables {0} chain in {1} table needs to be set for {2}'.format(
+            name,
+            table,
+            family)
+        return ret
     command = __salt__['iptables.new_chain'](table, name, family)
     if command is True:
         ret['changes'] = {'locale': name}
@@ -161,7 +246,7 @@ def chain_present(name, table='filter', family='ipv4'):
 
 def chain_absent(name, table='filter', family='ipv4'):
     '''
-    .. versionadded:: 2014.1.0 (Hydrogen)
+    .. versionadded:: 2014.1.0
 
     Verify the chain is absent.
 
@@ -180,7 +265,12 @@ def chain_absent(name, table='filter', family='ipv4'):
         ret['comment'] = ('iptables {0} chain is already absent in {1} table for {2}'
                           .format(name, table, family))
         return ret
-
+    if __opts__['test']:
+        ret['comment'] = 'iptables {0} chain in {1} table needs to be removed {2}'.format(
+            name,
+            table,
+            family)
+        return ret
     flush_chain = __salt__['iptables.flush'](table, name, family)
     if not flush_chain:
         command = __salt__['iptables.delete_chain'](table, name, family)
@@ -191,7 +281,7 @@ def chain_absent(name, table='filter', family='ipv4'):
                               .format(name, table, family))
         else:
             ret['result'] = False
-            ret['comment'] = ('Failed to delete {0} chain in {1} table: {2} for {2}'
+            ret['comment'] = ('Failed to delete {0} chain in {1} table: {2} for {3}'
                               .format(name, table, command.strip(), family))
     else:
         ret['result'] = False
@@ -218,7 +308,7 @@ def append(name, family='ipv4', **kwargs):
         Network family, ipv4 or ipv6.
 
     All other arguments are passed in with the same name as the long option
-    that would normally be used for iptables, with one exception: `--state` is
+    that would normally be used for iptables, with one exception: ``--state`` is
     specified as `connstate` instead of `state` (not to be confused with
     `ctstate`).
     '''
@@ -230,17 +320,26 @@ def append(name, family='ipv4', **kwargs):
     for ignore in _STATE_INTERNAL_KEYWORDS:
         if ignore in kwargs:
             del kwargs[ignore]
+    kwargs['name'] = name
     rule = __salt__['iptables.build_rule'](family=family, **kwargs)
-    command = __salt__['iptables.build_rule'](full=True, family=family, command='A', **kwargs)
+    command = __salt__['iptables.build_rule'](full='True', family=family, command='A', **kwargs)
     if __salt__['iptables.check'](kwargs['table'],
                                   kwargs['chain'],
                                   rule,
                                   family) is True:
         ret['result'] = True
-        ret['comment'] = 'iptables rule for {0} already set ({1}) for {1}'.format(
+        ret['comment'] = 'iptables rule for {0} already set ({1}) for {2}'.format(
             name,
             command.strip(),
             family)
+        if kwargs['save']:
+            if kwargs['save'] is not True:
+                filename = kwargs['save']
+            else:
+                filename = None
+            __salt__['iptables.save'](filename, family=family)
+            ret['comment'] += ('\nSaved iptables rule for {0} to: '
+                               '{1} for {2}'.format(name, command.strip(), family))
         return ret
     if __opts__['test']:
         ret['comment'] = 'iptables rule for {0} needs to be set ({1}) for {2}'.format(
@@ -257,7 +356,11 @@ def append(name, family='ipv4', **kwargs):
             family)
         if 'save' in kwargs:
             if kwargs['save']:
-                __salt__['iptables.save'](filename=None, family=family)
+                if kwargs['save'] is not True:
+                    filename = kwargs['save']
+                else:
+                    filename = None
+                __salt__['iptables.save'](filename, family=family)
                 ret['comment'] = ('Set and Saved iptables rule for {0} to: '
                                   '{1} for {2}'.format(name, command.strip(), family))
         return ret
@@ -272,7 +375,7 @@ def append(name, family='ipv4', **kwargs):
 
 def insert(name, family='ipv4', **kwargs):
     '''
-    .. versionadded:: 2014.1.0 (Hydrogen)
+    .. versionadded:: 2014.1.0
 
     Insert a rule into a chain
 
@@ -284,7 +387,7 @@ def insert(name, family='ipv4', **kwargs):
         Networking family, either ipv4 or ipv6
 
     All other arguments are passed in with the same name as the long option
-    that would normally be used for iptables, with one exception: `--state` is
+    that would normally be used for iptables, with one exception: ``--state`` is
     specified as `connstate` instead of `state` (not to be confused with
     `ctstate`).
     '''
@@ -296,6 +399,7 @@ def insert(name, family='ipv4', **kwargs):
     for ignore in _STATE_INTERNAL_KEYWORDS:
         if ignore in kwargs:
             del kwargs[ignore]
+    kwargs['name'] = name
     rule = __salt__['iptables.build_rule'](family=family, **kwargs)
     command = __salt__['iptables.build_rule'](full=True, family=family, command='I', **kwargs)
     if __salt__['iptables.check'](kwargs['table'],
@@ -307,6 +411,11 @@ def insert(name, family='ipv4', **kwargs):
             name,
             family,
             command.strip())
+        if 'save' in kwargs:
+            if kwargs['save']:
+                __salt__['iptables.save'](filename=None, family=family)
+                ret['comment'] += ('\nSaved iptables rule for {0} to: '
+                                   '{1} for {2}').format(name, command.strip(), family)
         return ret
     if __opts__['test']:
         ret['comment'] = 'iptables rule for {0} needs to be set for {1} ({2})'.format(
@@ -325,7 +434,7 @@ def insert(name, family='ipv4', **kwargs):
             if kwargs['save']:
                 __salt__['iptables.save'](filename=None, family=family)
                 ret['comment'] = ('Set and Saved iptables rule for {0} to: '
-                                  '{1} for {2}'.format(name, command.strip(), family))
+                                  '{1} for {2}').format(name, command.strip(), family)
         return ret
     else:
         ret['result'] = False
@@ -338,7 +447,7 @@ def insert(name, family='ipv4', **kwargs):
 
 def delete(name, family='ipv4', **kwargs):
     '''
-    .. versionadded:: 2014.1.0 (Hydrogen)
+    .. versionadded:: 2014.1.0
 
     Delete a rule to a chain
 
@@ -350,7 +459,7 @@ def delete(name, family='ipv4', **kwargs):
         Networking family, either ipv4 or ipv6
 
     All other arguments are passed in with the same name as the long option
-    that would normally be used for iptables, with one exception: `--state` is
+    that would normally be used for iptables, with one exception: ``--state`` is
     specified as `connstate` instead of `state` (not to be confused with
     `ctstate`).
     '''
@@ -362,6 +471,7 @@ def delete(name, family='ipv4', **kwargs):
     for ignore in _STATE_INTERNAL_KEYWORDS:
         if ignore in kwargs:
             del kwargs[ignore]
+    kwargs['name'] = name
     rule = __salt__['iptables.build_rule'](family=family, **kwargs)
     command = __salt__['iptables.build_rule'](full=True, family=family, command='D', **kwargs)
     if not __salt__['iptables.check'](kwargs['table'],
@@ -397,7 +507,7 @@ def delete(name, family='ipv4', **kwargs):
     if not result:
         ret['changes'] = {'locale': name}
         ret['result'] = True
-        ret['comment'] = 'Delete iptables rule for {1} {1}'.format(
+        ret['comment'] = 'Delete iptables rule for {0} {1}'.format(
             name,
             command.strip())
         if 'save' in kwargs:
@@ -417,7 +527,7 @@ def delete(name, family='ipv4', **kwargs):
 
 def set_policy(name, family='ipv4', **kwargs):
     '''
-    .. versionadded:: 2014.1.0 (Hydrogen)
+    .. versionadded:: 2014.1.0
 
     Sets the default policy for iptables firewall tables
 
@@ -439,10 +549,17 @@ def set_policy(name, family='ipv4', **kwargs):
             kwargs['chain'],
             family) == kwargs['policy']:
         ret['result'] = True
-        ret['comment'] = ('iptables default policy for {0} for {1} already set to {2}'
-                          .format(kwargs['table'], family, kwargs['policy']))
+        ret['comment'] = ('iptables default policy for chain {0} on table {1} for {2} already set to {3}'
+                          .format(kwargs['chain'], kwargs['table'], family, kwargs['policy']))
         return ret
-
+    if __opts__['test']:
+        ret['comment'] = 'iptables default policy for chain {0} on table {1} for {2} needs to be set to {3}'.format(
+            kwargs['chain'],
+            kwargs['table'],
+            family,
+            kwargs['policy']
+        )
+        return ret
     if not __salt__['iptables.set_policy'](
             kwargs['table'],
             kwargs['chain'],
@@ -455,6 +572,14 @@ def set_policy(name, family='ipv4', **kwargs):
             kwargs['policy'],
             family
         )
+        if 'save' in kwargs:
+            if kwargs['save']:
+                __salt__['iptables.save'](filename=None, family=family)
+                ret['comment'] = 'Set and Saved default policy for {0} to {1} family {2}'.format(
+                    kwargs['chain'],
+                    kwargs['policy'],
+                    family
+                )
         return ret
     else:
         ret['result'] = False
@@ -464,7 +589,7 @@ def set_policy(name, family='ipv4', **kwargs):
 
 def flush(name, family='ipv4', **kwargs):
     '''
-    .. versionadded:: 2014.1.0 (Hydrogen)
+    .. versionadded:: 2014.1.0
 
     Flush current iptables state
 
@@ -486,7 +611,12 @@ def flush(name, family='ipv4', **kwargs):
 
     if 'chain' not in kwargs:
         kwargs['chain'] = ''
-
+    if __opts__['test']:
+        ret['comment'] = 'iptables rules in {0} table {1} chain {2} family needs to be flushed'.format(
+            name,
+            kwargs['table'],
+            family)
+        return ret
     if not __salt__['iptables.flush'](kwargs['table'], kwargs['chain'], family):
         ret['changes'] = {'locale': name}
         ret['result'] = True

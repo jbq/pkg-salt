@@ -26,31 +26,29 @@ does.
 See (admittedly degenerate and probably not complete) example:
 
 
-```
-classes:
-  - basepackages
-  - database
-```
+.. code-block:: yaml
 
-The above essentially is the same as a top.sls containing
+    classes:
+      - basepackages
+      - database
 
-```
-base:
-  '*':
-    - basepackages
-    - database
+The above essentially is the same as a top.sls containing the following:
+
+.. code-block:: yaml
+
+    base:
+      '*':
+        - basepackages
+        - database
 
 '''
 
 # Import python libs
+import logging
 import subprocess
 
 # Import third party libs
 import yaml
-
-
-# Import python libs
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -59,9 +57,8 @@ def __virtual__():
     '''
     Only run if properly configured
     '''
-
     if __opts__['master_tops'].get('ext_nodes'):
-        return 'ext_nodes'
+        return True
     return False
 
 

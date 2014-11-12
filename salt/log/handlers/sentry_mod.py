@@ -65,7 +65,7 @@
 
 
     .. _`DSN`: http://raven.readthedocs.org/en/latest/config/index.html#the-sentry-dsn
-    .. _`Sentry`: http://getsentry.com
+    .. _`Sentry`: https://getsentry.com
     .. _`Raven`: http://raven.readthedocs.org
     .. _`Raven client documentation`: http://raven.readthedocs.org/en/latest/config/index.html#client-arguments
 '''
@@ -170,7 +170,10 @@ def setup_handlers():
         # processors: A list of processors to apply to events before sending
         # them to the Sentry server. Useful for sending additional global state
         # data or sanitizing data that you want to keep off of the server.
-        'processors': get_config_value('processors')
+        'processors': get_config_value('processors'),
+
+        # dsn: Ensure the DSN is passed into the client
+        'dsn': dsn
     })
 
     client = raven.Client(**options)

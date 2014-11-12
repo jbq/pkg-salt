@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 '''
-The backed for the mercurial based file server system.
+Mercurial Fileserver Backend
+
+To enable, add ``hg`` to the :conf_master:`fileserver_backend` option in the
+master config file.
 
 After enabling this backend, branches, bookmarks, and tags in a remote
 mercurial repository are exposed to salt as different environments. This
@@ -13,7 +16,7 @@ will set the desired branch method. Possible values are: ``branches``,
 ``default`` branch will be mapped to ``base``.
 
 
-.. versionchanged:: 2014.1.0 (Hydrogen)
+.. versionchanged:: 2014.1.0
     The :conf_master:`hgfs_base` master config parameter was added, allowing
     for a branch other than ``default`` to be used for the ``base``
     environment, and allowing for a ``base`` environment to be specified when
@@ -21,29 +24,32 @@ will set the desired branch method. Possible values are: ``branches``,
 
 
 :depends:   - mercurial
+            - python bindings for mercurial (``python-hglib``)
 '''
 
 # Import python libs
-import os
+import copy
 import glob
-import time
-import shutil
 import hashlib
 import logging
+import os
+import shutil
+from datetime import datetime
 
 VALID_BRANCH_METHODS = ('branches', 'bookmarks', 'mixed')
+PER_REMOTE_PARAMS = ('base', 'branch_method', 'mountpoint', 'root')
 
 # Import third party libs
-HAS_HG = False
 try:
     import hglib
     HAS_HG = True
 except ImportError:
-    pass
+    HAS_HG = False
 
 # Import salt libs
 import salt.utils
 import salt.fileserver
+from salt._compat import string_types
 from salt.utils.event import tagify
 
 log = logging.getLogger(__name__)
@@ -138,66 +144,90 @@ def _get_ref(repo, name):
     '''
     Return ref tuple if ref is in the repo.
     '''
-    if __opts__['hgfs_branch_method'] == 'branches':
-        return _get_branch(repo, name) or _get_tag(repo, name)
-    elif __opts__['hgfs_branch_method'] == 'bookmarks':
-        return _get_bookmark(repo, name) or _get_tag(repo, name)
-    elif __opts__['hgfs_branch_method'] == 'mixed':
-        return _get_branch(repo, name) or _get_bookmark(repo, name) \
-            or _get_tag(repo, name)
-    return False
-
-
-def _wait_lock(lk_fn, dest):
-    '''
-    If the write lock is there, check to see if the file is actually being
-    written. If there is no change in the file size after a short sleep,
-    remove the lock and move forward.
-    '''
-    if not os.path.isfile(lk_fn):
-        return False
-    if not os.path.isfile(dest):
-        # The dest is not here, sleep for a bit, if the dest is not here yet
-        # kill the lockfile and start the write
-        time.sleep(1)
-        if not os.path.isfile(dest):
-            try:
-                os.remove(lk_fn)
-            except (OSError, IOError):
-                pass
-            return False
-    # There is a lock file, the dest is there, stat the dest, sleep and check
-    # that the dest is being written, if it is not being written kill the lock
-    # file and continue. Also check if the lock file is gone.
-    s_count = 0
-    s_size = os.stat(dest).st_size
-    while True:
-        time.sleep(1)
-        if not os.path.isfile(lk_fn):
-            return False
-        size = os.stat(dest).st_size
-        if size == s_size:
-            s_count += 1
-            if s_count >= 3:
-                # The file is not being written to, kill the lock and proceed
-                try:
-                    os.remove(lk_fn)
-                except (OSError, IOError):
-                    pass
-                return False
-        else:
-            s_size = size
+    if name == 'base':
+        name = repo['base']
+    if name == repo['base'] or name in envs():
+        if repo['branch_method'] == 'branches':
+            return _get_branch(repo['repo'], name) \
+                or _get_tag(repo['repo'], name)
+        elif repo['branch_method'] == 'bookmarks':
+            return _get_bookmark(repo['repo'], name) \
+                or _get_tag(repo['repo'], name)
+        elif repo['branch_method'] == 'mixed':
+            return _get_branch(repo['repo'], name) \
+                or _get_bookmark(repo['repo'], name) \
+                or _get_tag(repo['repo'], name)
     return False
 
 
 def init():
     '''
-    Return the hg repo object for this session
+    Return a list of hglib objects for the various hgfs remotes
     '''
     bp_ = os.path.join(__opts__['cachedir'], 'hgfs')
+    new_remote = False
     repos = []
-    for _, opt in enumerate(__opts__['hgfs_remotes']):
-        repo_hash = hashlib.md5(opt).hexdigest()
+
+    per_remote_defaults = {}
+    for param in PER_REMOTE_PARAMS:
+        per_remote_defaults[param] = __opts__['hgfs_{0}'.format(param)]
+
+    for remote in __opts__['hgfs_remotes']:
+        repo_conf = copy.deepcopy(per_remote_defaults)
+        if isinstance(remote, dict):
+            repo_uri = next(iter(remote))
+            per_remote_conf = salt.utils.repack_dictlist(remote[repo_uri])
+            if not per_remote_conf:
+                log.error(
+                    'Invalid per-remote configuration for remote {0}. If no '
+                    'per-remote parameters are being specified, there may be '
+                    'a trailing colon after the URI, which should be removed. '
+                    'Check the master configuration file.'.format(repo_uri)
+                )
+
+            branch_method = \
+                per_remote_conf.get('branch_method',
+                                    per_remote_defaults['branch_method'])
+            if branch_method not in VALID_BRANCH_METHODS:
+                log.error(
+                    'Invalid branch_method {0!r} for remote {1}. Valid '
+                    'branch methods are: {2}. This remote will be ignored.'
+                    .format(branch_method, repo_uri,
+                            ', '.join(VALID_BRANCH_METHODS))
+                )
+                continue
+
+            for param in (x for x in per_remote_conf
+                          if x not in PER_REMOTE_PARAMS):
+                log.error(
+                    'Invalid configuration parameter {0!r} for remote {1}. '
+                    'Valid parameters are: {2}. See the documentation for '
+                    'further information.'.format(
+                        param, repo_uri, ', '.join(PER_REMOTE_PARAMS)
+                    )
+                )
+                per_remote_conf.pop(param)
+            repo_conf.update(per_remote_conf)
+        else:
+            repo_uri = remote
+
+        if not isinstance(repo_uri, string_types):
+            log.error(
+                'Invalid gitfs remote {0}. Remotes must be strings, you may '
+                'need to enclose the URI in quotes'.format(repo_uri)
+            )
+            continue
+
+        try:
+            repo_conf['mountpoint'] = salt.utils.strip_proto(
+                repo_conf['mountpoint']
+            )
+        except TypeError:
+            # mountpoint not specified
+            pass
+
+        hash_type = getattr(hashlib, __opts__.get('hash_type', 'md5'))
+        repo_hash = hash_type(repo_uri).hexdigest()
         rp_ = os.path.join(bp_, repo_hash)
         if not os.path.isdir(rp_):
             os.makedirs(rp_)
@@ -205,6 +235,7 @@ def init():
         if not os.listdir(rp_):
             # Only init if the directory is empty.
             hglib.init(rp_)
+            new_remote = True
         try:
             repo = hglib.open(rp_)
         except hglib.error.ServerError:
@@ -212,7 +243,7 @@ def init():
                 'Cache path {0} (corresponding remote: {1}) exists but is not '
                 'a valid mercurial repository. You will need to manually '
                 'delete this directory on the master to continue to use this '
-                'hgfs remote.'.format(rp_, opt)
+                'hgfs remote.'.format(rp_, repo_uri)
             )
             continue
 
@@ -222,26 +253,49 @@ def init():
             hgconfpath = os.path.join(rp_, '.hg', 'hgrc')
             with salt.utils.fopen(hgconfpath, 'w+') as hgconfig:
                 hgconfig.write('[paths]\n')
-                hgconfig.write('default = {0}\n'.format(opt))
-        repos.append(repo)
+                hgconfig.write('default = {0}\n'.format(repo_uri))
+
+        repo_conf.update({
+            'repo': repo,
+            'uri': repo_uri,
+            'hash': repo_hash,
+            'cachedir': rp_
+        })
+        repos.append(repo_conf)
         repo.close()
+
+    if new_remote:
+        remote_map = os.path.join(__opts__['cachedir'], 'hgfs/remote_map.txt')
+        try:
+            with salt.utils.fopen(remote_map, 'w+') as fp_:
+                timestamp = datetime.now().strftime('%d %b %Y %H:%M:%S.%f')
+                fp_.write('# hgfs_remote map as of {0}\n'.format(timestamp))
+                for repo in repos:
+                    fp_.write('{0} = {1}\n'.format(repo['hash'], repo['uri']))
+        except OSError:
+            pass
+        else:
+            log.info('Wrote new hgfs_remote map to {0}'.format(remote_map))
+
     return repos
 
 
 def purge_cache():
+    '''
+    Purge the fileserver cache
+    '''
     bp_ = os.path.join(__opts__['cachedir'], 'hgfs')
     try:
         remove_dirs = os.listdir(bp_)
     except OSError:
         remove_dirs = []
-    for _, opt in enumerate(__opts__['hgfs_remotes']):
-        repo_hash = hashlib.md5(opt).hexdigest()
+    for repo in init():
         try:
-            remove_dirs.remove(repo_hash)
+            remove_dirs.remove(repo['hash'])
         except ValueError:
             pass
-    remove_dirs = [os.path.join(bp_, r) for r in remove_dirs
-                   if r not in ('hash', 'refs', 'envs.p')]
+    remove_dirs = [os.path.join(bp_, rdir) for rdir in remove_dirs
+                   if rdir not in ('hash', 'refs', 'envs.p', 'remote_map.txt')]
     if remove_dirs:
         for rdir in remove_dirs:
             shutil.rmtree(rdir)
@@ -251,31 +305,32 @@ def purge_cache():
 
 def update():
     '''
-    Execute a hg pull on all of the repos
+    Execute an hg pull on all of the repos
     '''
     # data for the fileserver event
     data = {'changed': False,
             'backend': 'hgfs'}
     pid = os.getpid()
     data['changed'] = purge_cache()
-    repos = init()
-    for repo in repos:
-        repo.open()
-        lk_fn = os.path.join(repo.root(), 'update.lk')
+    for repo in init():
+        repo['repo'].open()
+        lk_fn = os.path.join(repo['repo'].root(), 'update.lk')
         with salt.utils.fopen(lk_fn, 'w+') as fp_:
             fp_.write(str(pid))
-        curtip = repo.tip()
+        curtip = repo['repo'].tip()
         try:
-            success = repo.pull()
+            repo['repo'].pull()
         except Exception as exc:
             log.error(
-                'Exception caught while updating hgfs: {0}'.format(exc)
+                'Exception {0} caught while updating hgfs remote {1}'
+                .format(exc, repo['uri']),
+                exc_info_on_loglevel=logging.DEBUG
             )
         else:
-            newtip = repo.tip()
+            newtip = repo['repo'].tip()
             if curtip[1] != newtip[1]:
                 data['changed'] = True
-        repo.close()
+        repo['repo'].close()
         try:
             os.remove(lk_fn)
         except (IOError, OSError):
@@ -283,6 +338,9 @@ def update():
 
     env_cache = os.path.join(__opts__['cachedir'], 'hgfs/envs.p')
     if data.get('changed', False) is True or not os.path.isfile(env_cache):
+        env_cachedir = os.path.dirname(env_cache)
+        if not os.path.exists(env_cachedir):
+            os.makedirs(env_cachedir)
         new_envs = envs(ignore_cache=True)
         serial = salt.payload.Serial(__opts__)
         with salt.utils.fopen(env_cache, 'w+') as fp_:
@@ -291,7 +349,12 @@ def update():
 
     # if there is a change, fire an event
     if __opts__.get('fileserver_events', False):
-        event = salt.utils.event.MasterEvent(__opts__['sock_dir'])
+        event = salt.utils.event.get_event(
+                'master',
+                __opts__['sock_dir'],
+                __opts__['transport'],
+                opts=__opts__,
+                listen=False)
         event.fire_event(data, tagify(['hgfs', 'update'], prefix='fileserver'))
     try:
         salt.fileserver.reap_fileserver_cache_dir(
@@ -301,6 +364,18 @@ def update():
     except (IOError, OSError):
         # Hash file won't exist if no files have yet been served up
         pass
+
+
+def _env_is_exposed(env):
+    '''
+    Check if an environment is exposed by comparing it against a whitelist and
+    blacklist.
+    '''
+    return salt.utils.check_whitelist_blacklist(
+        env,
+        whitelist=__opts__['hgfs_env_whitelist'],
+        blacklist=__opts__['hgfs_env_blacklist']
+    )
 
 
 def envs(ignore_cache=False):
@@ -313,90 +388,94 @@ def envs(ignore_cache=False):
         if cache_match is not None:
             return cache_match
     ret = set()
-    repos = init()
-    for repo in repos:
-        repo.open()
-        if __opts__['hgfs_branch_method'] in ('branches', 'mixed'):
-            for branch in _all_branches(repo):
+    for repo in init():
+        repo['repo'].open()
+        if repo['branch_method'] in ('branches', 'mixed'):
+            for branch in _all_branches(repo['repo']):
                 branch_name = branch[0]
-                if branch_name == __opts__['hgfs_base']:
+                if branch_name == repo['base']:
                     branch_name = 'base'
                 ret.add(branch_name)
-        if __opts__['hgfs_branch_method'] in ('bookmarks', 'mixed'):
-            for bookmark in _all_bookmarks(repo):
+        if repo['branch_method'] in ('bookmarks', 'mixed'):
+            for bookmark in _all_bookmarks(repo['repo']):
                 bookmark_name = bookmark[0]
-                if bookmark_name == __opts__['hgfs_base']:
+                if bookmark_name == repo['base']:
                     bookmark_name = 'base'
                 ret.add(bookmark_name)
-        ret.update([x[0] for x in _all_tags(repo)])
-        repo.close()
-    return sorted(ret)
+        ret.update([x[0] for x in _all_tags(repo['repo'])])
+        repo['repo'].close()
+    return [x for x in sorted(ret) if _env_is_exposed(x)]
 
 
-def find_file(path, short='base', **kwargs):
+def find_file(path, tgt_env='base', **kwargs):  # pylint: disable=W0613
     '''
     Find the first file to match the path and ref, read the file out of hg
     and send the path to the newly cached file
     '''
     fnd = {'path': '',
            'rel': ''}
-    if os.path.isabs(path):
+    if os.path.isabs(path) or tgt_env not in envs():
         return fnd
 
-    local_path = path
-    path = os.path.join(__opts__['hgfs_root'], local_path)
-
-    if short == 'base':
-        short = __opts__['hgfs_base']
-    dest = os.path.join(__opts__['cachedir'], 'hgfs/refs', short, path)
+    dest = os.path.join(__opts__['cachedir'], 'hgfs/refs', tgt_env, path)
     hashes_glob = os.path.join(__opts__['cachedir'],
                                'hgfs/hash',
-                               short,
+                               tgt_env,
                                '{0}.hash.*'.format(path))
     blobshadest = os.path.join(__opts__['cachedir'],
                                'hgfs/hash',
-                               short,
+                               tgt_env,
                                '{0}.hash.blob_sha1'.format(path))
     lk_fn = os.path.join(__opts__['cachedir'],
                          'hgfs/hash',
-                         short,
+                         tgt_env,
                          '{0}.lk'.format(path))
     destdir = os.path.dirname(dest)
     hashdir = os.path.dirname(blobshadest)
     if not os.path.isdir(destdir):
-        os.makedirs(destdir)
-    if not os.path.isdir(hashdir):
-        os.makedirs(hashdir)
-    repos = init()
-    if 'index' in kwargs:
         try:
-            repos = [repos[int(kwargs['index'])]]
-        except IndexError:
-            # Invalid index param
-            return fnd
-        except ValueError:
-            # Invalid index option
-            return fnd
-    for repo in repos:
-        repo.open()
-        ref = _get_ref(repo, short)
+            os.makedirs(destdir)
+        except OSError:
+            # Path exists and is a file, remove it and retry
+            os.remove(destdir)
+            os.makedirs(destdir)
+    if not os.path.isdir(hashdir):
+        try:
+            os.makedirs(hashdir)
+        except OSError:
+            # Path exists and is a file, remove it and retry
+            os.remove(hashdir)
+            os.makedirs(hashdir)
+
+    for repo in init():
+        if repo['mountpoint'] \
+                and not path.startswith(repo['mountpoint'] + os.path.sep):
+            continue
+        repo_path = path[len(repo['mountpoint']):].lstrip(os.path.sep)
+        if repo['root']:
+            repo_path = os.path.join(repo['root'], repo_path)
+
+        repo['repo'].open()
+        ref = _get_ref(repo, tgt_env)
         if not ref:
             # Branch or tag not found in repo, try the next
-            repo.close()
+            repo['repo'].close()
             continue
-        _wait_lock(lk_fn, dest)
+        salt.fileserver.wait_lock(lk_fn, dest)
         if os.path.isfile(blobshadest) and os.path.isfile(dest):
             with salt.utils.fopen(blobshadest, 'r') as fp_:
                 sha = fp_.read()
                 if sha == ref[2]:
-                    fnd['rel'] = local_path
+                    fnd['rel'] = path
                     fnd['path'] = dest
-                    repo.close()
+                    repo['repo'].close()
                     return fnd
         try:
-            repo.cat(['path:{0}'.format(path)], rev=ref[2], output=dest)
+            repo['repo'].cat(
+                ['path:{0}'.format(repo_path)], rev=ref[2], output=dest
+            )
         except hglib.error.CommandError:
-            repo.close()
+            repo['repo'].close()
             continue
         with salt.utils.fopen(lk_fn, 'w+') as fp_:
             fp_.write('')
@@ -411,9 +490,9 @@ def find_file(path, short='base', **kwargs):
             os.remove(lk_fn)
         except (OSError, IOError):
             pass
-        fnd['rel'] = local_path
+        fnd['rel'] = path
         fnd['path'] = dest
-        repo.close()
+        repo['repo'].close()
         return fnd
     return fnd
 
@@ -432,7 +511,7 @@ def serve_file(load, fnd):
 
     ret = {'data': '',
            'dest': ''}
-    if 'path' not in load or 'loc' not in load or 'saltenv' not in load:
+    if not all(x in load for x in ('path', 'loc', 'saltenv')):
         return ret
     if not fnd['path']:
         return ret
@@ -460,23 +539,18 @@ def file_hash(load, fnd):
         )
         load['saltenv'] = load.pop('env')
 
-    if 'path' not in load or 'saltenv' not in load:
+    if not all(x in load for x in ('path', 'saltenv')):
         return ''
     ret = {'hash_type': __opts__['hash_type']}
-    short = load['saltenv']
-    if short == 'base':
-        short = __opts__['hgfs_base']
     relpath = fnd['rel']
     path = fnd['path']
     hashdest = os.path.join(__opts__['cachedir'],
                             'hgfs/hash',
-                            short,
+                            load['saltenv'],
                             '{0}.hash.{1}'.format(relpath,
                                                   __opts__['hash_type']))
     if not os.path.isfile(hashdest):
-        with salt.utils.fopen(path, 'rb') as fp_:
-            ret['hsum'] = getattr(hashlib, __opts__['hash_type'])(
-                fp_.read()).hexdigest()
+        ret['hsum'] = salt.utils.get_hash(path, __opts__['hash_type'])
         with salt.utils.fopen(hashdest, 'w+') as fp_:
             fp_.write(ret['hsum'])
         return ret
@@ -545,28 +619,24 @@ def _get_file_list(load):
         )
         load['saltenv'] = load.pop('env')
 
-    if 'saltenv' not in load:
+    if 'saltenv' not in load or load['saltenv'] not in envs():
         return []
-    short = load['saltenv']
-    if short == 'base':
-        short = __opts__['hgfs_base']
-    repos = init()
     ret = set()
-    for repo in repos:
-        repo.open()
-        ref = _get_ref(repo, short)
+    for repo in init():
+        repo['repo'].open()
+        ref = _get_ref(repo, load['saltenv'])
         if ref:
-            manifest = repo.manifest(rev=ref[1])
+            manifest = repo['repo'].manifest(rev=ref[1])
             for tup in manifest:
-                path = os.path.relpath(tup[4], __opts__['hgfs_root'])
+                relpath = os.path.relpath(tup[4], repo['root'])
                 # Don't add files outside the hgfs_root
-                if not path.startswith('../'):
-                    ret.add(path)
-        repo.close()
+                if not relpath.startswith('../'):
+                    ret.add(os.path.join(repo['mountpoint'], relpath))
+        repo['repo'].close()
     return sorted(ret)
 
 
-def file_list_emptydirs(load):
+def file_list_emptydirs(load):  # pylint: disable=W0613
     '''
     Return a list of all empty directories on the master
     '''
@@ -593,23 +663,24 @@ def _get_dir_list(load):
         )
         load['saltenv'] = load.pop('env')
 
-    if 'saltenv' not in load:
+    if 'saltenv' not in load or load['saltenv'] not in envs():
         return []
-    short = load['saltenv']
-    if short == 'base':
-        short = __opts__['hgfs_base']
-    repos = init()
     ret = set()
-    for repo in repos:
-        repo.open()
-        ref = _get_ref(repo, short)
+    for repo in init():
+        repo['repo'].open()
+        ref = _get_ref(repo, load['saltenv'])
         if ref:
-            manifest = repo.manifest(rev=ref[1])
+            manifest = repo['repo'].manifest(rev=ref[1])
             for tup in manifest:
                 filepath = tup[4]
                 split = filepath.rsplit('/', 1)
                 while len(split) > 1:
-                    ret.add(os.path.relpath(split[0], __opts__['hgfs_root']))
+                    relpath = os.path.relpath(split[0], repo['root'])
+                    # Don't add '.'
+                    if relpath != '.':
+                        # Don't add files outside the hgfs_root
+                        if not relpath.startswith('../'):
+                            ret.add(os.path.join(repo['mountpoint'], relpath))
                     split = split[0].rsplit('/', 1)
-        repo.close()
+        repo['repo'].close()
     return sorted(ret)

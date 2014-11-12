@@ -36,55 +36,42 @@ def __virtual__():
     return __virtualname__
 
 
-def present(name, opts=None):
+def present(name,
+            level,
+            devices,
+            **kwargs):
     '''
     Verify that the raid is present
+
+    .. versionchanged:: 2014.7.0
 
     name
         The name of raid device to be created
 
-    opts
-        The mdadm options to use to create the raid. See
-        :mod:`mdadm <salt.modules.mdadm>` for more information.
-        Opts can be expressed as a single string of options.
+    level
+                The RAID level to use when creating the raid.
 
-        .. code-block:: yaml
+    devices
+        A list of devices used to build the array.
 
-            /dev/md0:
-              raid.present:
-                - opts: level=1 chunk=256 raid-devices=2 /dev/xvdd /dev/xvde
+    Example:
 
-        Or as a list of options.
+    .. code-block:: yaml
 
-        .. code-block:: yaml
-
-            /dev/md0:
-              raid.present:
-                - opts:
-                  - level=1
-                  - chunk=256
-                  - raid-devices=2
-                  - /dev/xvdd
-                  - /dev/xvde
+        /dev/md0:
+          raid.present:
+            - level: 5
+            - devices:
+              - /dev/xvdd
+              - /dev/xvde
+              - /dev/xvdf
+            - chunk: 256
+            - run: True
     '''
     ret = {'changes': {},
            'comment': '',
            'name': name,
            'result': True}
-
-    salt.utils.warn_until(
-            'Helium',
-            'The mdadm API will change drastically in the \'Helium\' Salt '
-            ' release.  This will break current states and module calls. '
-            'See http://salt.rtfd.org/en/latest/ref/modules/all/salt.modules.mdadm.html '
-            'for more information.'
-            )
-
-    args = [name]
-    if isinstance(opts, str):
-        opts = opts.split()
-
-    args.extend(opts)
 
     # Device exists
     raids = __salt__['raid.list']()
@@ -94,20 +81,28 @@ def present(name, opts=None):
 
     # If running with test use the test_mode with create
     if __opts__['test']:
-        args.extend(['test_mode=True'])
-        res = __salt__['raid.create'](*args)
+        res = __salt__['raid.create'](name,
+                                      level,
+                                      devices,
+                                      test_mode=True,
+                                      **kwargs)
         ret['comment'] = 'Raid will be created with: {0}'.format(res)
         ret['result'] = None
         return ret
 
     # Attempt to create the array
-    __salt__['raid.create'](*args)
+    __salt__['raid.create'](name,
+                            level,
+                            devices,
+                            **kwargs)
 
     raids = __salt__['raid.list']()
     changes = raids.get(name)
     if changes:
         ret['comment'] = 'Raid {0} created.'.format(name)
         ret['changes'] = changes
+        # Saving config
+        __salt__['raid.save_config']()
     else:
         ret['comment'] = 'Raid {0} failed to be created.'.format(name)
         ret['result'] = False

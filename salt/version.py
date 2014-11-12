@@ -72,11 +72,11 @@ class SaltStackVersion(object):
 
 
         # pylint: disable=E8203,E8265
-        # ----- Please refrain from fixing PEP-8 E203 and E265 ------------------------------------------------------>
+        # ----- Please refrain from fixing PEP-8 E203 and E265------------------------------------------------------->
         # The idea is keep this readable
         # ------------------------------------------------------------------------------------------------------------
         'Hydrogen'      : (2014, 1),
-        'Helium'        : (sys.maxint - 107, 0),
+        'Helium'        : (2014, 7),
         'Lithium'       : (sys.maxint - 106, 0),
         'Beryllium'     : (sys.maxint - 105, 0),
         'Boron'         : (sys.maxint - 104, 0),
@@ -496,6 +496,7 @@ def versions_information(include_salt_cloud=False):
     '''
     Report on all of the versions for dependent software
     '''
+
     libs = [
         ('Salt', None, __version__),
         ('Python', None, sys.version.rsplit('\n')[0].strip()),
@@ -504,9 +505,13 @@ def versions_information(include_salt_cloud=False):
         ('msgpack-python', 'msgpack', 'version'),
         ('msgpack-pure', 'msgpack_pure', 'version'),
         ('pycrypto', 'Crypto', '__version__'),
+        ('libnacl', 'libnacl', '__version__'),
         ('PyYAML', 'yaml', '__version__'),
+        ('ioflo', 'ioflo', '__version__'),
         ('PyZMQ', 'zmq', '__version__'),
-        ('ZMQ', 'zmq', 'zmq_version')
+        ('RAET', 'raet', '__version__'),
+        ('ZMQ', 'zmq', 'zmq_version'),
+        ('Mako', 'mako', '__version__'),
     ]
 
     if include_salt_cloud:

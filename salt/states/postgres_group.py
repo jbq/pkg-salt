@@ -28,9 +28,7 @@ def __virtual__():
     '''
     Only load if the postgres module is present
     '''
-    return 'postgres_group' if (
-        'postgres.group_create' in __salt__
-    ) else False
+    return 'postgres.group_create' in __salt__
 
 
 def present(name,
@@ -43,6 +41,7 @@ def present(name,
             login=None,
             replication=None,
             password=None,
+            refresh_password=None,
             groups=None,
             runas=None,
             user=None,
@@ -91,9 +90,21 @@ def present(name,
 
             'md5{MD5OF({password}{role}}'
 
-        If encrypted is None or True, the password will be automaticly
+        If encrypted is None or True, the password will be automatically
         encrypted to the previous
         format if it is not already done.
+
+    refresh_password
+        Password refresh flag
+
+        Boolean attribute to specify whether to password comparison check
+        should be performed.
+
+        If refresh_password is None or False, the password will be automatically
+        updated without extra password change check.
+
+        This behaviour allows to execute in environments without superuser access
+        available, e.g. Amazon RDS for PostgreSQL
 
     groups
         A string of comma separated groups the group should be in
@@ -136,7 +147,7 @@ def present(name,
     # default to encrypted passwords
     if encrypted is not False:
         encrypted = postgres._DEFAULT_PASSWORDS_ENCRYPTION
-    # maybe encrypt if if not already and neccesary
+    # maybe encrypt if if not already and necessary
     password = postgres._maybe_encrypt_password(name,
                                                 password,
                                                 encrypted=encrypted)
@@ -170,15 +181,11 @@ def present(name,
     # check if group exists
     mode = 'create'
     group_attr = __salt__['postgres.role_get'](
-        name, return_password=True, **db_args)
+        name, return_password=not refresh_password, **db_args)
     if group_attr is not None:
         mode = 'update'
 
     # The user is not present, make it!
-    if __opts__['test']:
-        ret['result'] = None
-        ret['comment'] = 'Group {0} is set to be {1}d'.format(name, mode)
-        return ret
     cret = None
     update = {}
     if mode == 'update':
@@ -206,9 +213,15 @@ def present(name,
             update['replication'] = replication
         if superuser is not None and group_attr['superuser'] != superuser:
             update['superuser'] = superuser
-        if password is not None and group_attr['password'] != password:
+        if password is not None and (refresh_password or group_attr['password'] != password):
             update['password'] = True
     if mode == 'create' or (mode == 'update' and update):
+        if __opts__['test']:
+            if update:
+                ret['changes'][name] = update
+            ret['result'] = None
+            ret['comment'] = 'Group {0} is set to be {1}d'.format(name, mode)
+            return ret
         cret = __salt__['postgres.group_{0}'.format(mode)](
             groupname=name,
             createdb=createdb,

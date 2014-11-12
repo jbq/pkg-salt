@@ -18,6 +18,7 @@ import salt.transport
 from salt._compat import string_types
 from salt.template import compile_template
 from salt.utils.dictupdate import update
+from salt.utils.serializers.yamlex import merge_recursive
 from salt.utils.odict import OrderedDict
 from salt.version import __version__
 
@@ -28,6 +29,18 @@ log = logging.getLogger(__name__)
 def merge_recurse(obj_a, obj_b):
     copied = copy(obj_a)
     return update(copied, obj_b)
+
+
+def merge_aggregate(obj_a, obj_b):
+    return merge_recursive(obj_a, obj_b, level=1)
+
+
+def merge_overwrite(obj_a, obj_b):
+    for obj in obj_b:
+        if obj in obj_a.keys():
+            obj_a[obj] = obj_b[obj]
+            return obj_a
+    return merge_recurse(obj_a, obj_b)
 
 
 def get_pillar(opts, grains, id_, saltenv=None, ext=None, env=None):
@@ -100,7 +113,7 @@ class Pillar(object):
         self.actual_file_roots = opts['file_roots']
         # use the local file client
         self.opts = self.__gen_opts(opts, grains, id_, saltenv, ext)
-        self.client = salt.fileclient.get_file_client(self.opts)
+        self.client = salt.fileclient.get_file_client(self.opts, True)
 
         if opts.get('file_client', '') == 'local':
             opts['grains'] = grains
@@ -123,6 +136,7 @@ class Pillar(object):
         self.merge_strategy = 'smart'
         if opts.get('pillar_source_merging_strategy'):
             self.merge_strategy = opts['pillar_source_merging_strategy']
+
         self.ext_pillars = salt.loader.pillars(ext_pillar_opts, self.functions)
 
     def __valid_ext(self, ext):
@@ -266,8 +280,8 @@ class Pillar(object):
         '''
         Cleanly merge the top files
         '''
-        top = collections.defaultdict(dict)
-        orders = collections.defaultdict(dict)
+        top = collections.defaultdict(OrderedDict)
+        orders = collections.defaultdict(OrderedDict)
         for ctops in tops.values():
             for ctop in ctops:
                 for saltenv, targets in ctop.items():
@@ -372,13 +386,13 @@ class Pillar(object):
         state = None
         try:
             state = compile_template(
-                fn_, self.rend, self.opts['renderer'], saltenv, sls, **defaults)
+                fn_, self.rend, self.opts['renderer'], saltenv, sls, _pillar_rend=True, **defaults)
         except Exception as exc:
             msg = 'Rendering SLS {0!r} failed, render error:\n{1}'.format(
                 sls, exc
             )
             log.critical(msg)
-            errors.append(msg)
+            errors.append('Rendering SLS \'{0}\' failed. Please see master log for details.'.format(sls))
         mods.add(sls)
         nstate = None
         if state:
@@ -410,9 +424,12 @@ class Pillar(object):
                                         )
                             if nstate:
                                 if key:
-                                    state[key] = nstate
-                                else:
-                                    state.update(nstate)
+                                    nstate = {
+                                        key: nstate
+                                    }
+
+                                state = self.merge_sources(state, nstate)
+
                             if err:
                                 errors += err
         return state, mods, errors
@@ -444,7 +461,7 @@ class Pillar(object):
                             )
                         )
                         continue
-                    update(pillar, pstate)
+                    pillar = self.merge_sources(pillar, pstate)
 
         return pillar, errors
 
@@ -483,10 +500,10 @@ class Pillar(object):
         Render the external pillar data
         '''
         if 'ext_pillar' not in self.opts:
-            return {}
+            return pillar
         if not isinstance(self.opts['ext_pillar'], list):
             log.critical('The "ext_pillar" option is malformed')
-            return {}
+            return pillar
         ext = None
         for run in self.opts['ext_pillar']:
             if not isinstance(run, dict):
@@ -505,12 +522,17 @@ class Pillar(object):
                                                          pillar_dirs,
                                                          key)
                     except TypeError as exc:
-                        if exc.message.startswith('ext_pillar() takes exactly '):
+                        if str(exc).startswith('ext_pillar() takes exactly '):
                             log.warning('Deprecation warning: ext_pillar "{0}"'
                                         ' needs to accept minion_id as first'
                                         ' argument'.format(key))
                         else:
                             raise
+
+                        ext = self._external_pillar_data(pillar,
+                                                         val,
+                                                         pillar_dirs,
+                                                         key)
                 except Exception as exc:
                     log.exception(
                             'Failed to load ext_pillar {0}: {1}'.format(
@@ -535,6 +557,11 @@ class Pillar(object):
 
         if strategy == 'recurse':
             merged = merge_recurse(obj_a, obj_b)
+        elif strategy == 'aggregate':
+            #: level = 1 merge at least root data
+            merged = merge_aggregate(obj_a, obj_b)
+        elif strategy == 'overwrite':
+            merged = merge_overwrite(obj_a, obj_b)
         else:
             log.warning('unknown merging strategy {0}, '
                         'fallback to recurse'.format(strategy))

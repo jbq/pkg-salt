@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 '''
-A module to wrap archive calls
+A module to wrap (non-Windows) archive calls
+
+.. versionadded:: 2014.1.0
 '''
 
 # Import salt libs
 import salt._compat
-from salt.utils import which as _which, which_bin as _which_bin
-from salt.exceptions import SaltInvocationError
+from salt.utils import \
+    which as _which, which_bin as _which_bin, is_windows as _is_windows
 import salt.utils.decorators as decorators
 
 # TODO: Check that the passed arguments are correct
@@ -18,11 +20,13 @@ __func_alias__ = {
 
 
 def __virtual__():
+    if _is_windows():
+        return False
     commands = ('tar', 'gzip', 'gunzip', 'zip', 'unzip', 'rar', 'unrar')
     # If none of the above commands are in $PATH this module is a no-go
     if not any(_which(cmd) for cmd in commands):
         return False
-    return 'archive'
+    return True
 
 
 @decorators.which('tar')
@@ -69,29 +73,26 @@ def tar(options, tarfile, sources=None, dest=None, cwd=None, template=None):
 
     .. code-block:: bash
 
-        salt '*' archive.tar template=jinja cjvf /tmp/salt.tar.bz2 {{grains.saltpath}}
+        salt '*' archive.tar cjvf /tmp/salt.tar.bz2 {{grains.saltpath}} template=jinja
 
 
     To unpack a tarfile, for example:
 
     .. code-block:: bash
 
-        salt '*' archive.tar foo.tar xf dest=/target/directory
+        salt '*' archive.tar xf foo.tar dest=/target/directory
 
     '''
-    if sources is not None and dest is not None:
-        raise SaltInvocationError(
-            'The \'sources\' and \'dest\' arguments are mutually exclusive'
-        )
-
     if isinstance(sources, salt._compat.string_types):
         sources = [s.strip() for s in sources.split(',')]
+
+    if dest:
+        options = 'C {0} -{1}'.format(dest, options)
 
     cmd = 'tar -{0} {1}'.format(options, tarfile)
     if sources:
         cmd += ' {0}'.format(' '.join(sources))
-    elif dest:
-        cmd += ' -C {0}'.format(dest)
+
     return __salt__['cmd.run'](cmd, cwd=cwd, template=template).splitlines()
 
 

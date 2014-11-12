@@ -8,7 +8,7 @@ Build-Depends: debhelper (>= 9.20120410~),
                python | python-all | python-dev | python-all-dev,
                python-setuptools,
                python-sphinx (>= 1.0)
-Standards-Version: 3.9.5
+Standards-Version: 3.9.6
 Homepage: http://saltstack.org/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-salt/salt.git
 Vcs-Git: git://anonscm.debian.org/pkg-salt/salt.git
@@ -20,8 +20,10 @@ Depends: ${python:Depends},
          ${shlibs:Depends},
          python,
          python-jinja2,
+         python-apt,
          python-yaml,
-         python-pkg-resources
+         python-pkg-resources,
+         python-requests (>= 1.0.0)
 Recommends: lsb-release,
             python-mako
 Suggests: salt-doc (= ${source:Version})
@@ -137,8 +139,7 @@ Architecture: all
 Depends: ${misc:Depends},
          ${python:Depends},
          salt-common (= ${source:Version}),
-         python-msgpack,
-         sshpass
+         python-msgpack
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
  administer servers in a fast and efficient way.
@@ -194,7 +195,7 @@ Architecture: all
 Depends: ${python:Depends},
          ${misc:Depends},
          salt-common (= ${source:Version}),
-         sshpass
+         python-libcloud (>= 0.14.1-1)
 Suggests: python-botocore
 Recommends: python-netaddr
 Description: public cloud VM management system
