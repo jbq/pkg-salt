@@ -4,8 +4,6 @@ Priority: extra
 Maintainer: Joe Healy <joehealy@gmail.com>
 Build-Depends: debhelper (>= 9),
                bash-completion,
-               cython,
-               libzmq3-dev (>> 3.2.2),
                python | python-all | python-dev | python-all-dev,
                python-crypto,
                python-jinja2,
