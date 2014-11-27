@@ -1,0 +1,48 @@
+Description: This allows to query status, start, stop, restart and list units
+	     that are not actually provided by unit files. Such units cannot be
+             enabled/disabled and that's why those actions still prefer the
+             "list-unit-files" output over "list-units".
+Origin: https://github.com/saltstack/salt/commit/90bece1faa1862465e97f7caf262c65cd84583ff
+        https://github.com/saltstack/salt/commit/968b26f45351d790a9fa2afd9bbd6c5bb31f13d5
+        https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=770174
+
+--- a/salt/modules/systemd.py
++++ b/salt/modules/systemd.py
+@@ -72,6 +74,28 @@ def _systemctl_cmd(action, name):
+     return 'systemctl {0} {1}'.format(action, _canonical_unit_name(name))
+ 
+ 
++def _get_all_units():
++    '''
++    Get all units and their state. Units ending in .service
++    are normalized so that they can be referenced without a type suffix.
++    '''
++    rexp = re.compile(r'(?m)^(?P<name>.+)\.(?P<type>' +
++                      '|'.join(VALID_UNIT_TYPES) +
++                      r')\s+loaded\s+(?P<active>[^\s]+)')
++
++    out = __salt__['cmd.run_stdout'](
++        'systemctl --all --full --no-legend --no-pager list-units | col -b'
++    )
++
++    ret = {}
++    for match in rexp.finditer(out):
++        name = match.group('name')
++        if match.group('type') != 'service':
++            name += '.' + match.group('type')
++        ret[name] = match.group('active')
++    return ret
++
++
+ def _get_all_unit_files():
+     '''
+     Get all unit files and their state. Unit files ending in .service
+@@ -173,7 +197,7 @@ def get_all():
+ 
+         salt '*' service.get_all
+     '''
+-    return sorted(_get_all_unit_files().keys())
++    return sorted(set(_get_all_units().keys() + _get_all_unit_files().keys()))
+ 
+ 
+ def available(name):
