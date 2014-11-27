@@ -1,3 +1,12 @@
+salt (2014.1.13+ds-2) unstable; urgency=medium
+
+  * [da66ee3] Addition of patch to ensure systemd service functionality works
+    (Closes: 770174)
+  * [6a17bb9] Added patch to prevent crash when unicode text is output from salt
+    (Closes: 770909)
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 27 Nov 2014 15:49:13 +1100
+
 salt (2014.1.13+ds-1) unstable; urgency=medium
 
   * [448ac5b] Imported Upstream version 2014.1.13+ds
