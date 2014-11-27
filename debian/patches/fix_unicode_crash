@@ -1,0 +1,19 @@
+Description: This fixes crashes that occur when the salt command attempts to
+             display binary or unicode data and is unaware what encoding the
+	     text is in. The repr function is used to give a representation
+             of the bytes that is safe in ASCII. There is a more complex fix
+             upstream in 2014.7, but this fix is much simpler and should be
+             safe.
+Author: Joe Healy <joehealy@gmail.com>
+
+--- a/salt/output/nested.py
++++ b/salt/output/nested.py
+@@ -33,7 +33,7 @@
+                 indent, color, prefix, msg, endc, suffix)
+         except UnicodeDecodeError:
+             return u'{0}{1}{2}{3}{4}{5}\n'.format(
+-                indent, color, prefix, msg.decode(encoding), endc, suffix)
++                indent, color, prefix, repr(msg), endc, suffix)
+ 
+     def display(self, ret, indent, prefix, out):
+         '''
