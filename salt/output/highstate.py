@@ -82,6 +82,14 @@ def _format_host(host, data):
     hstrs = []
     nchanges = 0
     strip_colors = __opts__.get('strip_colors', True)
+
+    if isinstance(data, int) or isinstance(data, str):
+        # Data in this format is from saltmod.function,
+        # so it is always a 'change'
+        nchanges = 1
+        hstrs.append((u'{0}    {1}{2[ENDC]}'
+                      .format(hcolor, data, colors)))
+        hcolor = colors['CYAN']  # Print the minion name in cyan
     if isinstance(data, list):
         # Errors have been detected, list them in RED!
         hcolor = colors['RED_BOLD']
@@ -99,7 +107,7 @@ def _format_host(host, data):
             data = _strip_clean(data)
         # Verify that the needed data is present
         for tname, info in data.items():
-            if '__run_num__' not in info:
+            if isinstance(info, dict) and '__run_num__' not in info:
                 err = (u'The State execution failed to record the order '
                        'in which all states were executed. The state '
                        'return missing data is:')
@@ -198,9 +206,10 @@ def _format_host(host, data):
                 state_lines.insert(
                     3, u'    {tcolor}    Name: {comps[2]}{colors[ENDC]}')
             try:
-                comment = ret['comment'].strip().replace(
-                    u'\n',
-                    u'\n' + u' ' * 14)
+                comment = salt.utils.sdecode(ret['comment'])
+                comment = comment.strip().replace(
+                        u'\n',
+                        u'\n' + u' ' * 14)
             except AttributeError:  # Assume comment is a list
                 try:
                     comment = ret['comment'].join(' ').replace(
@@ -232,8 +241,8 @@ def _format_host(host, data):
         # Append result counts to end of output
         colorfmt = u'{0}{1}{2[ENDC]}'
         rlabel = {True: u'Succeeded', False: u'Failed', None: u'Not Run'}
-        count_max_len = max([len(str(x)) for x in rcounts.values()] or [0])
-        label_max_len = max([len(x) for x in rlabel.values()] or [0])
+        count_max_len = max([len(str(x)) for x in rcounts.itervalues()] or [0])
+        label_max_len = max([len(x) for x in rlabel.itervalues()] or [0])
         line_max_len = label_max_len + count_max_len + 2  # +2 for ': '
         hstrs.append(
             colorfmt.format(
@@ -295,7 +304,7 @@ def _format_host(host, data):
         )
 
         totals = u'{0}\nTotal states run: {1:>{2}}'.format('-' * line_max_len,
-                                               sum(rcounts.values()),
+                                               sum(rcounts.itervalues()),
                                                line_max_len - 7)
         hstrs.append(colorfmt.format(colors['CYAN'], totals, colors))
 
