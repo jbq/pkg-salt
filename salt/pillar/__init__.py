@@ -37,7 +37,7 @@ def merge_aggregate(obj_a, obj_b):
 
 def merge_overwrite(obj_a, obj_b):
     for obj in obj_b:
-        if obj in obj_a.keys():
+        if obj in obj_a:
             obj_a[obj] = obj_b[obj]
             return obj_a
     return merge_recurse(obj_a, obj_b)
@@ -165,6 +165,7 @@ class Pillar(object):
             saltenv = env
         opts = dict(opts_in)
         opts['file_roots'] = opts['pillar_roots']
+        opts['__pillar'] = True
         opts['file_client'] = 'local'
         if not grains:
             opts['grains'] = {}
@@ -282,7 +283,7 @@ class Pillar(object):
         '''
         top = collections.defaultdict(OrderedDict)
         orders = collections.defaultdict(OrderedDict)
-        for ctops in tops.values():
+        for ctops in tops.itervalues():
             for ctop in ctops:
                 for saltenv, targets in ctop.items():
                     if saltenv == 'include':
@@ -306,7 +307,7 @@ class Pillar(object):
                             if isinstance(comp, string_types):
                                 states[comp] = True
                         top[saltenv][tgt] = matches
-                        top[saltenv][tgt].extend(list(states.keys()))
+                        top[saltenv][tgt].extend(states)
         return self.sort_top_targets(top, orders)
 
     def sort_top_targets(self, top, orders):
@@ -316,7 +317,7 @@ class Pillar(object):
         sorted_top = collections.defaultdict(OrderedDict)
         # pylint: disable=cell-var-from-loop
         for saltenv, targets in top.items():
-            sorted_targets = sorted(targets.keys(),
+            sorted_targets = sorted(targets,
                     key=lambda target: orders[saltenv][target])
             for target in sorted_targets:
                 sorted_top[saltenv][target] = targets[target]
