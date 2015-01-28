@@ -187,7 +187,7 @@ def load_args_and_kwargs(func, args, data=None):
                     'by salt.utils.args.parse_input() before calling '
                     'salt.minion.load_args_and_kwargs().'
                 )
-                if argspec.keywords or string_kwarg.keys()[0] in argspec.args:
+                if argspec.keywords or string_kwarg.iterkeys().next() in argspec.args:
                     # Function supports **kwargs or is a positional argument to
                     # the function.
                     _kwargs.update(string_kwarg)
@@ -510,7 +510,7 @@ class MultiMinion(MinionBase):
         while True:
             module_refresh = False
             pillar_refresh = False
-            for minion in minions.values():
+            for minion in minions.itervalues():
                 if isinstance(minion, dict):
                     minion = minion['minion']
                 if not hasattr(minion, 'schedule'):
@@ -569,6 +569,7 @@ class Minion(MinionBase):
         Pass in the options dict
         '''
         self._running = None
+        self.win_proc = []
 
         # Warn if ZMQ < 3.2
         if HAS_ZMQ:
@@ -984,6 +985,8 @@ class Minion(MinionBase):
         process.start()
         if not sys.platform.startswith('win'):
             process.join()
+        else:
+            self.win_proc.append(process)
 
     @classmethod
     def _thread_return(cls, minion_instance, opts, data):
@@ -1081,6 +1084,8 @@ class Minion(MinionBase):
                 ret['out'] = 'nested'
         else:
             ret['return'] = '{0!r} is not available.'.format(function_name)
+            ret['success'] = False
+            ret['retcode'] = 254
             ret['out'] = 'nested'
 
         ret['jid'] = data['jid']
@@ -1501,6 +1506,21 @@ class Minion(MinionBase):
                 exc_info=err
             )
 
+    def _windows_thread_cleanup(self):
+        '''
+        Cleanup Windows threads
+        '''
+        if not salt.utils.is_windows():
+            return
+        for thread in self.win_proc:
+            if not thread.is_alive():
+                thread.join()
+                try:
+                    self.win_proc.remove(thread)
+                    del thread
+                except (ValueError, NameError):
+                    pass
+
     # Main Minion Tune In
     def tune_in(self):
         '''
@@ -1566,6 +1586,7 @@ class Minion(MinionBase):
 
         while self._running is True:
             loop_interval = self.process_schedule(self, loop_interval)
+            self._windows_thread_cleanup()
             try:
                 socks = self._do_poll(loop_interval)
 
@@ -2427,6 +2448,20 @@ class Matcher(object):
                       'statement from master')
             return False
         return salt.utils.subdict_match(self.opts['pillar'], tgt, delim=delim)
+
+    def pillar_exact_match(self, tgt, delim=':'):
+        '''
+        Reads in the pillar match, no globbing
+        '''
+        log.debug('pillar target: {0}'.format(tgt))
+        if delim not in tgt:
+            log.error('Got insufficient arguments for pillar match '
+                      'statement from master')
+            return False
+        return salt.utils.subdict_match(self.opts['pillar'],
+                                        tgt,
+                                        delim=delim,
+                                        exact_match=True)
 
     def ipcidr_match(self, tgt):
         '''

@@ -54,7 +54,7 @@ def list_pkgs(*packages):
         cmd = 'rpm -q --qf \'%{{NAME}} %{{VERSION}}\\n\' {0}'.format(
             ' '.join(packages)
         )
-    out = __salt__['cmd.run'](cmd, output_loglevel='trace')
+    out = __salt__['cmd.run'](cmd, python_shell=False, output_loglevel='trace')
     for line in out.splitlines():
         if 'is not installed' in line:
             errors.append(line)
@@ -92,7 +92,11 @@ def verify(*package, **kwargs):
         cmd = 'rpm -V {0}'.format(packages)
     else:
         cmd = 'rpm -Va'
-    out = __salt__['cmd.run'](cmd, output_loglevel='trace', ignore_retcode=True)
+    out = __salt__['cmd.run'](
+            cmd,
+            python_shell=False,
+            output_loglevel='trace',
+            ignore_retcode=True)
     for line in out.splitlines():
         fdict = {'mismatch': []}
         if 'missing' in line:
@@ -102,7 +106,7 @@ def verify(*package, **kwargs):
         fname = line[13:]
         if line[11:12] in ftypes:
             fdict['type'] = ftypes[line[11:12]]
-        if 'type' not in fdict.keys() or fdict['type'] not in ignore_types:
+        if 'type' not in fdict or fdict['type'] not in ignore_types:
             if line[0:1] == 'S':
                 fdict['mismatch'].append('size')
             if line[1:2] == 'M':
@@ -143,7 +147,10 @@ def file_list(*packages):
         cmd = 'rpm -qla'
     else:
         cmd = 'rpm -ql {0}'.format(' '.join(packages))
-    ret = __salt__['cmd.run'](cmd, output_loglevel='trace').splitlines()
+    ret = __salt__['cmd.run'](
+            cmd,
+            python_shell=False,
+            output_loglevel='trace').splitlines()
     return {'errors': [], 'files': ret}
 
 
@@ -170,17 +177,17 @@ def file_dict(*packages):
         cmd = 'rpm -q --qf \'%{{NAME}} %{{VERSION}}\\n\' {0}'.format(
             ' '.join(packages)
         )
-    out = __salt__['cmd.run'](cmd, output_loglevel='trace')
+    out = __salt__['cmd.run'](cmd, python_shell=False, output_loglevel='trace')
     for line in out.splitlines():
         if 'is not installed' in line:
             errors.append(line)
             continue
         comps = line.split()
         pkgs[comps[0]] = {'version': comps[1]}
-    for pkg in pkgs.keys():
+    for pkg in pkgs:
         files = []
         cmd = 'rpm -ql {0}'.format(pkg)
-        out = __salt__['cmd.run'](cmd, output_loglevel='trace')
+        out = __salt__['cmd.run'](cmd, python_shell=False, output_loglevel='trace')
         for line in out.splitlines():
             files.append(line)
         ret[pkg] = files

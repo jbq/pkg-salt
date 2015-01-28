@@ -52,7 +52,13 @@ def _active_mountinfo(ret):
         for line in ifile:
             comps = line.split()
             device = comps[2].split(':')
-            device_name = comps[8]
+            # each line can have any number of
+            # optional parameters, we use the
+            # location of the seperator field to
+            # determine the location of the elements
+            # after it.
+            _sep = comps.index('-')
+            device_name = comps[_sep + 2]
             device_uuid = None
             if device_name:
                 device_uuid = blkid_info.get(device_name, {}).get('UUID')
@@ -63,10 +69,10 @@ def _active_mountinfo(ret):
                              'minor': device[1],
                              'root': comps[3],
                              'opts': comps[5].split(','),
-                             'fstype': comps[7],
+                             'fstype': comps[_sep + 1],
                              'device': device_name,
                              'alt_device': _list.get(comps[4], None),
-                             'superopts': comps[9].split(','),
+                             'superopts': comps[_sep + 3].split(','),
                              'device_uuid': device_uuid}
     return ret
 
@@ -365,7 +371,7 @@ def mount(name, device, mkmnt=False, fstype='', opts='defaults'):
     if fstype:
         args += ' -t {0}'.format(fstype)
     cmd = 'mount {0} {1} {2} '.format(args, device, name)
-    out = __salt__['cmd.run_all'](cmd)
+    out = __salt__['cmd.run_all'](cmd, python_shell=False)
     if out['retcode']:
         return out['stderr']
     return True
@@ -394,7 +400,7 @@ def remount(name, device, mkmnt=False, fstype='', opts='defaults'):
         if fstype:
             args += ' -t {0}'.format(fstype)
         cmd = 'mount {0} {1} {2} '.format(args, device, name)
-        out = __salt__['cmd.run_all'](cmd)
+        out = __salt__['cmd.run_all'](cmd, python_shell=False)
         if out['retcode']:
             return out['stderr']
         return True
@@ -417,7 +423,7 @@ def umount(name):
         return "{0} does not have anything mounted".format(name)
 
     cmd = 'umount {0}'.format(name)
-    out = __salt__['cmd.run_all'](cmd)
+    out = __salt__['cmd.run_all'](cmd, python_shell=False)
     if out['retcode']:
         return out['stderr']
     return True
@@ -441,7 +447,7 @@ def is_fuse_exec(cmd):
     elif not _which('ldd'):
         raise CommandNotFoundError('ldd')
 
-    out = __salt__['cmd.run']('ldd {0}'.format(cmd_path))
+    out = __salt__['cmd.run']('ldd {0}'.format(cmd_path), python_shell=False)
     return 'libfuse' in out
 
 
@@ -487,7 +493,7 @@ def swapon(name, priority=None):
     cmd = 'swapon {0}'.format(name)
     if priority:
         cmd += ' -p {0}'.format(priority)
-    __salt__['cmd.run'](cmd)
+    __salt__['cmd.run'](cmd, python_shell=False)
     on_ = swaps()
     if name in on_:
         ret['stats'] = on_[name]
@@ -508,7 +514,7 @@ def swapoff(name):
     '''
     on_ = swaps()
     if name in on_:
-        __salt__['cmd.run']('swapoff {0}'.format(name))
+        __salt__['cmd.run']('swapoff {0}'.format(name), python_shell=False)
         on_ = swaps()
         if name in on_:
             return False
