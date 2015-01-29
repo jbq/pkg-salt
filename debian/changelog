@@ -5,6 +5,7 @@ salt (2014.7.1+ds-1~bpo70+1) wheezy-backports; urgency=medium
   * [015a818] Removal of systemd for squeeze
   * [b7583e0] fixing of docs to build minified files
   * [f5c2018] Removed explicit dependency on libcloud till it is backported
+  * [6d421cf] Removed sphinx version requirement
 
  -- Joe Healy <joehealy@gmail.com>  Thu, 29 Jan 2015 10:47:06 +1100
 
