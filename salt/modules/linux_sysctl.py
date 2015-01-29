@@ -81,9 +81,8 @@ def show(config_file=False):
     '''
     ret = {}
     if config_file:
-        config_file_path = default_config()
         try:
-            for line in salt.utils.fopen(config_file_path):
+            for line in salt.utils.fopen(config_file):
                 if not line.startswith('#') and '=' in line:
                     # search if we have some '=' instead of ' = ' separators
                     SPLIT = ' = '
@@ -93,7 +92,7 @@ def show(config_file=False):
                     key = key.strip()
                     value = value.lstrip()
                     ret[key] = value
-        except OSError:
+        except (OSError, IOError):
             log.error('Could not open sysctl file')
             return None
     else:
@@ -118,7 +117,7 @@ def get(name):
         salt '*' sysctl.get net.ipv4.ip_forward
     '''
     cmd = 'sysctl -n {0}'.format(name)
-    out = __salt__['cmd.run'](cmd)
+    out = __salt__['cmd.run'](cmd, python_shell=False)
     return out
 
 
@@ -139,7 +138,7 @@ def assign(name, value):
 
     ret = {}
     cmd = 'sysctl -w {0}="{1}"'.format(name, value)
-    data = __salt__['cmd.run_all'](cmd)
+    data = __salt__['cmd.run_all'](cmd, python_shell=False)
     out = data['stdout']
     err = data['stderr']
 

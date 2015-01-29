@@ -70,7 +70,7 @@ def usage(args=None):
     if flags:
         cmd += ' -{0}'.format(flags)
     ret = {}
-    out = __salt__['cmd.run'](cmd).splitlines()
+    out = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
     for line in out:
         if not line:
             continue
@@ -117,11 +117,11 @@ def inodeusage(args=None):
         salt '*' disk.inodeusage
     '''
     flags = _clean_flags(args, 'disk.inodeusage')
-    cmd = 'df -i'
+    cmd = 'df -iP'
     if flags:
         cmd += ' -{0}'.format(flags)
     ret = {}
-    out = __salt__['cmd.run'](cmd).splitlines()
+    out = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
     for line in out:
         if line.startswith('Filesystem'):
             continue
@@ -170,7 +170,7 @@ def percent(args=None):
     else:
         cmd = 'df'
     ret = {}
-    out = __salt__['cmd.run'](cmd).splitlines()
+    out = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
     for line in out:
         if not line:
             continue
@@ -210,7 +210,7 @@ def blkid(device=None):
         args = " " + device
 
     ret = {}
-    for line in __salt__['cmd.run_stdout']('blkid' + args).split('\n'):
+    for line in __salt__['cmd.run_stdout']('blkid' + args, python_shell=False).split('\n'):
         comps = line.split()
         device = comps[0][:-1]
         info = {}
