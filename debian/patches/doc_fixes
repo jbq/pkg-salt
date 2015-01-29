@@ -274,15 +274,14 @@ Forwarded: no
              Content-Length: 14
 --- a/doc/conf.py
 +++ b/doc/conf.py
-@@ -153,9 +153,9 @@
+@@ -153,9 +153,7 @@
  
  version = salt.version.__version__
  #release = '.'.join(map(str, salt.version.__version_info__))
 -release = '2014.1.13'
-+release = '2014.7.1'
- 
+-
 -needs_sphinx = '1.3'
-+needs_sphinx = '1.2'
++release = '2014.7.1'
  
  spelling_lang = 'en_US'
  language = 'en'
