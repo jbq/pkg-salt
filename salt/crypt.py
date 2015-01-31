@@ -25,6 +25,7 @@ except ImportError:
     pass
 
 # Import salt libs
+import salt.exitcodes
 import salt.utils
 import salt.payload
 import salt.utils.verify
@@ -111,6 +112,10 @@ def gen_keys(keydir, keyname, keysize, user=None):
     pub = '{0}.pub'.format(base)
 
     gen = RSA.gen_key(keysize, 65537, callback=lambda x, y, z: None)
+    if os.path.isfile(priv):
+        # Between first checking and the generation another process has made
+        # a key! Use the winner's key
+        return priv
     cumask = os.umask(191)
     gen.save_key(priv, None)
     os.umask(cumask)
@@ -662,7 +667,7 @@ class Auth(object):
                             'minion.\nOr restart the Salt Master in open mode to '
                             'clean out the keys. The Salt Minion will now exit.'
                         )
-                        sys.exit(os.EX_OK)
+                        sys.exit(salt.exitcodes.EX_OK)
                 # has the master returned that its maxed out with minions?
                 elif payload['load']['ret'] == 'full':
                     return 'full'

@@ -17,6 +17,7 @@ except ImportError:
     # In case a non-master needs to import this module
     pass
 
+import tempfile
 
 # Import salt libs
 import salt.crypt
@@ -135,6 +136,23 @@ def clean_expired_tokens(opts):
                         os.remove(token_path)
                     except (IOError, OSError):
                         pass
+
+
+def clean_pub_auth(opts):
+    try:
+        auth_cache = os.path.join(opts['cachedir'], 'publish_auth')
+        if not os.path.exists(auth_cache):
+            return
+        else:
+            for (dirpath, dirnames, filenames) in os.walk(auth_cache):
+                for auth_file in filenames:
+                    auth_file_path = os.path.join(dirpath, auth_file)
+                    if not os.path.isfile(auth_file_path):
+                        continue
+                    if os.path.getmtime(auth_file_path) - time.time() > opts['keep_jobs']:
+                        os.remove(auth_file_path)
+    except (IOError, OSError):
+        log.error('Unable to delete pub auth file')
 
 
 def clean_old_jobs(opts):
@@ -398,9 +416,6 @@ class RemoteFuncs(object):
         # If the command will make a recursive publish don't run
         if re.match('publish.*', load['fun']):
             return False
-        # Don't allow pillar or compound matching
-        if load.get('tgt_type', 'glob').lower() in ('pillar', 'compound'):
-            return False
         # Check the permissions for this minion
         perms = []
         for match in self.opts['peer']:
@@ -419,7 +434,8 @@ class RemoteFuncs(object):
                 perms,
                 load['fun'],
                 load['tgt'],
-                load.get('tgt_type', 'glob'))
+                load.get('tgt_type', 'glob'),
+                publish_validate=True)
         if not good:
             return False
         return True
@@ -488,9 +504,6 @@ class RemoteFuncs(object):
         '''
         Gathers the data from the specified minions' mine
         '''
-        # Don't allow matching by pillar or compound
-        if load.get('expr_form', 'glob').lower() in ('pillar', 'compound'):
-            return {}
         if not skip_verify:
             if any(key not in load for key in ('id', 'tgt', 'fun')):
                 return {}
@@ -508,10 +521,15 @@ class RemoteFuncs(object):
         ret = {}
         if not salt.utils.verify.valid_id(self.opts, load['id']):
             return ret
+        match_type = load.get('expr_form', 'glob')
+        if match_type.lower() == 'pillar':
+            match_type = 'pillar_exact'
+        if match_type.lower() == 'compound':
+            match_type = 'compound_pillar_exact'
         checker = salt.utils.minions.CkMinions(self.opts)
         minions = checker.check_minions(
                 load['tgt'],
-                load.get('expr_form', 'glob'),
+                match_type,
                 greedy=False
                 )
         for minion in minions:
@@ -668,12 +686,15 @@ class RemoteFuncs(object):
             if not os.path.isdir(cdir):
                 os.makedirs(cdir)
             datap = os.path.join(cdir, 'data.p')
-            with salt.utils.fopen(datap, 'w+b') as fp_:
+            tmpfh, tmpfname = tempfile.mkstemp(dir=cdir)
+            os.close(tmpfh)
+            with salt.utils.fopen(tmpfname, 'w+b') as fp_:
                 fp_.write(
                         self.serial.dumps(
                             {'grains': load['grains'],
                              'pillar': data})
                             )
+            os.rename(tmpfname, datap)
         return data
 
     def _minion_event(self, load):
