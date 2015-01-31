@@ -1,3 +1,9 @@
+salt (2014.7.1+ds-1utopic1) utopic; urgency=medium
+
+  * Ported to utopic
+
+ -- Joe Healy <joehealy@gmail.com>  Sun, 01 Feb 2015 00:46:56 +1100
+
 salt (2014.7.1+ds-1) experimental; urgency=medium
 
   * [77a2f91] Imported Upstream version 2014.7.1+ds
