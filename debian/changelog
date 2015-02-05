@@ -1,13 +1,9 @@
-salt (2014.7.1+ds-1~bpo70+1) wheezy-backports; urgency=medium
+salt (2014.7.1+ds-2) experimental; urgency=medium
 
-  * Rebuild for wheezy-backports.
-  * [5be7496] Updated packages for squeeze
-  * [015a818] Removal of systemd for squeeze
-  * [b7583e0] fixing of docs to build minified files
-  * [f5c2018] Removed explicit dependency on libcloud till it is backported
-  * [6d421cf] Removed sphinx version requirement
+  * [87971d4] Added dependency on python-dateutil
+  * [cb9b2e2] Added init.d, systemd and upstart files for salt-api
 
- -- Joe Healy <joehealy@gmail.com>  Thu, 29 Jan 2015 10:47:06 +1100
+ -- Joe Healy <joehealy@gmail.com>  Thu, 05 Feb 2015 17:22:45 +1100
 
 salt (2014.7.1+ds-1) experimental; urgency=medium
 
