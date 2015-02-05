@@ -1,3 +1,13 @@
+salt (2014.7.1+ds-2~bpo70i+1) wheezy-backports; urgency=medium
+
+  * [5be7496] Updated packages for wheezy
+  * [015a818] Removal of systemd for wheezy
+  * [b7583e0] fixing of docs to build minified files
+  * [f5c2018] Removed explicit dependency on libcloud till it is backported
+  * [6d421cf] Removed sphinx version requirement
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 05 Feb 2015 17:32:22 +1100
+
 salt (2014.7.1+ds-2) experimental; urgency=medium
 
   * [87971d4] Added dependency on python-dateutil
