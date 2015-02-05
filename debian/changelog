@@ -1,3 +1,10 @@
+salt (2014.7.1+ds-2) experimental; urgency=medium
+
+  * [87971d4] Added dependency on python-dateutil
+  * [cb9b2e2] Added init.d, systemd and upstart files for salt-api
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 05 Feb 2015 17:22:45 +1100
+
 salt (2014.7.1+ds-1) experimental; urgency=medium
 
   * [77a2f91] Imported Upstream version 2014.7.1+ds
