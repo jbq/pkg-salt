@@ -1,3 +1,15 @@
+salt (2014.7.1+ds-2~bpo60+1) squeeze-backport-sloppy; urgency=medium
+
+  * Rebuild for squeeze-backports-sloppy.
+  * [73a8257] Removal of upstart and systemd support
+  * [8657d02] Building of minifed js and css files
+  * [180dc80] Updating of package dependencies for squeeze
+  * [988bf18] Removed explicit dependency on libcloud till libcloud is backported
+  * [2207f2f] Set intersphinx to read from python2.6 docs
+  * [f0bb856] Removed sphinx build version requirement
+
+ -- Joe Healy <joehealy@gmail.com>  Fri, 06 Feb 2015 15:18:07 +1100
+
 salt (2014.7.1+ds-2) experimental; urgency=medium
 
   * [87971d4] Added dependency on python-dateutil
