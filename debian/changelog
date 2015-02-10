@@ -1,18 +1,8 @@
-salt (2014.7.1+ds-2precise1) precise; urgency=medium
+salt (2014.7.1+ds-3) experimental; urgency=medium
 
-  * [05986b9] Update to dependencies for saucy
-  * [0e88689] Update of ubuntu packaging files from upstream
-  * [adb0c8c] Dependencies for precise
-  * [2122661] Fix for salt issues #11274 and #10967
-  * [dec41ba] Re-added salt ufw config file
-  * [11b2bb5] Removed js dependencies
-  * [3692638] Added /etc/default/salt-minion file to pick up env vars
-  * [51b614b] Removed "su -c" from minion upstart script
-  * [76e59b8] Removed unnecessary build deps
-  * [686a9e4] Removed more build-deps
-  * [991e80a] Removed version requirement for sphinx
+  * [70d659a] Fixed salt-api upstart script
 
- -- Joe Healy <joehealy@gmail.com>  Fri, 06 Feb 2015 17:10:33 +1100
+ -- Joe Healy <joehealy@gmail.com>  Tue, 10 Feb 2015 11:20:12 +1100
 
 salt (2014.7.1+ds-2) experimental; urgency=medium
 
