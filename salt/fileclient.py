@@ -203,6 +203,7 @@ class Client(object):
             saltenv = env
 
         ret = []
+
         path = self._check_proto(path)
         # We want to make sure files start with this *directory*, use
         # '/' explicitly because the master (that's generating the
