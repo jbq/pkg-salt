@@ -39,7 +39,7 @@ SCHEDULE_CONF = [
         'days',
         'enabled',
         'cron'
-        ]
+]
 
 
 def list_(show_all=False, return_yaml=True):
@@ -72,7 +72,6 @@ def list_(show_all=False, return_yaml=True):
         for item in schedule[job]:
             if item not in SCHEDULE_CONF:
                 del schedule[job][item]
-                continue
             if schedule[job][item] == 'true':
                 schedule[job][item] = True
             if schedule[job][item] == 'false':
@@ -652,12 +651,16 @@ def reload_():
             except Exception as e:
                 ret['comment'].append('Unable to read existing schedule file: {0}'.format(e))
 
-        if 'schedule' in schedule and schedule['schedule']:
-            out = __salt__['event.fire']({'func': 'reload', 'schedule': schedule}, 'manage_schedule')
-            if out:
-                ret['comment'].append('Reloaded schedule on minion from schedule.conf.')
+        if schedule:
+            if 'schedule' in schedule and schedule['schedule']:
+                out = __salt__['event.fire']({'func': 'reload', 'schedule': schedule}, 'manage_schedule')
+                if out:
+                    ret['comment'].append('Reloaded schedule on minion from schedule.conf.')
+                else:
+                    ret['comment'].append('Failed to reload schedule on minion from schedule.conf.')
+                    ret['result'] = False
             else:
-                ret['comment'].append('Failed to reload schedule on minion from schedule.conf.')
+                ret['comment'].append('Failed to reload schedule on minion.  Saved file is empty or invalid.')
                 ret['result'] = False
         else:
             ret['comment'].append('Failed to reload schedule on minion.  Saved file is empty or invalid.')

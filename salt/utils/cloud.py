@@ -286,13 +286,6 @@ def bootstrap(vm_, opts):
             )
         )
 
-    if key_filename is None and salt.utils.which('sshpass') is None:
-        raise SaltCloudSystemExit(
-            'Cannot deploy salt in a VM if the \'ssh_keyfile\' setting '
-            'is not set and \'sshpass\' binary is not present on the '
-            'system for the password.'
-        )
-
     if key_filename is None and ('password' not in vm_ or not vm_['password']):
         raise SaltCloudSystemExit(
             'Cannot deploy salt in a VM if the \'ssh_keyfile\' setting '
@@ -394,9 +387,11 @@ def bootstrap(vm_, opts):
         deploy_kwargs['username'] = salt.config.get_cloud_config_value(
             'win_username', vm_, opts, default='Administrator'
         )
-        deploy_kwargs['password'] = salt.config.get_cloud_config_value(
+        win_pass = salt.config.get_cloud_config_value(
             'win_password', vm_, opts, default=''
         )
+        if win_pass:
+            deploy_kwargs['password'] = win_pass
 
     # Store what was used to the deploy the VM
     event_kwargs = copy.deepcopy(deploy_kwargs)
