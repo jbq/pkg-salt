@@ -25,6 +25,7 @@ Depends: ${python:Depends},
          python-jinja2,
          python-apt,
          python-yaml,
+         python-msgpack,
          python-pkg-resources
 Recommends: lsb-release,
             python-mako
