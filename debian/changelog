@@ -1,3 +1,9 @@
+salt (2014.1.13+ds-3) unstable; urgency=medium
+
+  * [5273cd4] Added python-msgpack dependency. Closes: 777665
+
+ -- Joe Healy <joehealy@gmail.com>  Fri, 13 Feb 2015 16:27:17 +1100
+
 salt (2014.1.13+ds-2) unstable; urgency=medium
 
   * [da66ee3] Addition of patch to ensure systemd service functionality works
