@@ -1,3 +1,6 @@
+# permissions on /var/log/salt to permit adm group ownership
+salt-common: non-standard-dir-perm
+
 salt-common: manpage-has-errors-from-man
 salt-common: script-not-executable usr/share/pyshared/salt/cloud/deploy/Arch-git.sh
 salt-common: script-not-executable usr/share/pyshared/salt/cloud/deploy/Arch.sh
