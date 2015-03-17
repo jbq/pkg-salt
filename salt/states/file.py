@@ -244,6 +244,7 @@ import traceback
 import yaml
 
 # Import salt libs
+import salt.payload
 import salt.utils
 import salt.utils.templates
 from salt.exceptions import CommandExecutionError
@@ -255,8 +256,39 @@ log = logging.getLogger(__name__)
 
 COMMENT_REGEX = r'^([[:space:]]*){0}[[:space:]]?'
 
-_ACCUMULATORS = {}
-_ACCUMULATORS_DEPS = {}
+
+def _get_accumulator_filepath():
+    '''
+    Return accumulator data path.
+    '''
+    return os.path.join(salt.utils.get_accumulator_dir(__opts__['cachedir']),
+                        __instance_id__)
+
+
+def _load_accumulators():
+    def _deserialize(path):
+        serial = salt.payload.Serial(__opts__)
+        ret = {'accumulators': {}, 'accumulators_deps': {}}
+        try:
+            with open(path, 'rb') as f:
+                loaded = serial.load(f)
+                return loaded if loaded else ret
+        except IOError:
+            return ret
+
+    loaded = _deserialize(_get_accumulator_filepath())
+
+    return loaded['accumulators'], loaded['accumulators_deps']
+
+
+def _persist_accummulators(accumulators, accumulators_deps):
+
+    accumm_data = {'accumulators': accumulators,
+                   'accumulators_deps': accumulators_deps}
+
+    serial = salt.payload.Serial(__opts__)
+    with open(_get_accumulator_filepath(), 'w+b') as f:
+        serial.dump(accumm_data, f)
 
 
 def _check_user(user, group):
@@ -942,7 +974,7 @@ def exists(name):
     if not name:
         return _error(ret, 'Must provide name to file.exists')
     if not os.path.exists(name):
-        return _error(ret, ('Specified path {0} does not exist').format(name))
+        return _error(ret, 'Specified path {0} does not exist'.format(name))
 
     ret['comment'] = 'Path {0} exists'.format(name)
     return ret
@@ -963,7 +995,7 @@ def missing(name):
     if not name:
         return _error(ret, 'Must provide name to file.missing')
     if os.path.exists(name):
-        return _error(ret, ('Specified path {0} exists').format(name))
+        return _error(ret, 'Specified path {0} exists'.format(name))
 
     ret['comment'] = 'Path {0} is missing'.format(name)
     return ret
@@ -1203,7 +1235,7 @@ def managed(name,
         run.
     '''
     # contents must be a string
-    if contents:
+    if contents is not None:
         contents = str(contents)
 
     # Make sure that leading zeros stripped by YAML loader are added back
@@ -1300,14 +1332,14 @@ def managed(name,
                               'No changes made.'.format(name))
         return ret
 
-    if name in _ACCUMULATORS:
+    accum_data, _ = _load_accumulators()
+    if name in accum_data:
         if not context:
             context = {}
-        context['accumulator'] = _ACCUMULATORS[name]
+        context['accumulator'] = accum_data[name]
 
     try:
         if __opts__['test']:
-            ret['result'] = None
             ret['changes'] = __salt__['file.check_managed_changes'](
                 name,
                 source,
@@ -1322,6 +1354,10 @@ def managed(name,
                 contents,
                 **kwargs
             )
+            if not ret['changes']:
+                ret['result'] = True
+            else:
+                ret['result'] = None
 
             if ret['changes']:
                 ret['comment'] = 'The file {0} is set to be changed'.format(name)
@@ -2242,7 +2278,7 @@ def replace(name,
             - pattern: |
                 CentOS \(2.6.32[^\n]+\n\s+root[^\n]+\n\)+
     '''
-    ret = {'name': name, 'changes': {}, 'result': False, 'comment': ''}
+    ret = {'name': name, 'changes': {}, 'result': True, 'comment': ''}
     if not name:
         return _error(ret, 'Must provide name to file.replace')
 
@@ -2265,12 +2301,16 @@ def replace(name,
 
     if changes:
         ret['changes'] = {'diff': changes}
-        ret['comment'] = ('Changes were made'
-                if not __opts__['test'] else 'Changes would have been made')
+        if __opts__['test']:
+            ret['result'] = None
+            ret['comment'] = 'Changes would have been made'
+        else:
+            ret['result'] = True
+            ret['comment'] = 'Changes were made'
     else:
-        ret['comment'] = 'No changes were made'
+        ret['result'] = True
+        ret['comment'] = 'No changes needed to be made'
 
-    ret['result'] = True if not __opts__['test'] else None
     return ret
 
 
@@ -2373,11 +2413,12 @@ def blockreplace(
     if not check_res:
         return _error(ret, check_msg)
 
-    if name in _ACCUMULATORS:
-        accumulator = _ACCUMULATORS[name]
+    accum_data, accum_deps = _load_accumulators()
+    if name in accum_data:
+        accumulator = accum_data[name]
         # if we have multiple accumulators for a file, only apply the one
         # required at a time
-        deps = _ACCUMULATORS_DEPS.get(name, [])
+        deps = accum_deps.get(name, [])
         filtered = [a for a in deps if
                     __low__['__id__'] in deps[a] and a in accumulator]
         if not filtered:
@@ -3612,21 +3653,23 @@ def accumulated(name, filename, text, **kwargs):
         return ret
     if isinstance(text, string_types):
         text = (text,)
-    if filename not in _ACCUMULATORS:
-        _ACCUMULATORS[filename] = {}
-    if filename not in _ACCUMULATORS_DEPS:
-        _ACCUMULATORS_DEPS[filename] = {}
-    if name not in _ACCUMULATORS_DEPS[filename]:
-        _ACCUMULATORS_DEPS[filename][name] = []
+    accum_data, accum_deps = _load_accumulators()
+    if filename not in accum_data:
+        accum_data[filename] = {}
+    if filename not in accum_deps:
+        accum_deps[filename] = {}
+    if name not in accum_deps[filename]:
+        accum_deps[filename][name] = []
     for accumulator in deps:
-        _ACCUMULATORS_DEPS[filename][name].extend(accumulator.itervalues())
-    if name not in _ACCUMULATORS[filename]:
-        _ACCUMULATORS[filename][name] = []
+        accum_deps[filename][name].extend(accumulator.itervalues())
+    if name not in accum_data[filename]:
+        accum_data[filename][name] = []
     for chunk in text:
-        if chunk not in _ACCUMULATORS[filename][name]:
-            _ACCUMULATORS[filename][name].append(chunk)
+        if chunk not in accum_data[filename][name]:
+            accum_data[filename][name].append(chunk)
             ret['comment'] = ('Accumulator {0} for file {1} '
                               'was charged by text'.format(name, filename))
+    _persist_accummulators(accum_data, accum_deps)
     return ret
 
 

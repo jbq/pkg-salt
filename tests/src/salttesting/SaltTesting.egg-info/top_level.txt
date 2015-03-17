@@ -1,4 +1,0 @@
-salttesting/parser
-salttesting/ext
-salttesting/pylintplugins
-salttesting

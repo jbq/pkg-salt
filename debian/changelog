@@ -1,19 +1,14 @@
-salt (2014.7.1+ds-3trusty1) trusty; urgency=medium
+salt (2014.7.2+ds-1) experimental; urgency=medium
 
-  * [2c9238e] Updated dependencies and build for trusty
-  * [59a9c88] Update of ubuntu packaging files from upstream
-  * [8b2aadb] Fix for salt issues #11274 and #10967
-  * [3f697a1] Added /etc/default/salt-minion file to pick up env vars
-  * [baa3877] Re-added salt ufw config file
-  * [fe659dc] Removed "su -c" from minion upstart script
-  * [35372f7] Fixed stale pyc issue for trusty as well (Upstream issue: 13305)
-  * [7b29019] Also remove pyc files from /usr/lib/pymodules/python2.7/salt/
-  * [6c99950] Fix to version in preinst script
-  * [a46e0e0] Removed libcloud as explicit dependency until libcloud is backported
-  * [b29a1f3] Fix for build-deps
-  * [00fb7f9] Removed requirement for particular version of sphinx
+  * [984a676] Updated watch file to use pypi redirector
+  * [4e082fd] Imported Upstream version 2014.7.2+ds
+  * [7930d76] Added dh_python as a build dep
+  * [1e2ddb6] Refreshed patches for 2014.7.2
+  * [ca0f3e9] "Fixed" timestamps in generated files for reproducible builds.
+  * [9ef435b] Make log file readable by adm user. Closes: 777664
+  * [1feadd6] Refreshed lintian overrides and added comments as to their need
 
- -- Joe Healy <joehealy@gmail.com>  Tue, 10 Feb 2015 12:06:02 +1100
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 14:00:10 +1100
 
 salt (2014.7.1+ds-3) experimental; urgency=medium
 

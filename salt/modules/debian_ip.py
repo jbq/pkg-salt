@@ -1165,6 +1165,9 @@ def _parse_settings_eth(opts, iface_type, enabled, iface):
     if enabled:
         adapters[iface]['enabled'] = True
 
+    if opts.get('hotplug', False):
+        adapters[iface]['hotplug'] = True
+
     iface_data['inet']['addrfam'] = 'inet'
 
     if iface_type not in ['bridge']:
@@ -1532,7 +1535,7 @@ def build_interface(iface, iface_type, enabled, **settings):
         if not __salt__['pkg.version']('ppp'):
             inst = __salt__['pkg.install']('ppp')
 
-    elif iface_type is 'bond':
+    elif iface_type == 'bond':
         if 'slaves' not in settings:
             msg = 'slaves is a required setting for bond interfaces'
             log.error(msg)

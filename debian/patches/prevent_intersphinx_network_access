@@ -4,7 +4,7 @@ Forwarded: no
 
 --- a/doc/conf.py
 +++ b/doc/conf.py
-@@ -141,8 +141,7 @@
+@@ -139,8 +139,7 @@
  
  # ----- Intersphinx Settings ------------------------------------------------>
  intersphinx_mapping = {

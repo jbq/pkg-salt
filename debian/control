@@ -7,6 +7,7 @@ Build-Depends: debhelper (>= 9.20120410~),
                bash-completion,
                python | python-all | python-dev | python-all-dev,
                python-setuptools,
+               dh-python,
                python-sphinx (>= 1.0)
 Standards-Version: 3.9.6
 Homepage: http://saltstack.org/
