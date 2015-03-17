@@ -1,5 +1,7 @@
 salt (2014.7.2+ds-1) experimental; urgency=medium
 
+  * [dc3a14e] Added python-debian as dependency for package version tracking
+  * [9de90f3] Updated changelog to relabel versions that were not uploaded
   * [984a676] Updated watch file to use pypi redirector
   * [4e082fd] Imported Upstream version 2014.7.2+ds
   * [7930d76] Added dh_python as a build dep
@@ -8,7 +10,7 @@ salt (2014.7.2+ds-1) experimental; urgency=medium
   * [9ef435b] Make log file readable by adm user. Closes: 777664
   * [1feadd6] Refreshed lintian overrides and added comments as to their need
 
- -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 14:00:10 +1100
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 20:07:43 +1100
 
 salt (2014.7.1+ds-3) unreleased; urgency=medium
 
