@@ -1,3 +1,9 @@
+salt (2014.7.2+ds-1trusty2) trusty; urgency=medium
+
+  * [a5f6e2e] Added python-debian as dependency
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 22:45:47 +1100
+
 salt (2014.7.2+ds-1trusty1) trusty; urgency=medium
 
   * [2c9238e] Updated dependencies and build for trusty
