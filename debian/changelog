@@ -1,3 +1,15 @@
+salt (2014.7.2+ds-1) experimental; urgency=medium
+
+  * [984a676] Updated watch file to use pypi redirector
+  * [4e082fd] Imported Upstream version 2014.7.2+ds
+  * [7930d76] Added dh_python as a build dep
+  * [1e2ddb6] Refreshed patches for 2014.7.2
+  * [ca0f3e9] "Fixed" timestamps in generated files for reproducible builds.
+  * [9ef435b] Make log file readable by adm user. Closes: 777664
+  * [1feadd6] Refreshed lintian overrides and added comments as to their need
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 14:00:10 +1100
+
 salt (2014.7.1+ds-3) experimental; urgency=medium
 
   * [70d659a] Fixed salt-api upstart script
