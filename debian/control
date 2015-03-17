@@ -9,6 +9,7 @@ Build-Depends: debhelper (>= 9.20120410~),
                bash-completion,
                python | python-all | python-dev | python-all-dev,
                python-setuptools,
+               python-debian,
                dh-python,
                python-sphinx (>= 1.0),
                dh-systemd (>= 1.4)
