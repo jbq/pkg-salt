@@ -1,3 +1,23 @@
+salt (2014.7.2+ds-1trusty1) trusty; urgency=medium
+
+  * [2c9238e] Updated dependencies and build for trusty
+  * [59a9c88] Update of ubuntu packaging files from upstream
+  * [8b2aadb] Fix for salt issues #11274 and #10967
+  * [3f697a1] Added /etc/default/salt-minion file to pick up env vars
+  * [baa3877] Re-added salt ufw config file
+  * [fe659dc] Removed "su -c" from minion upstart script
+  * [35372f7] Fixed stale pyc issue for trusty as well (Upstream issue: 13305)
+  * [84b5880] Fixed version number
+  * [7b29019] Also remove pyc files from /usr/lib/pymodules/python2.7/salt/
+  * [1f4ecc3] Fixed version
+  * [6c99950] Fix to version in preinst script
+  * [a46e0e0] Removed libcloud as explicit dependency until libcloud is backported
+  * [b29a1f3] Fix for build-deps
+  * [f5ded48] Fixed version
+  * [00fb7f9] Removed requirement for particular version of sphinx
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 22:17:05 +1100
+
 salt (2014.7.2+ds-1) experimental; urgency=medium
 
   * [984a676] Updated watch file to use pypi redirector
