@@ -13,6 +13,7 @@ import salt.utils
 from salt._compat import string_types
 from salt.exceptions import CommandExecutionError
 from salt.modules.systemd import _sd_booted
+import string
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,16 @@ def __virtual__():
     return __virtualname__
 
 
+def _check_systemd_salt_config():
+    conf = '/etc/sysctl.d/99-salt.conf'
+    if not os.path.exists(conf):
+        sysctl_dir = os.path.split(conf)[0]
+        if not os.path.exists(sysctl_dir):
+            os.makedirs(sysctl_dir)
+        salt.utils.fopen(conf, 'w').close()
+    return conf
+
+
 def default_config():
     '''
     Linux hosts using systemd 207 or later ignore ``/etc/sysctl.conf`` and only
@@ -47,7 +58,7 @@ def default_config():
 
         salt -G 'kernel:Linux' sysctl.default_config
     '''
-    if _sd_booted():
+    if _sd_booted(__context__):
         for line in __salt__['cmd.run_stdout'](
             'systemctl --version'
         ).splitlines():
@@ -55,7 +66,7 @@ def default_config():
                 version = line.split()[-1]
                 try:
                     if int(version) >= 207:
-                        return '/etc/sysctl.d/99-salt.conf'
+                        return _check_systemd_salt_config()
                 except ValueError:
                     log.error(
                         'Unexpected non-numeric systemd version {0!r} '
@@ -132,7 +143,7 @@ def assign(name, value):
         salt '*' sysctl.assign net.ipv4.ip_forward 1
     '''
     value = str(value)
-    sysctl_file = '/proc/sys/{0}'.format(name.replace('.', '/'))
+    sysctl_file = '/proc/sys/{0}'.format(name.translate(string.maketrans('./', '/.')))
     if not os.path.exists(sysctl_file):
         raise CommandExecutionError('sysctl {0} does not exist'.format(name))
 
