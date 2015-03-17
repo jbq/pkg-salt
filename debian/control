@@ -5,12 +5,10 @@ Maintainer: Debian Salt Team <pkg-salt-team@lists.alioth.debian.org>
 Uploaders: Joe Healy <joehealy@gmail.com>,
            Franklin G Mendoza <franklin.g.mendoza@gmail.com>,
            Andriy Senkovych <jolly_roger@itblog.org.ua>
-Build-Depends: debhelper (>= 9.20120410~),
+Build-Depends: debhelper,
                bash-completion,
                python | python-all | python-dev | python-all-dev,
-               python-setuptools,
-               python-sphinx (>= 1.0),
-               dh-systemd (>= 1.4)
+               python-setuptools
 Standards-Version: 3.9.6
 Homepage: http://saltstack.org/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-salt/salt.git
@@ -30,7 +28,6 @@ Depends: ${python:Depends},
          python-requests (>= 1.0.0)
 Recommends: lsb-release,
             python-mako
-Suggests: salt-doc (= ${source:Version})
 Breaks: python-mako (<< 0.7.0)
 Description: shared libraries that salt requires for all packages
  salt is a powerful remote execution manager that can be used to
@@ -59,8 +56,8 @@ Depends: ${misc:Depends},
          salt-common (= ${source:Version}),
          python-m2crypto,
          python-crypto,
-         python-msgpack,
-         python-zmq (>= 13.1.0)
+         msgpack-python,
+         python-zmq (>= 13.0.0~)
 Recommends: python-git
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
@@ -88,8 +85,8 @@ Depends: ${misc:Depends},
          salt-common (= ${source:Version}),
          python-m2crypto,
          python-crypto,
-         python-msgpack,
-         python-zmq (>= 13.1.0),
+         msgpack-python,
+         python-zmq (>= 13.0.0~),
          dctrl-tools
 Recommends: dmidecode,
             debconf-utils
@@ -143,7 +140,7 @@ Architecture: all
 Depends: ${misc:Depends},
          ${python:Depends},
          salt-common (= ${source:Version}),
-         python-msgpack
+         msgpack-python
 Description: remote manager to administer servers via salt
  salt is a powerful remote execution manager that can be used to
  administer servers in a fast and efficient way.
@@ -165,34 +162,6 @@ Description: remote manager to administer servers via salt
  is able to run salt modules and states on remote hosts via ssh.
  No minion or other salt specific software needs to be installed
  on the remote host.
-
-Package: salt-doc
-Architecture: all
-Section: doc
-Depends: ${misc:Depends},
-	 libjs-sphinxdoc,
-	 libjs-modernizr,
-	 libjs-twitter-bootstrap,
-	 libjs-jquery
-Description: additional documentation for salt, the distributed remote execution system
- salt is a powerful remote execution manager that can be used to
- administer servers in a fast and efficient way.
- .
- It allows commands to be executed across large groups of
- servers. This means systems can be easily managed, but data can
- also be easily gathered.  Quick introspection into running
- systems becomes a reality.
- .
- Remote execution is usually used to set up a certain state on a
- remote system. Salt addresses this problem as well, the salt
- state system uses salt state files to define the state a server
- needs to be in.
- .
- Between the remote execution system, and state management Salt
- addresses the backbone of cloud and data center management.
- .
- This particular package provides the HTML documentation for
- salt.
 
 Package: salt-cloud
 Architecture: all

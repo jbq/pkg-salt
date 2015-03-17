@@ -1,6 +1,7 @@
-salt (2014.7.1+ds-2utopic1) utopic; urgency=medium
+salt (2014.7.1+ds-3lucid6) lucid; urgency=medium
 
-  * [c0b19db] Backported for utopic. No changes.
+  * [c0b19db] Backported for lucid. lots of changes!
+  * Fixed salt-api upstart script.
 
  -- Joe Healy <joehealy@gmail.com>  Fri, 06 Feb 2015 17:13:08 +1100
 

@@ -2,16 +2,10 @@
 
 #export DH_VERBOSE=1
 
-include /usr/share/python/python.mk
-
 %:
-	dh $@ --with python2,bash-completion --with=systemd
+	dh $@
 
-override_dh_auto_build:
-	dh_auto_build
-	make -C doc html
-	make -C doc man
+dh_override_auto_build:
+	python setup.py build
 
-override_dh_auto_clean:
-	make -C doc clean
-	dh_auto_clean
+
