@@ -398,9 +398,12 @@ class TestDaemon(object):
 
         with salt.utils.fopen(os.path.join(TMP_CONF_DIR, 'sshd_config'), 'a') as ssh_config:
             ssh_config.write('AuthorizedKeysFile {0}\n'.format(auth_key_file))
-            ssh_config.write('HostKey {0}\n'.format(server_dsa_priv_key_file))
-            ssh_config.write('HostKey {0}\n'.format(server_ecdsa_priv_key_file))
-            ssh_config.write('HostKey {0}\n'.format(server_ed25519_priv_key_file))
+            if not keygen_dsa_err:
+                ssh_config.write('HostKey {0}\n'.format(server_dsa_priv_key_file))
+            if not keygen_escda_err:
+                ssh_config.write('HostKey {0}\n'.format(server_ecdsa_priv_key_file))
+            if not keygen_ed25519_err:
+                ssh_config.write('HostKey {0}\n'.format(server_ed25519_priv_key_file))
 
         self.sshd_pidfile = os.path.join(TMP_CONF_DIR, 'sshd.pid')
         self.sshd_process = subprocess.Popen(
@@ -1157,12 +1160,13 @@ class ShellCase(AdaptedConfigurationTestCaseMixIn, ShellTestCase):
         arg_str = '-c {0} -i --priv {1} --roster-file {2} --out=json localhost {3}'.format(self.get_config_dir(), os.path.join(TMP_CONF_DIR, 'key_test'), os.path.join(TMP_CONF_DIR, 'roster'), arg_str)
         return self.run_script('salt-ssh', arg_str, with_retcode=with_retcode, catch_stderr=catch_stderr, raw=True)
 
-    def run_run(self, arg_str, with_retcode=False, catch_stderr=False, async=False):
+    def run_run(self, arg_str, with_retcode=False, catch_stderr=False, async=False, timeout=60):
         '''
         Execute salt-run
         '''
-        arg_str = '-c {0}{async_flag} {1}'.format(self.get_config_dir(),
+        arg_str = '-c {0}{async_flag} -t {timeout} {1}'.format(self.get_config_dir(),
                                                   arg_str,
+                                                  timeout=timeout,
                                                   async_flag=' --async' if async else '')
         return self.run_script('salt-run', arg_str, with_retcode=with_retcode, catch_stderr=catch_stderr)
 

@@ -1,18 +1,14 @@
-salt (2014.7.1+ds-3precise1) precise; urgency=medium
+salt (2014.7.2+ds-1) experimental; urgency=medium
 
-  * [05986b9] Update to dependencies for saucy
-  * [0e88689] Update of ubuntu packaging files from upstream
-  * [adb0c8c] Dependencies for precise
-  * [2122661] Fix for salt issues #11274 and #10967
-  * [dec41ba] Re-added salt ufw config file
-  * [11b2bb5] Removed js dependencies
-  * [3692638] Added /etc/default/salt-minion file to pick up env vars
-  * [51b614b] Removed "su -c" from minion upstart script
-  * [76e59b8] Removed unnecessary build deps
-  * [686a9e4] Removed more build-deps
-  * [991e80a] Removed version requirement for sphinx
+  * [984a676] Updated watch file to use pypi redirector
+  * [4e082fd] Imported Upstream version 2014.7.2+ds
+  * [7930d76] Added dh_python as a build dep
+  * [1e2ddb6] Refreshed patches for 2014.7.2
+  * [ca0f3e9] "Fixed" timestamps in generated files for reproducible builds.
+  * [9ef435b] Make log file readable by adm user. Closes: 777664
+  * [1feadd6] Refreshed lintian overrides and added comments as to their need
 
- -- Joe Healy <joehealy@gmail.com>  Tue, 10 Feb 2015 12:09:43 +1100
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 14:00:10 +1100
 
 salt (2014.7.1+ds-3) experimental; urgency=medium
 
