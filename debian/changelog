@@ -1,3 +1,9 @@
+salt (2014.7.2+ds-1utopic2) utopic; urgency=medium
+
+  * [2548031] Added python-debian as a dependency
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 22:56:10 +1100
+
 salt (2014.7.2+ds-1utopic1) utopic; urgency=medium
 
   * Build for utopic - no changes
