@@ -1,3 +1,9 @@
+salt (2014.7.2+ds-1precise2) precise; urgency=medium
+
+  * [0a88c8b] Added python-debian as dependency
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 22:53:30 +1100
+
 salt (2014.7.2+ds-1precise1) precise; urgency=medium
 
   * [05986b9] Update to dependencies for saucy
