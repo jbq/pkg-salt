@@ -6,6 +6,7 @@ Build-Depends: debhelper (>= 9),
                bash-completion,
                python | python-all | python-dev | python-all-dev,
                python-setuptools,
+               python-debian,
                python-sphinx (>= 1.0),
                python-yaml
 Standards-Version: 3.9.5
