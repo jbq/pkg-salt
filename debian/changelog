@@ -1,10 +1,9 @@
-<<<<<<< HEAD
-salt (2014.7.1+ds-3utopic1) utopic; urgency=medium
+salt (2014.7.2+ds-1) utopic; urgency=medium
 
   * Build for utopic - no changes
 
- -- Joe Healy <joehealy@gmail.com>  Tue, 10 Feb 2015 12:13:25 +1100
-=======
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 22:31:54 +1100
+
 salt (2014.7.2+ds-1) experimental; urgency=medium
 
   * [984a676] Updated watch file to use pypi redirector
@@ -16,7 +15,6 @@ salt (2014.7.2+ds-1) experimental; urgency=medium
   * [1feadd6] Refreshed lintian overrides and added comments as to their need
 
  -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 14:00:10 +1100
->>>>>>> master
 
 salt (2014.7.1+ds-3) experimental; urgency=medium
 
