@@ -90,6 +90,21 @@ from   salt://map.sls  import     Samba
 Pkg.removed("samba-imported", names=[Samba.server, Samba.client])
 '''
 
+random_password_template = '''#!pyobjects
+import random, string
+password = ''.join(random.SystemRandom().choice(
+        string.ascii_letters + string.digits) for _ in range(20))
+'''
+
+random_password_import_template = '''#!pyobjecs
+from salt://password.sls import password
+'''
+
+requisite_implicit_list_template = '''#!pyobjects
+with Pkg.installed("pkg"):
+    Service.running("service", watch=File("file"), require=Cmd("cmd"))
+'''
+
 
 class StateTests(TestCase):
     def setUp(self):
@@ -240,7 +255,7 @@ class RendererMixin(object):
                                 state.opts['renderer'])
 
 
-class RendererTests(RendererMixin, TestCase):
+class RendererTests(RendererMixin, StateTests):
     def test_basic(self):
         ret = self.render(basic_template)
         self.assertEqual(ret, OrderedDict([
@@ -297,6 +312,31 @@ class RendererTests(RendererMixin, TestCase):
         self.write_template_file("map.sls", map_template)
         render_and_assert(import_template)
         render_and_assert(from_import_template)
+
+    def test_random_password(self):
+        '''Test for https://github.com/saltstack/salt/issues/21796'''
+        ret = self.render(random_password_template)
+
+    def test_import_random_password(self):
+        '''Import test for https://github.com/saltstack/salt/issues/21796'''
+        self.write_template_file("password.sls", random_password_template)
+        ret = self.render(random_password_import_template)
+
+    def test_requisite_implicit_list(self):
+        '''Ensure that the implicit list characteristic works as expected'''
+        ret = self.render(requisite_implicit_list_template)
+
+        self.assertEqual(ret, OrderedDict([
+            ('pkg', OrderedDict([
+                ('pkg.installed', [])
+            ])),
+            ('service', OrderedDict([
+                ('service.running', [
+                    {'require': [{'cmd': 'cmd'}, {'pkg': 'pkg'}]},
+                    {'watch': [{'file': 'file'}]},
+                ])
+            ]))
+        ]))
 
 
 class MapTests(RendererMixin, TestCase):
