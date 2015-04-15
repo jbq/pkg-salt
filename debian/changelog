@@ -1,4 +1,4 @@
-salt (2014.7.4+ds-1) UNRELEASED; urgency=medium
+salt (2014.7.4+ds-1precise1) precise; urgency=medium
 
   [ Benjamin Drung ]
   * [c1f16f3] debian/changelog: Use capital UNRELEASED
@@ -8,6 +8,18 @@ salt (2014.7.4+ds-1) UNRELEASED; urgency=medium
   [ Joe Healy ]
   * [510c0d1] Imported Upstream version 2014.7.4+ds
   * [8489807] Updated doc patches
+  * [05986b9] Update to dependencies for saucy
+  * [0e88689] Update of ubuntu packaging files from upstream
+  * [adb0c8c] Dependencies for precise
+  * [2122661] Fix for salt issues #11274 and #10967
+  * [dec41ba] Re-added salt ufw config file
+  * [11b2bb5] Removed js dependencies
+  * [3692638] Added /etc/default/salt-minion file to pick up env vars
+  * [51b614b] Removed "su -c" from minion upstart script
+  * [76e59b8] Removed unnecessary build deps
+  * [686a9e4] Removed more build-deps
+  * [991e80a] Removed version requirement for sphinx
+  * [0a88c8b] Added python-debian as dependency
 
  -- Joe Healy <joehealy@gmail.com>  Wed, 15 Apr 2015 23:08:49 +1000
 
