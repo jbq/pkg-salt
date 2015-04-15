@@ -186,7 +186,27 @@ def extracted(name,
         else:
             log.debug('Untar {0} in {1}'.format(filename, name))
 
-            tar_cmd = ['tar', 'x{0}'.format(tar_options), '-f', repr(filename)]
+            tar_opts = tar_options.split(' ')
+
+            tar_cmd = ['tar']
+            tar_shortopts = 'x'
+            tar_longopts = []
+
+            for position, opt in enumerate(tar_opts):
+                if opt.startswith('-'):
+                    tar_longopts.append(opt)
+                else:
+                    if position > 0:
+                        tar_longopts.append(opt)
+                    else:
+                        append_opt = opt
+                        append_opt = append_opt.replace('x', '').replace('f', '')
+                        tar_shortopts = tar_shortopts + append_opt
+
+            tar_cmd.append(tar_shortopts)
+            tar_cmd.extend(tar_longopts)
+            tar_cmd.extend(['-f', filename])
+
             results = __salt__['cmd.run_all'](tar_cmd, cwd=name, python_shell=False)
             if results['retcode'] != 0:
                 ret['result'] = False

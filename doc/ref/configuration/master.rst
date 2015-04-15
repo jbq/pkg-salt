@@ -418,8 +418,12 @@ this can slow down the authentication process a bit in large setups.
 
 Default: False
 
-When enabled the master regularly sends events of currently connected, lost
-and newly connected minions on the eventbus.
+Causes the master to periodically look for actively connected minions.
+:ref:`Presence events <event-master_presence>` are fired on the event bus on a
+regular interval with a list of connected minions, as well as events with lists
+of newly connected or disconnected minions. This is a master-only operation
+that does not send executions to minions. Note, this does not detect minions
+that connect to a master via localhost.
 
 .. code-block:: yaml
 
@@ -1802,7 +1806,7 @@ There are additional details at :ref:`salt-pillars`
 Default: ``smart``
 
 The pillar_source_merging_strategy option allows to configure merging strategy
-between different sources. It accepts 3 values:
+between different sources. It accepts 4 values:
 
 * recurse:
 
@@ -1833,7 +1837,7 @@ between different sources. It accepts 3 values:
 
 * aggregate:
 
-  instructs aggregation of elements between sources that use the #!yamlex rendered.
+  instructs aggregation of elements between sources that use the #!yamlex renderer.
 
   For example, these two documents:
 
@@ -1868,37 +1872,37 @@ between different sources. It accepts 3 values:
 
 * overwrite:
 
-    Will use the behaviour of the 2014.1 branch and earlier.
+  Will use the behaviour of the 2014.1 branch and earlier.
 
-    Overwrites elements according the order in which they are processed.
+  Overwrites elements according the order in which they are processed.
 
-    First pillar processed:
+  First pillar processed:
 
-    .. code-block:: yaml
+  .. code-block:: yaml
 
-        A:
-          first_key: blah
-          second_key: blah
+      A:
+        first_key: blah
+        second_key: blah
 
-    Second pillar processed:
+  Second pillar processed:
 
-    .. code-block:: yaml
+  .. code-block:: yaml
 
-        A:
-          third_key: blah
-          fourth_key: blah
+      A:
+        third_key: blah
+        fourth_key: blah
 
-    will be merged as:
+  will be merged as:
 
-    .. code-block:: yaml
+  .. code-block:: yaml
 
-        A:
-          third_key: blah
-          fourth_key: blah
+      A:
+        third_key: blah
+        fourth_key: blah
 
 * smart (default):
 
-    Guesses the best strategy based on the "renderer" setting.
+  Guesses the best strategy based on the "renderer" setting.
 
 
 Syndic Server Settings

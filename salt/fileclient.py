@@ -203,6 +203,7 @@ class Client(object):
             saltenv = env
 
         ret = []
+
         path = self._check_proto(path)
         # We want to make sure files start with this *directory*, use
         # '/' explicitly because the master (that's generating the
@@ -590,6 +591,7 @@ class Client(object):
             else:
                 get_kwargs['stream'] = True
             response = requests.get(fixed_url, **get_kwargs)
+            response.raise_for_status()
             with salt.utils.fopen(dest, 'wb') as destfp:
                 for chunk in response.iter_content(chunk_size=32*1024):
                     destfp.write(chunk)
