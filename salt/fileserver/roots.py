@@ -2,8 +2,18 @@
 '''
 The default file server backend
 
-Based on the environments in the :conf_master:`file_roots` configuration
-option.
+This fileserver backend serves files from the Master's local filesystem. If
+:conf_master:`fileserver_backend` is not defined in the Master config file,
+then this backend is enabled by default. If it *is* defined then ``roots`` must
+be in the :conf_master:`fileserver_backend` list to enable this backend.
+
+.. code-block:: yaml
+
+    fileserver_backend:
+      - roots
+
+Fileserver environments are defined using the :conf_master:`file_roots`
+configuration option.
 '''
 
 # Import python libs
@@ -288,9 +298,13 @@ def _file_lists(load, form):
                             rel_fn = rel_fn.replace('\\', '/')
                         ret['files'].append(rel_fn)
         if save_cache:
-            salt.fileserver.write_file_list_cache(
-                __opts__, ret, list_cache, w_lock
-            )
+            try:
+                salt.fileserver.write_file_list_cache(
+                    __opts__, ret, list_cache, w_lock
+                )
+            except NameError:
+                # Catch msgpack error in salt-ssh
+                pass
         return ret.get(form, [])
     # Shouldn't get here, but if we do, this prevents a TypeError
     return []

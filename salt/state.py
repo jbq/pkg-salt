@@ -39,30 +39,37 @@ from salt.utils.odict import OrderedDict, DefaultOrderedDict
 log = logging.getLogger(__name__)
 
 
-STATE_INTERNAL_KEYWORDS = frozenset([
-    # These are keywords passed to state module functions which are to be used
-    # by salt in this state module and not on the actual state module function
-    'check_cmd',
-    'fail_hard',
-    'fun',
+# These are keywords passed to state module functions which are to be used
+# by salt in this state module and not on the actual state module function
+STATE_REQUISITE_KEYWORDS = frozenset([
     'onchanges',
     'onfail',
+    'prereq',
+    'prerequired',
+    'watch',
+    'require',
+    'listen',
+    ])
+STATE_REQUISITE_IN_KEYWORDS = frozenset([
+    'onchanges_in',
+    'onfail_in',
+    'prereq_in',
+    'watch_in',
+    'require_in',
+    'listen_in',
+    ])
+STATE_RUNTIME_KEYWORDS = frozenset([
+    'check_cmd',
+    'fail_hard',
     'onlyif',
     'order',
-    'prereq',
-    'prereq_in',
     'reload_modules',
-    'require',
-    'require_in',
     'saltenv',
-    'state',
-    'unless',
     'use',
-    'watch',
-    'watch_in',
-    '__id__',
-    '__sls__',
+    'use_in',
     '__env__',
+    '__sls__',
+    '__id__',
     '__pub_user',
     '__pub_arg',
     '__pub_jid',
@@ -70,7 +77,8 @@ STATE_INTERNAL_KEYWORDS = frozenset([
     '__pub_tgt',
     '__pub_ret',
     '__pub_tgt_type',
-])
+    ])
+STATE_INTERNAL_KEYWORDS = STATE_REQUISITE_KEYWORDS.union(STATE_REQUISITE_IN_KEYWORDS).union(STATE_RUNTIME_KEYWORDS)
 
 
 def _odict_hashable(self):
@@ -1921,7 +1929,7 @@ class State(object):
 
     def call_listen(self, chunks, running):
         '''
-        Find all of the listen routines and call the associated mod_match runs
+        Find all of the listen routines and call the associated mod_watch runs
         '''
         listeners = []
         crefs = {}
@@ -1967,6 +1975,9 @@ class State(object):
                             low['sfun'] = chunk['fun']
                             low['fun'] = 'mod_watch'
                             low['__id__'] = 'listener_{0}'.format(low['__id__'])
+                            for req in STATE_REQUISITE_KEYWORDS:
+                                if req in low:
+                                    low.pop(req)
                             mod_watchers.append(low)
         ret = self.call_chunks(mod_watchers)
         running.update(ret)
@@ -2744,7 +2755,7 @@ class BaseHighState(object):
                     if state:
                         self.merge_included_states(highstate, state, errors)
                     for i, error in enumerate(errors[:]):
-                        if 'is not available on the salt master' in error:
+                        if 'is not available' in error:
                             # match SLS foobar in environment
                             this_sls = 'SLS {0} in saltenv'.format(
                                 sls_match)
@@ -2955,7 +2966,8 @@ class HighState(BaseHighState):
     stack = []
 
     def __init__(self, opts, pillar=None, jid=None):
-        self.client = salt.fileclient.get_file_client(opts)
+        self.opts = opts
+        self.client = salt.fileclient.get_file_client(self.opts)
         BaseHighState.__init__(self, opts)
         self.state = State(self.opts, pillar, jid)
         self.matcher = salt.minion.Matcher(self.opts)
