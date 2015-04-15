@@ -1,4 +1,4 @@
-salt (2014.7.4+ds-1) UNRELEASED; urgency=medium
+salt (2014.7.4+ds-1utopic1) utopic; urgency=medium
 
   [ Benjamin Drung ]
   * [c1f16f3] debian/changelog: Use capital UNRELEASED
@@ -8,6 +8,8 @@ salt (2014.7.4+ds-1) UNRELEASED; urgency=medium
   [ Joe Healy ]
   * [510c0d1] Imported Upstream version 2014.7.4+ds
   * [8489807] Updated doc patches
+  * [eb90ebf] Fixed changelog version
+  * [2548031] Added python-debian as a dependency
 
  -- Joe Healy <joehealy@gmail.com>  Wed, 15 Apr 2015 23:08:49 +1000
 
