@@ -11,14 +11,13 @@ Build-Depends: debhelper (>= 9),
                python-yaml
 Standards-Version: 3.9.5
 Homepage: http://saltstack.org/
-Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-salt/salt.git
+Vcs-Browser: https://anonscm.debian.org/cgit/pkg-salt/salt.git
 Vcs-Git: git://anonscm.debian.org/pkg-salt/salt.git
 
 Package: salt-common
 Architecture: all
 Depends: ${python:Depends},
          ${misc:Depends},
-         ${shlibs:Depends},
          python,
          python-dateutil,
          python-jinja2,
@@ -203,7 +202,6 @@ Package: salt-api
 Architecture: all
 Depends: ${python:Depends},
          ${misc:Depends},
-         ${shlibs:Depends},
          python,
          salt-master
 Recommends: python-cherrypy3

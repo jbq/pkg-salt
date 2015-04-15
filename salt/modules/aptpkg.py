@@ -73,9 +73,11 @@ def __virtual__():
     '''
     Confirm this module is on a Debian based system
     '''
-    if __grains__.get('os_family', False) != 'Debian':
-        return False
-    return __virtualname__
+    if __grains__.get('os_family', False) == 'Kali':
+        return __virtualname__
+    elif __grains__.get('os_family', False) == 'Debian':
+        return __virtualname__
+    return False
 
 
 def __init__():
@@ -1064,7 +1066,7 @@ def _consolidate_repo_sources(sources):
     for repo in repos:
         repo.uri = repo.uri.rstrip('/')
         key = str((getattr(repo, 'architectures', []),
-                   repo.disabled, repo.type, repo.uri))
+                   repo.disabled, repo.type, repo.uri, repo.dist))
         if key in consolidated:
             combined = consolidated[key]
             combined_comps = set(repo.comps).union(set(combined.comps))
@@ -1470,7 +1472,7 @@ def mod_repo(repo, saltenv='base', **kwargs):
 
     if 'comps' in kwargs:
         kwargs['comps'] = kwargs['comps'].split(',')
-        full_comp_list.union(set(kwargs['comps']))
+        full_comp_list |= set(kwargs['comps'])
     else:
         kwargs['comps'] = list(full_comp_list)
 

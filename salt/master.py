@@ -43,6 +43,7 @@ import salt.utils.verify
 import salt.utils.minions
 import salt.utils.gzip_util
 import salt.utils.process
+from salt.exceptions import FileserverConfigError
 from salt.utils.debug import enable_sigusr1_handler, enable_sigusr2_handler, inspect_stack
 from salt.utils.event import tagify
 import binascii
@@ -267,6 +268,13 @@ class Master(SMaster):
                 'Failed to load fileserver backends, the configured backends '
                 'are: {0}'.format(', '.join(self.opts['fileserver_backend']))
             )
+        else:
+            # Run init() for all backends which support the function, to
+            # double-check configuration
+            try:
+                fileserver.init()
+            except FileserverConfigError as exc:
+                errors.append('{0}'.format(exc))
         if not self.opts['fileserver_backend']:
             errors.append('No fileserver backends are configured')
         if errors:
@@ -1177,15 +1185,19 @@ class AESFuncs(object):
         if any(key not in load for key in ('return', 'jid', 'id')):
             return None
         # if we have a load, save it
-        if 'load' in load:
+        if load.get('load'):
             fstr = '{0}.save_load'.format(self.opts['master_job_cache'])
-            self.mminion.returners[fstr](load['jid'], load)
+            self.mminion.returners[fstr](load['jid'], load['load'])
 
         # Format individual return loads
         for key, item in load['return'].items():
             ret = {'jid': load['jid'],
                    'id': key,
                    'return': item}
+            if 'fun' in load:
+                ret['fun'] = load['fun']
+            if 'arg' in load:
+                ret['fun_args'] = load['arg']
             if 'out' in load:
                 ret['out'] = load['out']
             self._return(ret)
