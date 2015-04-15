@@ -1105,7 +1105,7 @@ def replace(path,
         raise SaltInvocationError('Choose between append or prepend_if_not_found')
 
     flags_num = _get_flags(flags)
-    cpattern = re.compile(pattern, flags_num)
+    cpattern = re.compile(str(pattern), flags_num)
     if bufsize == 'file':
         bufsize = os.path.getsize(path)
 
@@ -1122,6 +1122,10 @@ def replace(path,
     repl = str(repl)
 
     found = False
+    content = str(not_found_content) if not_found_content and \
+                                       (prepend_if_not_found or
+                                        append_if_not_found) \
+                                     else repl
 
     # First check the whole file, whether the replacement has already been made
     try:
@@ -1135,39 +1139,22 @@ def replace(path,
 
         for line in fi_file:
 
-            line = line.strip()
+            if search_only:
+                # Just search; bail as early as a match is found
+                result = re.search(cpattern, line)
 
-            if (prepend_if_not_found or append_if_not_found) and not_found_content:
-                if line == not_found_content:
-                    if search_only:
-                        return True
-                    found = True
-                    break
+                if result:
+                    return True  # `finally` block handles file closure
 
             else:
-                if line == repl:
-                    if search_only:
-                        return True
-                    found = True
-                    break
-
-    finally:
-        fi_file.close()
-
-    try:
-        fi_file = fileinput.input(path,
-                        inplace=not (dry_run or search_only),
-                        backup=False if (dry_run or search_only or found) else backup,
-                        bufsize=bufsize,
-                        mode='r' if (dry_run or search_only or found) else 'rb')
-
-        if not found:
-            for line in fi_file:
                 result, nrepl = re.subn(cpattern, repl, line, count)
 
-                # found anything? (even if no change)
-                if nrepl > 0:
-                    found = True
+                if prepend_if_not_found or append_if_not_found:
+                    # Search for content, so we don't continue pre/appending
+                    # the content if it's been pre/appended in a previous run.
+                    if re.search(content, line):
+                        # Content was found, so set found.
+                        found = True
 
                 # Identity check each potential change until one change is made
                 if has_changes is False and result != line:
@@ -1176,6 +1163,28 @@ def replace(path,
                 if show_changes:
                     orig_file.append(line)
                     new_file.append(result)
+    finally:
+        fi_file.close()
+
+    try:
+        fi_file = fileinput.input(path,
+                        inplace=not (dry_run or search_only),
+                        backup=False if (dry_run or search_only or
+                                        (found and not has_changes))
+                                     else backup,
+                        bufsize=bufsize,
+                        mode='rb')
+
+        #Loop through the file only if necessary to create the backup
+        #and/or make the replacements
+        if has_changes or (not found and (prepend_if_not_found or
+                                          append_if_not_found)):
+            for line in fi_file:
+                result, nrepl = re.subn(cpattern, repl, line, count)
+
+                # found anything? (even if no change)
+                if nrepl > 0:
+                    found = True
 
                 if not dry_run:
                     print(result, end='', file=sys.stdout)
@@ -2705,9 +2714,13 @@ def check_perms(name, ret, user, group, mode, follow_symlinks=False):
                         ret['changes']['mode'] = mode
     # user/group changes if needed, then check if it worked
     if user:
+        if isinstance(user, int):
+            user = uid_to_user(user)
         if user != perms['luser']:
             perms['cuser'] = user
     if group:
+        if isinstance(group, int):
+            group = gid_to_group(group)
         if group != perms['lgroup']:
             perms['cgroup'] = group
     if 'cuser' in perms or 'cgroup' in perms:
@@ -3145,10 +3158,10 @@ def manage_file(name,
                                     real_name,
                                     __salt__['config.backup_mode'](backup),
                                     __opts__['cachedir'])
-            except IOError:
+            except IOError as io_error:
                 __clean_tmp(sfn)
                 return _error(
-                    ret, 'Failed to commit change, permission error')
+                    ret, 'Failed to commit change: {0}'.format(io_error))
 
         if contents is not None:
             # Write the static contents to a temporary file
@@ -3183,10 +3196,10 @@ def manage_file(name,
                                         real_name,
                                         __salt__['config.backup_mode'](backup),
                                         __opts__['cachedir'])
-                except IOError:
+                except IOError as io_error:
                     __clean_tmp(tmp)
                     return _error(
-                        ret, 'Failed to commit change, permission error')
+                        ret, 'Failed to commit change: {0}'.format(io_error))
             __clean_tmp(tmp)
 
         # check for changing symlink to regular file here
@@ -3214,10 +3227,10 @@ def manage_file(name,
                                     name,
                                     __salt__['config.backup_mode'](backup),
                                     __opts__['cachedir'])
-            except IOError:
+            except IOError as io_error:
                 __clean_tmp(sfn)
                 return _error(
-                    ret, 'Failed to commit change, permission error')
+                    ret, 'Failed to commit change: {0}'.format(io_error))
 
             ret['changes']['diff'] = \
                 'Replace symbolic link with regular file'

@@ -242,6 +242,7 @@ VALID_OPTS = {
     'random_reauth_delay': int,
     'syndic_event_forward_timeout': float,
     'syndic_max_event_process_time': float,
+    'syndic_jid_forward_cache_hwm': int,
     'ssh_passwd': str,
     'ssh_port': str,
     'ssh_sudo': bool,
@@ -559,6 +560,7 @@ DEFAULT_MASTER_OPTS = {
     'gather_job_timeout': 5,
     'syndic_event_forward_timeout': 0.5,
     'syndic_max_event_process_time': 0.5,
+    'syndic_jid_forward_cache_hwm': 100,
     'ssh_passwd': '',
     'ssh_port': '22',
     'ssh_sudo': False,
@@ -967,6 +969,7 @@ def syndic_config(master_config_path,
         'sock_dir': os.path.join(
             opts['cachedir'], opts.get('syndic_sock_dir', opts['sock_dir'])
         ),
+        'cachedir': master_opts['cachedir'],
     }
     opts.update(syndic_opts)
     # Prepend root_dir to other paths
@@ -1300,12 +1303,11 @@ def old_to_new(opts):
     for provider in providers:
 
         provider_config = {}
-        for opt in opts:
-            if not opt.startswith(provider):
-                continue
-            value = opts.pop(opt)
-            name = opt.split('.', 1)[1]
-            provider_config[name] = value
+        for opt, val in opts.items():
+            if provider in opt:
+                value = val
+                name = opt.split('.', 1)[1]
+                provider_config[name] = value
 
         lprovider = provider.lower()
         if provider_config:

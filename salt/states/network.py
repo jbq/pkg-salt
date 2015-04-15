@@ -53,11 +53,13 @@ all interfaces are ignored unless specified.
 
     eth2:
       network.managed:
+        - enabled: True
         - type: slave
         - master: bond0
 
     eth3:
       network.managed:
+        - enabled: True
         - type: slave
         - master: bond0
 
@@ -73,18 +75,17 @@ all interfaces are ignored unless specified.
         - type: bond
         - ipaddr: 10.1.0.1
         - netmask: 255.255.255.0
+        - mode: active-backup
+        - proto: static
         - dns:
           - 8.8.8.8
           - 8.8.4.4
         - ipv6:
         - enabled: False
-        - use_in:
-          - network: eth2
-          - network: eth3
+        - slaves: eth2 eth3
         - require:
           - network: eth2
           - network: eth3
-        - mode: 802.3ad
         - miimon: 100
         - arp_interval: 250
         - downdelay: 200
@@ -225,21 +226,21 @@ def managed(name, type, enabled=True, **kwargs):
                 ret['comment'] = 'Interface {0} is set to be ' \
                                  'added.'.format(name)
             elif old != new:
-                diff = difflib.unified_diff(old, new)
+                diff = difflib.unified_diff(old, new, lineterm='')
                 ret['result'] = None
                 ret['comment'] = 'Interface {0} is set to be ' \
                                  'updated.'.format(name)
-                ret['changes']['interface'] = ''.join(diff)
+                ret['changes']['interface'] = '\n'.join(diff)
         else:
             if not old and new:
                 ret['comment'] = 'Interface {0} ' \
                                  'added.'.format(name)
                 ret['changes']['interface'] = 'Added network interface.'
             elif old != new:
-                diff = difflib.unified_diff(old, new)
+                diff = difflib.unified_diff(old, new, lineterm='')
                 ret['comment'] = 'Interface {0} ' \
                                  'updated.'.format(name)
-                ret['changes']['interface'] = ''.join(diff)
+                ret['changes']['interface'] = '\n'.join(diff)
     except AttributeError as error:
         ret['result'] = False
         ret['comment'] = str(error)
@@ -258,21 +259,21 @@ def managed(name, type, enabled=True, **kwargs):
                     ret['comment'] = 'Bond interface {0} is set to be ' \
                                      'added.'.format(name)
                 elif old != new:
-                    diff = difflib.unified_diff(old, new)
+                    diff = difflib.unified_diff(old, new, lineterm='')
                     ret['result'] = None
                     ret['comment'] = 'Bond interface {0} is set to be ' \
                                      'updated.'.format(name)
-                    ret['changes']['bond'] = ''.join(diff)
+                    ret['changes']['bond'] = '\n'.join(diff)
             else:
                 if not old and new:
                     ret['comment'] = 'Bond interface {0} ' \
                                      'added.'.format(name)
                     ret['changes']['bond'] = 'Added bond {0}.'.format(name)
                 elif old != new:
-                    diff = difflib.unified_diff(old, new)
+                    diff = difflib.unified_diff(old, new, lineterm='')
                     ret['comment'] = 'Bond interface {0} ' \
                                      'updated.'.format(name)
-                    ret['changes']['bond'] = ''.join(diff)
+                    ret['changes']['bond'] = '\n'.join(diff)
         except AttributeError as error:
             #TODO Add a way of reversing the interface changes.
             ret['result'] = False
@@ -354,20 +355,20 @@ def routes(name, **kwargs):
                 ret['comment'] = 'Interface {0} routes are set to be added.'.format(name)
                 return ret
             elif old != new:
-                diff = difflib.unified_diff(old, new)
+                diff = difflib.unified_diff(old, new, lineterm='')
                 ret['result'] = None
                 ret['comment'] = 'Interface {0} routes are set to be updated.'.format(name)
-                ret['changes']['network_routes'] = ''.join(diff)
+                ret['changes']['network_routes'] = '\n'.join(diff)
                 return ret
         if not old and new:
             apply_routes = True
             ret['comment'] = 'Interface {0} routes added.'.format(name)
             ret['changes']['network_routes'] = 'Added interface {0} routes.'.format(name)
         elif old != new:
-            diff = difflib.unified_diff(old, new)
+            diff = difflib.unified_diff(old, new, lineterm='')
             apply_routes = True
             ret['comment'] = 'Interface {0} routes updated.'.format(name)
-            ret['changes']['network_routes'] = ''.join(diff)
+            ret['changes']['network_routes'] = '\n'.join(diff)
     except AttributeError as error:
         ret['result'] = False
         ret['comment'] = str(error)
@@ -416,18 +417,18 @@ def system(name, **kwargs):
                 ret['comment'] = 'Global network settings are set to be added.'
                 return ret
             elif old != new:
-                diff = difflib.unified_diff(old, new)
+                diff = difflib.unified_diff(old, new, lineterm='')
                 ret['result'] = None
                 ret['comment'] = 'Global network settings are set to be updated.'
-                ret['changes']['network_settings'] = ''.join(diff)
+                ret['changes']['network_settings'] = '\n'.join(diff)
                 return ret
         if not old and new:
             apply_net_settings = True
             ret['changes']['network_settings'] = 'Added global network settings.'
         elif old != new:
-            diff = difflib.unified_diff(old, new)
+            diff = difflib.unified_diff(old, new, lineterm='')
             apply_net_settings = True
-            ret['changes']['network_settings'] = ''.join(diff)
+            ret['changes']['network_settings'] = '\n'.join(diff)
     except AttributeError as error:
         ret['result'] = False
         ret['comment'] = str(error)
