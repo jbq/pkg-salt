@@ -1,3 +1,9 @@
+salt (2014.7.4+ds-1utopic2) utopic; urgency=medium
+
+  * [8bdb75c] Re-added salt ufw config file
+
+ -- Joe Healy <joehealy@gmail.com>  Thu, 16 Apr 2015 21:55:44 +1000
+
 salt (2014.7.4+ds-1utopic1) utopic; urgency=medium
 
   [ Benjamin Drung ]
