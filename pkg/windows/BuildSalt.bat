@@ -1,6 +1,7 @@
 @ echo off
 @ echo Salt Windows Build Script
 @ echo.
+
 :: Define Variables
 @ echo Defining Variables...
 @ echo ---------------------
@@ -8,6 +9,7 @@ Set "CurrDir=%cd%"
 Set "BinDir=%cd%\buildenv\bin"
 Set "InsDir=%cd%\installer"
 Set "PyDir=C:\Python27"
+Set "Version=%1"
 
 :: Find the NSIS Installer
 If Exist "C:\Program Files\NSIS\" (
@@ -27,6 +29,14 @@ If Exist "%BinDir%\" rd /S /Q "%BinDir%"
 @echo xcopy /S /E "%PyDir%" "%BinDir%\"
 xcopy /S /E "%PyDir%" "%BinDir%\"
 @ echo.
+
+:: Remove the fixed path in .exe files
+@echo Removing fixed path from .exe files
+python "%CurrDir%\portable.py" -f "%BinDir%\Scripts\easy_install.exe"
+python "%CurrDir%\portable.py" -f "%BinDir%\Scripts\easy_install-2.7.exe"
+python "%CurrDir%\portable.py" -f "%BinDir%\Scripts\pip.exe"
+python "%CurrDir%\portable.py" -f "%BinDir%\Scripts\pip2.7.exe"
+python "%CurrDir%\portable.py" -f "%BinDir%\Scripts\pip2.exe"
 
 @ echo Cleaning up unused files and directories...
 @ echo -------------------------------------------
@@ -49,6 +59,9 @@ If Exist "%BinDir%\DLLs\tcl85.dll"    del /S /Q "%BinDir%\DLLs\tcl85.dll"
 If Exist "%BinDir%\DLLs\tclpip85.dll" del /S /Q "%BinDir%\DLLs\tclpip85.dll"
 If Exist "%BinDir%\DLLs\tk85.dll"     del /S /Q "%BinDir%\DLLs\tk85.dll"
 
+:: Delete Unused .lib files
+If Exist "%BinDir%\libs\_tkinter.lib" del /S /Q "%BinDir%\libs\_tkinter.lib"
+
 :: Delete .txt files
 If Exist "%BinDir%\NEWS.txt"   del /q "%BinDir%\NEWS.txt"
 If Exist "%BinDir%\README.txt" del /q "%BinDir%\README.txt"
@@ -56,7 +69,7 @@ If Exist "%BinDir%\README.txt" del /q "%BinDir%\README.txt"
 
 @ echo Building the installer...
 @ echo -------------------------
-makensis.exe "%InsDir%\Salt-Minion-Setup.nsi"
+makensis.exe /DSaltVersion="%Version%" "%InsDir%\Salt-Minion-Setup.nsi"
 @ echo.
 
 @ echo.
@@ -65,5 +78,7 @@ makensis.exe "%InsDir%\Salt-Minion-Setup.nsi"
 @ echo -------------------
 @ echo Installation file can be found in the following directory:
 @ echo %InsDir%
-pause
+
+done:
+if [%Version%] == [] pause
 cls

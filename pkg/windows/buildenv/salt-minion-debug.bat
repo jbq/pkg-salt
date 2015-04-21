@@ -1,2 +1,11 @@
+@ echo off
+:: Script for starting the Salt-Minion
+:: Accepts all parameters that Salt-Minion Accepts
+
+:: Define Variables
+Set Python=%~dp0bin\python.exe
+Set Script=%~dp0bin\Scripts\salt-minion
+
 net stop salt-minion
-.\bin\python.exe .\bin\Scripts\salt-minion -l debug -c C:\salt\conf
+
+"%Python%" "%Script%" -l debug
