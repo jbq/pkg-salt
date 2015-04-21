@@ -1,10 +1,10 @@
-salt (2014.7.4+ds-1utopic2) utopic; urgency=medium
+salt (2014.7.5+ds-1) UNRELEASED; urgency=medium
 
-  * [8bdb75c] Re-added salt ufw config file
+  * [f41091a] Imported Upstream version 2014.7.5+ds
 
- -- Joe Healy <joehealy@gmail.com>  Thu, 16 Apr 2015 21:55:44 +1000
+ -- Joe Healy <joehealy@gmail.com>  Tue, 21 Apr 2015 11:46:27 +1000
 
-salt (2014.7.4+ds-1utopic1) utopic; urgency=medium
+salt (2014.7.4+ds-1) UNRELEASED; urgency=medium
 
   [ Benjamin Drung ]
   * [c1f16f3] debian/changelog: Use capital UNRELEASED
