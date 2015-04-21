@@ -43,10 +43,9 @@ string will be the contents of the managed file. For example:
 
 .. note::
 
-    When using both the ``defaults`` and ``context`` arguments, note the extra
-    indentation (four spaces instead of the normal two). This is due to an
-    idiosyncrasy of how PyYAML loads nested dictionaries, and is explained in
-    greater detail :ref:`here <nested-dict-indentation>`.
+    The ``defaults`` and ``context`` arguments require extra indentation (four
+    spaces instead of the normal two) in order to create a nested dictionary.
+    :ref:`More information <nested-dict-indentation>`.
 
 If using a template, any user-defined template variables in the file defined in
 ``source`` must be passed in using the ``defaults`` and/or ``context``
@@ -1354,14 +1353,12 @@ def managed(name,
                 contents,
                 **kwargs
             )
-            if not ret['changes']:
-                ret['result'] = True
-            else:
-                ret['result'] = None
 
             if ret['changes']:
+                ret['result'] = None
                 ret['comment'] = 'The file {0} is set to be changed'.format(name)
             else:
+                ret['result'] = True
                 ret['comment'] = 'The file {0} is in the correct state'.format(name)
 
             return ret
