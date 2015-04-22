@@ -64,7 +64,7 @@ class SaltCacheLoader(BaseLoader):
         self.opts = opts
         self.saltenv = saltenv
         self.encoding = encoding
-        if self.opts.get('__pillar', False):
+        if self.opts['file_roots'] is self.opts['pillar_roots']:
             self.searchpath = opts['file_roots'][saltenv]
         else:
             self.searchpath = [path.join(opts['cachedir'], 'files', saltenv)]
@@ -235,7 +235,7 @@ class SerializerExtension(Extension, object):
 
     .. code-block:: jinja
 
-        {{ data|yaml(False)}}
+        {{ data|yaml(False) }}
 
     will be rendered as:
 
@@ -368,8 +368,12 @@ class SerializerExtension(Extension, object):
         return Markup(json.dumps(value, sort_keys=True).strip())
 
     def format_yaml(self, value, flow_style=True):
-        return Markup(yaml.dump(value, default_flow_style=flow_style,
-                                Dumper=OrderedDictDumper).strip())
+        yaml_txt = yaml.dump(value, default_flow_style=flow_style,
+                             Dumper=OrderedDictDumper).strip()
+        if yaml_txt.endswith('\n...\n'):
+            log.info('Yaml filter ended with "\n...\n". This trailing string '
+                     'will be removed in Boron.')
+        return Markup(yaml_txt)
 
     def format_python(self, value):
         return Markup(pprint.pformat(value).strip())

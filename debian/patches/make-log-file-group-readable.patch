@@ -1,0 +1,23 @@
+From 7cd688e6490a410ee62a1461857055aaa4309bc2 Mon Sep 17 00:00:00 2001
+From: Benjamin Drung <benjamin.drung@profitbricks.com>
+Date: Fri, 6 Feb 2015 17:00:58 +0100
+Subject: [PATCH] Make log file group readable
+
+The log file can only read and written by root. Making the log file group
+readable allows users belonging to this group to read the salt log without
+becoming root first.
+---
+ salt/cli/daemons.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/salt/__init__.py
++++ b/salt/__init__.py
+@@ -209,7 +209,7 @@
+                                                                     'udp://',
+                                                                     'file://')):
+                         # Logfile is not using Syslog, verify
+-                        current_umask = os.umask(0077)
++                        current_umask = os.umask(0o027)
+                         verify_files([logfile], self.config['user'])
+                         os.umask(current_umask)
+             except OSError as err:

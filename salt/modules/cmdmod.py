@@ -171,6 +171,7 @@ def _run(cmd,
          timeout=None,
          with_communicate=True,
          reset_system_locale=True,
+         ignore_retcode=False,
          saltenv='base',
          use_vt=False):
     '''
@@ -360,7 +361,10 @@ def _run(cmd,
         )
 
     if python_shell is not True and not isinstance(cmd, list):
-        cmd = shlex.split(cmd)
+        posix = True
+        if salt.utils.is_windows():
+            posix = False
+        cmd = shlex.split(cmd, posix=posix)
     if not use_vt:
         # This is where the magic happens
         try:
@@ -465,7 +469,10 @@ def _run(cmd,
         finally:
             proc.close(terminate=True, kill=True)
     try:
-        __context__['retcode'] = ret['retcode']
+        if ignore_retcode:
+            __context__['retcode'] = 0
+        else:
+            __context__['retcode'] = ret['retcode']
     except NameError:
         # Ignore the context error during grain generation
         pass
@@ -612,25 +619,30 @@ def run(cmd,
                quiet=quiet,
                timeout=timeout,
                reset_system_locale=reset_system_locale,
+               ignore_retcode=ignore_retcode,
                saltenv=saltenv,
                use_vt=use_vt)
 
     if 'pid' in ret and '__pub_jid' in kwargs:
         # Stuff the child pid in the JID file
-        proc_dir = os.path.join(__opts__['cachedir'], 'proc')
-        jid_file = os.path.join(proc_dir, kwargs['__pub_jid'])
-        if os.path.isfile(jid_file):
-            serial = salt.payload.Serial(__opts__)
-            with salt.utils.fopen(jid_file, 'rb') as fn_:
-                jid_dict = serial.load(fn_)
+        try:
+            proc_dir = os.path.join(__opts__['cachedir'], 'proc')
+            jid_file = os.path.join(proc_dir, kwargs['__pub_jid'])
+            if os.path.isfile(jid_file):
+                serial = salt.payload.Serial(__opts__)
+                with salt.utils.fopen(jid_file, 'rb') as fn_:
+                    jid_dict = serial.load(fn_)
 
-            if 'child_pids' in jid_dict:
-                jid_dict['child_pids'].append(ret['pid'])
-            else:
-                jid_dict['child_pids'] = [ret['pid']]
-            # Rewrite file
-            with salt.utils.fopen(jid_file, 'w+b') as fn_:
-                fn_.write(serial.dumps(jid_dict))
+                if 'child_pids' in jid_dict:
+                    jid_dict['child_pids'].append(ret['pid'])
+                else:
+                    jid_dict['child_pids'] = [ret['pid']]
+                # Rewrite file
+                with salt.utils.fopen(jid_file, 'w+b') as fn_:
+                    fn_.write(serial.dumps(jid_dict))
+        except (NameError, TypeError):
+            # Avoids errors from msgpack not being loaded in salt-ssh
+            pass
 
     lvl = _check_loglevel(output_loglevel, quiet)
     if lvl is not None:
@@ -707,6 +719,7 @@ def run_stdout(cmd,
                quiet=quiet,
                timeout=timeout,
                reset_system_locale=reset_system_locale,
+               ignore_retcode=ignore_retcode,
                saltenv=saltenv,
                use_vt=use_vt)
 
@@ -790,6 +803,7 @@ def run_stderr(cmd,
                quiet=quiet,
                timeout=timeout,
                reset_system_locale=reset_system_locale,
+               ignore_retcode=ignore_retcode,
                use_vt=use_vt,
                saltenv=saltenv)
 
@@ -873,6 +887,7 @@ def run_all(cmd,
                quiet=quiet,
                timeout=timeout,
                reset_system_locale=reset_system_locale,
+               ignore_retcode=ignore_retcode,
                saltenv=saltenv,
                use_vt=use_vt)
 
@@ -959,6 +974,7 @@ def retcode(cmd,
               quiet=quiet,
               timeout=timeout,
               reset_system_locale=reset_system_locale,
+              ignore_retcode=ignore_retcode,
               saltenv=saltenv,
               use_vt=use_vt)
 

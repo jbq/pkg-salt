@@ -395,7 +395,7 @@ class SaltEvent(object):
         if not self.cpush:
             self.connect_pull(timeout=timeout)
 
-        data['_stamp'] = datetime.datetime.now().isoformat()
+        data['_stamp'] = datetime.datetime.utcnow().isoformat()
 
         tagend = ''
         if len(tag) <= 20:  # old style compatible tag
@@ -602,12 +602,19 @@ class Reactor(multiprocessing.Process, salt.state.Compiler):
 
         for fn_ in glob.glob(glob_ref):
             try:
-                react.update(self.render_template(
+                res = self.render_template(
                     fn_,
                     tag=tag,
-                    data=data))
-            except Exception:
-                log.error('Failed to render "{0}"'.format(fn_))
+                    data=data)
+
+                # for #20841, inject the sls name here since verify_high()
+                # assumes it exists in case there are any errors
+                for name in res:
+                    res[name]['__sls__'] = fn_
+
+                react.update(res)
+            except Exception as e:
+                log.error('Failed to render "{0}"\n{1}'.format(fn_, e))
         return react
 
     def list_reactors(self, tag):
@@ -656,15 +663,19 @@ class Reactor(multiprocessing.Process, salt.state.Compiler):
         log.debug('Compiling reactions for tag {0}'.format(tag))
         high = {}
         chunks = []
-        for fn_ in reactors:
-            high.update(self.render_reaction(fn_, tag, data))
-        if high:
-            errors = self.verify_high(high)
-            if errors:
-                log.error(('Unable to render reactions for event {0} due to '
-                           'errors ({1}) in one or more of the sls files ({2})').format(tag, errors, reactors))
-                return []  # We'll return nothing since there was an error
-            chunks = self.order_chunks(self.compile_high_data(high))
+        try:
+            for fn_ in reactors:
+                high.update(self.render_reaction(fn_, tag, data))
+            if high:
+                errors = self.verify_high(high)
+                if errors:
+                    log.error(('Unable to render reactions for event {0} due to '
+                               'errors ({1}) in one or more of the sls files ({2})').format(tag, errors, reactors))
+                    return []  # We'll return nothing since there was an error
+                chunks = self.order_chunks(self.compile_high_data(high))
+        except Exception as exc:
+            log.error('Exception trying to compile reactions: {0}'.format(exc), exc_info=True)
+
         return chunks
 
     def call_reactions(self, chunks):
@@ -731,7 +742,12 @@ class ReactWrap(object):
         '''
         if 'local' not in self.client_cache:
             self.client_cache['local'] = salt.client.LocalClient(self.opts['conf_file'])
-        self.client_cache['local'].cmd_async(*args, **kwargs)
+        try:
+            self.client_cache['local'].cmd_async(*args, **kwargs)
+        except SystemExit:
+            log.warning('Attempt to exit in reactor by local. Ignored')
+        except Exception as exc:
+            log.warning('Exception caught by reactor: {0}'.format(exc))
 
     cmd = local
 
@@ -741,7 +757,12 @@ class ReactWrap(object):
         '''
         if 'runner' not in self.client_cache:
             self.client_cache['runner'] = salt.runner.RunnerClient(self.opts)
-        self.pool.fire_async(self.client_cache['runner'].low, args=(fun, kwargs))
+        try:
+            self.pool.fire_async(self.client_cache['runner'].low, args=(fun, kwargs))
+        except SystemExit:
+            log.warning('Attempt to exit in reactor by runner. Ignored')
+        except Exception as exc:
+            log.warning('Exception caught by reactor: {0}'.format(exc))
 
     def wheel(self, fun, **kwargs):
         '''
@@ -749,7 +770,12 @@ class ReactWrap(object):
         '''
         if 'wheel' not in self.client_cache:
             self.client_cache['wheel'] = salt.wheel.Wheel(self.opts)
-        self.pool.fire_async(self.client_cache['wheel'].low, args=(fun, kwargs))
+        try:
+            self.pool.fire_async(self.client_cache['wheel'].low, args=(fun, kwargs))
+        except SystemExit:
+            log.warning('Attempt to exit in reactor by wheel. Ignored')
+        except Exception as exc:
+            log.warning('Exception caught by reactor: {0}'.format(exc))
 
 
 class StateFire(object):

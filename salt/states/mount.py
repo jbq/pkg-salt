@@ -52,7 +52,7 @@ def mounted(name,
 
     device
         The device name, typically the device node, such as ``/dev/sdb1``
-        or ``UUID=066e0200-2867-4ebe-b9e6-f30026ca2314``
+        or ``UUID=066e0200-2867-4ebe-b9e6-f30026ca2314`` or ``LABEL=DATA``
 
     fstype
         The filesystem type, this will be ``xfs``, ``ext2/3/4`` in the case of classic
@@ -114,13 +114,24 @@ def mounted(name,
                 real_device = _real_device
             else:
                 # Remote file systems act differently.
-                opts = list(set(opts + active[_device]['opts'] + active[_device]['superopts']))
-                active[real_name]['opts'].append('bind')
+                if _device in active:
+                    opts = list(set(opts + active[_device]['opts'] + active[_device]['superopts']))
+                    active[real_name]['opts'].append('bind')
                 real_device = active[real_name]['device']
         else:
             real_device = os.path.realpath(device)
     elif device.upper().startswith('UUID='):
         real_device = device.split('=')[1].strip('"').lower()
+    elif device.upper().startswith('LABEL='):
+        _label = device.split('=')[1]
+        cmd = 'blkid -L {0}'.format(_label)
+        res = __salt__['cmd.run_all']('{0}'.format(cmd))
+        if res['retcode'] > 0:
+            ret['comment'] = 'Unable to find device with label {0}.'.format(_label)
+            ret['result'] = False
+            return ret
+        else:
+            real_device = res['stdout']
     else:
         real_device = device
 
@@ -152,15 +163,20 @@ def mounted(name,
 
     device_list = []
     if real_name in active:
+        if 'superopts' not in active[real_name]:
+            active[real_name]['superopts'] = []
         if mount:
             device_list.append(active[real_name]['device'])
             device_list.append(os.path.realpath(device_list[0]))
             alt_device = active[real_name]['alt_device'] if 'alt_device' in active[real_name] else None
             uuid_device = active[real_name]['device_uuid'] if 'device_uuid' in active[real_name] else None
+            label_device = active[real_name]['device_label'] if 'device_label' in active[real_name] else None
             if alt_device and alt_device not in device_list:
                 device_list.append(alt_device)
             if uuid_device and uuid_device not in device_list:
                 device_list.append(uuid_device)
+            if label_device and label_device not in device_list:
+                device_list.append(label_device)
             if opts:
                 mount_invisible_options = [
                     '_netdev',
@@ -170,12 +186,17 @@ def mounted(name,
                     'defaults',
                     'delay_connect',
                     'intr',
+                    'loop',
+                    'nointr',
                     'nobootwait',
                     'nofail',
                     'password',
                     'reconnect',
                     'retry',
                     'soft',
+                    'auto',
+                    'users',
+                    'bind',
                 ]
                 # options which are provided as key=value (e.g. password=Zohp5ohb)
                 mount_invisible_keys = [
@@ -184,6 +205,7 @@ def mounted(name,
                     'password',
                     'retry',
                 ]
+
                 for opt in opts:
                     keyval_option = opt.split('=')[0]
                     if keyval_option in mount_invisible_keys:
@@ -197,6 +219,9 @@ def mounted(name,
                         if size_match.group('size_unit') == 'g':
                             converted_size = int(size_match.group('size_value')) * 1024 * 1024
                         opt = "size={0}k".format(converted_size)
+                    # make cifs option user synonym for option username which is reported by /proc/mounts
+                    if fstype in ['cifs'] and opt.split('=')[0] == 'user':
+                        opt = "username={0}".format(opt.split('=')[1])
 
                     if opt not in active[real_name]['opts'] and opt not in active[real_name]['superopts'] and opt not in mount_invisible_options:
                         if __opts__['test']:
@@ -204,9 +229,9 @@ def mounted(name,
                             ret['comment'] = "Remount would be forced because options ({0}) changed".format(opt)
                             return ret
                         else:
-                            # nfs requires umounting and mounting if options change
+                            # Some file systems require umounting and mounting if options change
                             # add others to list that require similiar functionality
-                            if fstype in ['nfs']:
+                            if fstype in ['nfs', 'cvfs'] or fstype.startswith('fuse'):
                                 ret['changes']['umount'] = "Forced unmount and mount because " \
                                                             + "options ({0}) changed".format(opt)
                                 unmount_result = __salt__['mount.umount'](real_name)

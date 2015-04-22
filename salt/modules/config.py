@@ -9,6 +9,13 @@ import os
 
 # Import salt libs
 import salt.utils
+try:
+    # Gated for salt-ssh (salt.utils.cloud imports msgpack)
+    import salt.utils.cloud
+    HAS_CLOUD = True
+except ImportError:
+    HAS_CLOUD = False
+
 import salt._compat
 import salt.syspaths as syspaths
 import salt.utils.sdb as sdb
@@ -279,3 +286,23 @@ def dot_vals(value):
         if key.startswith('{0}.'.format(value)):
             ret[key] = val
     return ret
+
+
+def gather_bootstrap_script(bootstrap=None):
+    '''
+    Download the salt-bootstrap script, and return its location
+
+    bootstrap
+        URL of alternate bootstrap script
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' config.gather_bootstrap_script
+    '''
+    if not HAS_CLOUD:
+        return False, 'config.gather_bootstrap_script is unavailable'
+    ret = salt.utils.cloud.update_bootstrap(__opts__, url=bootstrap)
+    if 'Success' in ret and len(ret['Success']['Files updated']) > 0:
+        return ret['Success']['Files updated'][0]

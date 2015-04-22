@@ -6,6 +6,7 @@ Execute chef in server or solo mode
 # Import Python libs
 import logging
 import os
+import tempfile
 
 # Import Salt libs
 import salt.utils
@@ -24,12 +25,19 @@ def __virtual__():
 
 
 def _default_logfile(exe_name):
-
+    '''
+    Retrieve the logfile name
+    '''
     if salt.utils.is_windows():
-        logfile = salt.utils.path_join(
-            os.environ['TMP'],
-            '{0}.log'.format(exe_name)
-        )
+        tmp_dir = os.path.join(__opts__['cachedir'], 'tmp')
+        if not os.path.isdir(tmp_dir):
+            os.mkdir(tmp_dir)
+        logfile_tmp = tempfile.NamedTemporaryFile(dir=tmp_dir,
+                                                  prefix=exe_name,
+                                                  suffix='.log',
+                                                  delete=False)
+        logfile = logfile_tmp.name
+        logfile_tmp.close()
     else:
         logfile = salt.utils.path_join(
             '/var/log',
@@ -42,7 +50,7 @@ def _default_logfile(exe_name):
 @decorators.which('chef-client')
 def client(whyrun=False,
            localmode=False,
-           logfile=_default_logfile('chef-client'),
+           logfile=None,
            **kwargs):
     '''
     Execute a chef client run and return a dict with the stderr, stdout,
@@ -111,6 +119,8 @@ def client(whyrun=False,
         Enable whyrun mode when set to True
 
     '''
+    if logfile is None:
+        logfile = _default_logfile('chef-client'),
     args = ['chef-client',
             '--no-color',
             '--once',
@@ -128,7 +138,7 @@ def client(whyrun=False,
 
 @decorators.which('chef-solo')
 def solo(whyrun=False,
-         logfile=_default_logfile('chef-solo'),
+         logfile=None,
          **kwargs):
     '''
     Execute a chef solo run and return a dict with the stderr, stdout,
@@ -178,12 +188,12 @@ def solo(whyrun=False,
     whyrun
         Enable whyrun mode when set to True
     '''
+    if logfile is None:
+        logfile = _default_logfile('chef-solo'),
     args = ['chef-solo',
             '--no-color',
             '--logfile "{0}"'.format(logfile),
             '--format doc']
-
-    args = ['chef-solo', '--no-color', '--logfile {0}'.format(logfile)]
 
     if whyrun:
         args.append('--why-run')

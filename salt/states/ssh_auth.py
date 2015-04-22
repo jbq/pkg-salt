@@ -169,18 +169,41 @@ def present(
         return ret
 
     if source != '':
-        data = __salt__['ssh.set_auth_key_from_file'](
-                user,
+        key = __salt__['cp.get_file_str'](
                 source,
-                config,
                 saltenv=__env__)
+        fileHasOptions = False
+        # check if this is of form {options} {enc} {key} {comment}
+        sshre = re.compile(r'^(ssh\-|ecds).*')
+        key = key.rstrip().split('\n')
+        for keyline in key:
+            fileHasOptions = sshre.match(keyline)
+            if not fileHasOptions:
+                data = __salt__['ssh.set_auth_key_from_file'](
+                        user,
+                        source,
+                        config,
+                        saltenv=__env__)
+            else:
+                # Split keyline to get key und commen
+                keyline = keyline.split(' ')
+                key_type = keyline[0]
+                key_value = keyline[1]
+                key_comment = keyline[2] if len(keyline) > 2 else ''
+                data = __salt__['ssh.set_auth_key'](
+                        user,
+                        key_value,
+                        key_type,
+                        key_comment,
+                        options or [],
+                        config)
     else:
         # check if this is of form {options} {enc} {key} {comment}
         sshre = re.compile(r'^(.*?)\s?((?:ssh\-|ecds)[\w-]+\s.+)$')
         fullkey = sshre.search(name)
         # if it is {key} [comment]
         if not fullkey:
-            key_and_comment = name.split()
+            key_and_comment = name.split(None, 1)
             name = key_and_comment[0]
             if len(key_and_comment) == 2:
                 comment = key_and_comment[1]
@@ -189,7 +212,7 @@ def present(
             if fullkey.group(1):
                 options = fullkey.group(1).split(',')
             # key is of format: {enc} {key} [comment]
-            comps = fullkey.group(2).split()
+            comps = fullkey.group(2).split(None, 2)
             enc = comps[0]
             name = comps[1]
             if len(comps) == 3:
@@ -272,7 +295,7 @@ def absent(name,
     fullkey = sshre.search(name)
     # if it is {key} [comment]
     if not fullkey:
-        key_and_comment = name.split()
+        key_and_comment = name.split(None, 1)
         name = key_and_comment[0]
         if len(key_and_comment) == 2:
             comment = key_and_comment[1]
@@ -281,7 +304,7 @@ def absent(name,
         if fullkey.group(1):
             options = fullkey.group(1).split(',')
         # key is of format: {enc} {key} [comment]
-        comps = fullkey.group(2).split()
+        comps = fullkey.group(2).split(None, 2)
         enc = comps[0]
         name = comps[1]
         if len(comps) == 3:

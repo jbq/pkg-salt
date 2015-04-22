@@ -96,6 +96,15 @@ try:
 except ImportError:
     HAS_SETPROCTITLE = False
 
+try:
+    import ctypes
+    import ctypes.util
+    libc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("c"))
+    res_init = libc.__res_init
+    HAS_RESINIT = True
+except (ImportError, OSError, AttributeError):
+    HAS_RESINIT = False
+
 # Import salt libs
 import salt._compat
 import salt.exitcodes
@@ -353,8 +362,14 @@ def which(exe=None):
     '''
     Python clone of /usr/bin/which
     '''
+    def _is_executable_file_or_link(exe):
+        # check for os.X_OK doesn't suffice because directory may executable
+        return (os.access(exe, os.X_OK) and
+                (os.path.isfile(exe) or os.path.islink(exe)))
+
     if exe:
-        if os.access(exe, os.X_OK):
+        if _is_executable_file_or_link(exe):
+            # executable in cwd or fullpath
             return exe
 
         # default path based on busybox's default
@@ -394,7 +409,7 @@ def which(exe=None):
             )
         for path in search_path:
             full_path = os.path.join(path, exe)
-            if os.access(full_path, os.X_OK):
+            if _is_executable_file_or_link(full_path):
                 return full_path
             elif is_windows() and not _exe_has_ext():
                 # On Windows, check for any extensions in PATHEXT.
@@ -402,7 +417,7 @@ def which(exe=None):
                 for ext in ext_list:
                     # Windows filesystem is case insensitive so we
                     # safely rely on that behavior
-                    if os.access(full_path + ext, os.X_OK):
+                    if _is_executable_file_or_link(full_path + ext):
                         return full_path + ext
         log.trace(
             '{0!r} could not be found in the following search '
@@ -512,6 +527,9 @@ def dns_check(addr, safe=False, ipv6=False):
     '''
     error = False
     try:
+        # issue #21397: force glibc to re-read resolv.conf
+        if HAS_RESINIT:
+            res_init()
         hostnames = socket.getaddrinfo(
             addr, None, socket.AF_UNSPEC, socket.SOCK_STREAM
         )
@@ -572,6 +590,18 @@ def required_modules_error(name, docstring):
     filename = os.path.basename(name).split('.')[0]
     msg = '\'{0}\' requires these python modules: {1}'
     return msg.format(filename, ', '.join(modules))
+
+
+def get_accumulator_dir(cachedir):
+    '''
+    Return the directory that accumulator data is stored in, creating it if it
+    doesn't exist.
+    '''
+    fn_ = os.path.join(cachedir, 'accumulator')
+    if not os.path.isdir(fn_):
+        # accumulator_dir is not present, create it
+        os.makedirs(fn_)
+    return fn_
 
 
 def gen_jid():
@@ -830,7 +860,9 @@ def format_call(fun,
 
     aspec = get_function_argspec(fun)
 
-    args, kwargs = arg_lookup(fun).itervalues()
+    arg_data = arg_lookup(fun)
+    args = arg_data['args']
+    kwargs = arg_data['kwargs']
 
     # Since we WILL be changing the data dictionary, let's change a copy of it
     data = data.copy()
@@ -1373,13 +1405,10 @@ def is_fcntl_available(check_sunos=False):
     Simple function to check if the `fcntl` module is available or not.
 
     If `check_sunos` is passed as `True` an additional check to see if host is
-    SunOS is also made. For additional information check commit:
-        http://goo.gl/159FF8
+    SunOS is also made. For additional information see: http://goo.gl/159FF8
     '''
-    if HAS_FCNTL is False:
+    if check_sunos and is_sunos():
         return False
-    if check_sunos is True:
-        return HAS_FCNTL and is_sunos()
     return HAS_FCNTL
 
 

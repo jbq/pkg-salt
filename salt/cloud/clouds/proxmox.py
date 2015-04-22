@@ -412,7 +412,7 @@ def list_nodes(call=None):
         ret[vm_name] = {}
         ret[vm_name]['id'] = str(vm_details['vmid'])
         ret[vm_name]['image'] = str(vm_details['vmid'])
-        ret[vm_name]['size'] = str(vm_details['config']['disk'])
+        ret[vm_name]['size'] = str(vm_details['disk'])
         ret[vm_name]['state'] = str(vm_details['status'])
 
         # Figure out which is which to put it in the right column
@@ -477,12 +477,6 @@ def create(vm_):
         salt-cloud -p proxmox-ubuntu vmhostname
     '''
     ret = {}
-    deploy = config.get_cloud_config_value('deploy', vm_, __opts__)
-    if deploy is True and salt.utils.which('sshpass') is None:
-        raise SaltCloudSystemExit(
-            'Cannot deploy salt in a VM if the \'sshpass\' binary is not '
-            'present on the system.'
-        )
 
     salt.utils.cloud.fire_event(
         'event',
@@ -647,7 +641,6 @@ def create(vm_):
             transport=__opts__['transport']
         )
 
-        deployed = False
         if win_installer:
             deployed = salt.utils.cloud.deploy_windows(**deploy_kwargs)
         else:

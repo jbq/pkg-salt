@@ -94,7 +94,7 @@ class SaltCMD(parsers.SaltCMDOptionParser):
 
             if self.options.static:
 
-                batch = salt.cli.batch.Batch(self.config, quiet=True)
+                batch = salt.cli.batch.Batch(self.config, eauth=eauth, quiet=True)
 
                 ret = {}
 
@@ -104,7 +104,7 @@ class SaltCMD(parsers.SaltCMDOptionParser):
                 self._output_ret(ret, '')
 
             else:
-                batch = salt.cli.batch.Batch(self.config)
+                batch = salt.cli.batch.Batch(self.config, eauth=eauth)
                 # Printing the output is already taken care of in run() itself
                 for res in batch.run():
                     pass
@@ -270,6 +270,8 @@ class SaltCMD(parsers.SaltCMDOptionParser):
         if isinstance(ret, str):
             self.exit(2, '{0}\n'.format(ret))
         for host in ret:
+            if ret[host] == 'Minion did not return. [Not connected]':
+                continue
             for fun in ret[host]:
                 if fun not in docs:
                     if ret[host][fun]:

@@ -196,12 +196,6 @@ def create(vm_):
     Create a single VM from a data dict
     '''
     deploy = config.get_cloud_config_value('deploy', vm_, __opts__)
-    if deploy is True and salt.utils.which('sshpass') is None:
-        raise SaltCloudSystemExit(
-            'Cannot deploy salt in a VM if the \'sshpass\' binary is not '
-            'present on the system.'
-        )
-
     salt.utils.cloud.fire_event(
         'event',
         'starting create',
@@ -408,9 +402,11 @@ def create(vm_):
             deploy_kwargs['username'] = config.get_cloud_config_value(
                 'win_username', vm_, __opts__, default='Administrator'
             )
-            deploy_kwargs['password'] = config.get_cloud_config_value(
+            win_pass = config.get_cloud_config_value(
                 'win_password', vm_, __opts__, default=''
             )
+            if win_pass:
+                deploy_kwargs['password'] = win_pass
 
         # Store what was used to the deploy the VM
         event_kwargs = copy.deepcopy(deploy_kwargs)
@@ -429,7 +425,6 @@ def create(vm_):
             transport=__opts__['transport']
         )
 
-        deployed = False
         if win_installer:
             deployed = salt.utils.cloud.deploy_windows(**deploy_kwargs)
         else:

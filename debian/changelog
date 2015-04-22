@@ -1,18 +1,50 @@
-salt (2014.7.1+ds-3lucid6) lucid; urgency=medium
+salt (2014.7.5+ds-1) UNRELEASED; urgency=medium
 
-  * [c0b19db] Backported for lucid. lots of changes!
-  * Fixed salt-api upstart script.
+  * [f41091a] Imported Upstream version 2014.7.5+ds
 
- -- Joe Healy <joehealy@gmail.com>  Fri, 06 Feb 2015 17:13:08 +1100
+ -- Joe Healy <joehealy@gmail.com>  Tue, 21 Apr 2015 11:46:27 +1000
 
-salt (2014.7.1+ds-2) experimental; urgency=medium
+salt (2014.7.4+ds-1) UNRELEASED; urgency=medium
+
+  [ Benjamin Drung ]
+  * [c1f16f3] debian/changelog: Use capital UNRELEASED
+  * [48334b4] Point Vcs-Browser to cgit instead of gitweb.
+  * [b9e3de4] Remove unused ${shlibs:Depends} dependencies
+
+  [ Joe Healy ]
+  * [510c0d1] Imported Upstream version 2014.7.4+ds
+  * [8489807] Updated doc patches
+
+ -- Joe Healy <joehealy@gmail.com>  Wed, 15 Apr 2015 23:08:49 +1000
+
+salt (2014.7.2+ds-1) experimental; urgency=medium
+
+  * [dc3a14e] Added python-debian as dependency for package version tracking
+  * [9de90f3] Updated changelog to relabel versions that were not uploaded
+  * [984a676] Updated watch file to use pypi redirector
+  * [4e082fd] Imported Upstream version 2014.7.2+ds
+  * [7930d76] Added dh_python as a build dep
+  * [1e2ddb6] Refreshed patches for 2014.7.2
+  * [ca0f3e9] "Fixed" timestamps in generated files for reproducible builds.
+  * [9ef435b] Make log file readable by adm user. Closes: 777664
+  * [1feadd6] Refreshed lintian overrides and added comments as to their need
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 17 Mar 2015 20:07:43 +1100
+
+salt (2014.7.1+ds-3) UNRELEASED; urgency=medium
+
+  * [70d659a] Fixed salt-api upstart script
+
+ -- Joe Healy <joehealy@gmail.com>  Tue, 10 Feb 2015 11:20:12 +1100
+
+salt (2014.7.1+ds-2) UNRELEASED; urgency=medium
 
   * [87971d4] Added dependency on python-dateutil
   * [cb9b2e2] Added init.d, systemd and upstart files for salt-api
 
  -- Joe Healy <joehealy@gmail.com>  Thu, 05 Feb 2015 17:22:45 +1100
 
-salt (2014.7.1+ds-1) experimental; urgency=medium
+salt (2014.7.1+ds-1) UNRELEASED; urgency=medium
 
   * [77a2f91] Imported Upstream version 2014.7.1+ds
   * [7525339] Refreshed patches for 2014.7.1

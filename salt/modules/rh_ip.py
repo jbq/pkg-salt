@@ -149,13 +149,6 @@ def _parse_ethtool_opts(opts, iface):
         else:
             _raise_error_iface(iface, 'duplex', valid)
 
-    if 'mtu' in opts:
-        try:
-            int(opts['mtu'])
-            config.update({'mtu': opts['mtu']})
-        except Exception:
-            _raise_error_iface(iface, 'mtu', ['integer'])
-
     if 'speed' in opts:
         valid = ['10', '100', '1000', '10000']
         if str(opts['speed']) in valid:
@@ -562,6 +555,12 @@ def _parse_settings_eth(opts, iface_type, enabled, iface):
         result['dns'] = opts['dns']
         result['peerdns'] = 'yes'
 
+    if 'mtu' in opts:
+        try:
+            result['mtu'] = int(opts['mtu'])
+        except Exception:
+            _raise_error_iface(iface, 'mtu', ['integer'])
+
     if iface_type not in ['bridge']:
         ethtool = _parse_ethtool_opts(opts, iface)
         if ethtool:
@@ -627,7 +626,7 @@ def _parse_settings_eth(opts, iface_type, enabled, iface):
         result['enable_ipv6'] = opts['enable_ipv6']
 
     valid = _CONFIG_TRUE + _CONFIG_FALSE
-    for opt in ['onparent', 'peerdns', 'slave', 'vlan', 'defroute']:
+    for opt in ['onparent', 'peerdns', 'slave', 'vlan', 'defroute', 'stp']:
         if opt in opts:
             if opts[opt] in _CONFIG_TRUE:
                 result[opt] = 'yes'
@@ -802,7 +801,7 @@ def _read_temp(data):
     tout = StringIO.StringIO()
     tout.write(data)
     tout.seek(0)
-    output = tout.readlines()
+    output = tout.read().splitlines()  # Discard newlines
     tout.close()
     return output
 

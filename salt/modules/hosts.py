@@ -23,6 +23,17 @@ def __get_hosts_filename():
     return __salt__['config.option']('hosts.file')
 
 
+def _get_or_create_hostfile():
+    '''
+    Wrapper of __get_hosts_filename but create host file if it
+    does not exist.
+    '''
+    hfn = __get_hosts_filename()
+    if not os.path.exists(hfn):
+        salt.utils.fopen(hfn, 'w').close()
+    return hfn
+
+
 def _list_hosts():
     '''
     Return the hosts found in the hosts file in as an OrderedDict
@@ -124,7 +135,7 @@ def set_host(ip, alias):
 
         salt '*' hosts.set_host <ip> <alias>
     '''
-    hfn = __get_hosts_filename()
+    hfn = _get_or_create_hostfile()
     ovr = False
     if not os.path.isfile(hfn):
         return False
@@ -165,7 +176,7 @@ def rm_host(ip, alias):
     '''
     if not has_pair(ip, alias):
         return True
-    hfn = __get_hosts_filename()
+    hfn = _get_or_create_hostfile()
     lines = salt.utils.fopen(hfn).readlines()
     for ind in range(len(lines)):
         tmpline = lines[ind].strip()
@@ -202,7 +213,7 @@ def add_host(ip, alias):
 
         salt '*' hosts.add_host <ip> <alias>
     '''
-    hfn = __get_hosts_filename()
+    hfn = _get_or_create_hostfile()
     if not os.path.isfile(hfn):
         return False
 
@@ -231,10 +242,10 @@ def _write_hosts(hosts):
             )
         lines.append(line)
 
-    hfn = __get_hosts_filename()
+    hfn = _get_or_create_hostfile()
     with salt.utils.fopen(hfn, 'w+') as ofile:
-        ofile.write(
-            '\n'.join(
-                [l.strip() for l in lines if l.strip()]
-            )
-        )
+        for line in lines:
+            if line.strip():
+                # /etc/hosts needs to end with EOL so that some utils that read
+                # it do not break
+                ofile.write('{0}\n'.format(line.strip()))

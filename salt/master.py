@@ -43,6 +43,7 @@ import salt.utils.verify
 import salt.utils.minions
 import salt.utils.gzip_util
 import salt.utils.process
+from salt.exceptions import FileserverConfigError
 from salt.utils.debug import enable_sigusr1_handler, enable_sigusr2_handler, inspect_stack
 from salt.utils.event import tagify
 import binascii
@@ -267,6 +268,13 @@ class Master(SMaster):
                 'Failed to load fileserver backends, the configured backends '
                 'are: {0}'.format(', '.join(self.opts['fileserver_backend']))
             )
+        else:
+            # Run init() for all backends which support the function, to
+            # double-check configuration
+            try:
+                fileserver.init()
+            except FileserverConfigError as exc:
+                errors.append('{0}'.format(exc))
         if not self.opts['fileserver_backend']:
             errors.append('No fileserver backends are configured')
         if errors:
@@ -1177,15 +1185,19 @@ class AESFuncs(object):
         if any(key not in load for key in ('return', 'jid', 'id')):
             return None
         # if we have a load, save it
-        if 'load' in load:
+        if load.get('load'):
             fstr = '{0}.save_load'.format(self.opts['master_job_cache'])
-            self.mminion.returners[fstr](load['jid'], load)
+            self.mminion.returners[fstr](load['jid'], load['load'])
 
         # Format individual return loads
         for key, item in load['return'].items():
             ret = {'jid': load['jid'],
                    'id': key,
                    'return': item}
+            if 'fun' in load:
+                ret['fun'] = load['fun']
+            if 'arg' in load:
+                ret['fun_args'] = load['arg']
             if 'out' in load:
                 ret['out'] = load['out']
             self._return(ret)
@@ -1495,7 +1507,7 @@ class ClearFuncs(object):
 
         elif os.path.isfile(pubfn):
             # The key has been accepted, check it
-            if salt.utils.fopen(pubfn, 'r').read() != load['pub']:
+            if salt.utils.fopen(pubfn, 'r').read().strip() != load['pub'].strip():
                 log.error(
                     'Authentication attempt from {id} failed, the public '
                     'keys did not match. This may be an attempt to compromise '
@@ -2159,7 +2171,7 @@ class ClearFuncs(object):
             if name in self.opts['external_auth'][extra['eauth']]:
                 auth_list = self.opts['external_auth'][extra['eauth']][name]
             if group_auth_match:
-                auth_list.append(self.ckminions.gather_groups(self.opts['external_auth'][extra['eauth']], groups, auth_list))
+                auth_list = self.ckminions.fill_auth_list_from_groups(self.opts['external_auth'][extra['eauth']], groups, auth_list)
 
             good = self.ckminions.auth_check(
                 auth_list,

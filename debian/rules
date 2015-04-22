@@ -9,3 +9,8 @@ dh_override_auto_build:
 	python setup.py build
 
 
+override_dh_fixperms:
+	dh_fixperms
+	chmod 2750 debian/salt-common/var/log/salt
+	chown root:adm debian/salt-common/var/log/salt
+

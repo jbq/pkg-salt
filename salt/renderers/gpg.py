@@ -121,23 +121,27 @@ def decrypt_object(o, gpg):
             o[k] = decrypt_object(v, gpg)
         return o
     elif isinstance(o, list):
-        return [decrypt_object(e, gpg) for e in o]
+        for number, value in enumerate(o):
+            o[number] = decrypt_object(value, gpg)
+        return o
     else:
         return o
 
 
-def render(data, saltenv='base', sls='', argline='', **kwargs):
+def render(gpg_data, saltenv='base', sls='', argline='', **kwargs):
     '''
     Create a gpg object given a gpg_keydir, and then use it to try to decrypt
     the data to be rendered.
     '''
     if not HAS_GPG:
         raise SaltRenderError('GPG unavailable')
-    if isinstance(__salt__, dict):
-        if 'config.get' in __salt__:
-            homedir = __salt__['config.get']('gpg_keydir', DEFAULT_GPG_KEYDIR)
-        else:
-            homedir = __opts__.get('gpg_keydir', DEFAULT_GPG_KEYDIR)
-        log.debug('Reading GPG keys from: {0}'.format(homedir))
-    gpg = gnupg.GPG(gnupghome=homedir)
-    return decrypt_object(data, gpg)
+    if 'config.get' in __salt__:
+        homedir = __salt__['config.get']('gpg_keydir', DEFAULT_GPG_KEYDIR)
+    else:
+        homedir = __opts__.get('gpg_keydir', DEFAULT_GPG_KEYDIR)
+    log.debug('Reading GPG keys from: {0}'.format(homedir))
+    try:
+        gpg = gnupg.GPG(gnupghome=homedir)
+    except OSError:
+        raise SaltRenderError('Cannot initialize gnupg')
+    return decrypt_object(gpg_data, gpg)

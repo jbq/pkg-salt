@@ -39,30 +39,40 @@ from salt.utils.odict import OrderedDict, DefaultOrderedDict
 log = logging.getLogger(__name__)
 
 
-STATE_INTERNAL_KEYWORDS = frozenset([
-    # These are keywords passed to state module functions which are to be used
-    # by salt in this state module and not on the actual state module function
-    'check_cmd',
-    'fail_hard',
-    'fun',
+# These are keywords passed to state module functions which are to be used
+# by salt in this state module and not on the actual state module function
+STATE_REQUISITE_KEYWORDS = frozenset([
     'onchanges',
     'onfail',
-    'onlyif',
-    'order',
     'prereq',
-    'prereq_in',
-    'reload_modules',
-    'require',
-    'require_in',
-    'saltenv',
-    'state',
-    'unless',
-    'use',
+    'prerequired',
     'watch',
+    'require',
+    'listen',
+    ])
+STATE_REQUISITE_IN_KEYWORDS = frozenset([
+    'onchanges_in',
+    'onfail_in',
+    'prereq_in',
     'watch_in',
-    '__id__',
-    '__sls__',
+    'require_in',
+    'listen_in',
+    ])
+STATE_RUNTIME_KEYWORDS = frozenset([
+    'fun',
+    'state',
+    'check_cmd',
+    'fail_hard',
+    'onlyif',
+    'unless',
+    'order',
+    'reload_modules',
+    'saltenv',
+    'use',
+    'use_in',
     '__env__',
+    '__sls__',
+    '__id__',
     '__pub_user',
     '__pub_arg',
     '__pub_jid',
@@ -70,7 +80,8 @@ STATE_INTERNAL_KEYWORDS = frozenset([
     '__pub_tgt',
     '__pub_ret',
     '__pub_tgt_type',
-])
+    ])
+STATE_INTERNAL_KEYWORDS = STATE_REQUISITE_KEYWORDS.union(STATE_REQUISITE_IN_KEYWORDS).union(STATE_RUNTIME_KEYWORDS)
 
 
 def _odict_hashable(self):
@@ -565,6 +576,7 @@ class State(object):
         self.pre = {}
         self.__run_num = 0
         self.jid = jid
+        self.instance_id = str(id(self))
 
     def _gather_pillar(self):
         '''
@@ -1486,6 +1498,7 @@ class State(object):
             # state module to change these at runtime.
             '__low__': immutabletypes.freeze(low),
             '__running__': immutabletypes.freeze(running) if running else {},
+            '__instance_id__': self.instance_id,
             '__lowstate__': immutabletypes.freeze(chunks) if chunks else {}
         }
 
@@ -1650,14 +1663,15 @@ class State(object):
                         req_val = req[req_key]
                         if req_val is None:
                             continue
+                        if req_key == 'sls':
+                            # Allow requisite tracking of entire sls files
+                            if fnmatch.fnmatch(chunk['__sls__'], req_val):
+                                found = True
+                                reqs[r_state].append(chunk)
+                            continue
                         if (fnmatch.fnmatch(chunk['name'], req_val) or
                             fnmatch.fnmatch(chunk['__id__'], req_val)):
                             if chunk['state'] == req_key:
-                                found = True
-                                reqs[r_state].append(chunk)
-                        elif req_key == 'sls':
-                            # Allow requisite tracking of entire sls files
-                            if fnmatch.fnmatch(chunk['__sls__'], req_val):
                                 found = True
                                 reqs[r_state].append(chunk)
                     if not found:
@@ -1759,6 +1773,14 @@ class State(object):
                         req_val = req[req_key]
                         if req_val is None:
                             continue
+                        if req_key == 'sls':
+                            # Allow requisite tracking of entire sls files
+                            if fnmatch.fnmatch(chunk['__sls__'], req_val):
+                                if requisite == 'prereq':
+                                    chunk['__prereq__'] = True
+                                reqs.append(chunk)
+                                found = True
+                            continue
                         if (fnmatch.fnmatch(chunk['name'], req_val) or
                             fnmatch.fnmatch(chunk['__id__'], req_val)):
                             if chunk['state'] == req_key:
@@ -1766,13 +1788,6 @@ class State(object):
                                     chunk['__prereq__'] = True
                                 elif requisite == 'prerequired':
                                     chunk['__prerequired__'] = True
-                                reqs.append(chunk)
-                                found = True
-                        elif req_key == 'sls':
-                            # Allow requisite tracking of entire sls files
-                            if fnmatch.fnmatch(chunk['__sls__'], req_val):
-                                if requisite == 'prereq':
-                                    chunk['__prereq__'] = True
                                 reqs.append(chunk)
                                 found = True
                     if not found:
@@ -1853,7 +1868,7 @@ class State(object):
             else:
                 # determine what the requisite failures where, and return
                 # a nice error message
-                comment_dict = {}
+                failed_requisites = set()
                 # look at all requisite types for a failure
                 for req_type, req_lows in reqs.iteritems():
                     for req_low in req_lows:
@@ -1868,13 +1883,18 @@ class State(object):
                             # use SLS.ID for the key-- so its easier to find
                             key = '{sls}.{_id}'.format(sls=req_low['__sls__'],
                                                        _id=req_low['__id__'])
-                            comment_dict[key] = req_ret['comment']
+                            failed_requisites.add(key)
 
-                running[tag] = {'changes': {},
-                                'result': False,
-                                'comment': 'One or more requisite failed: {0}'.format(comment_dict),
-                                '__run_num__': self.__run_num,
-                                '__sls__': low['__sls__']}
+                _cmt = 'One or more requisite failed: {0}'.format(
+                    ', '.join(str(i) for i in failed_requisites)
+                )
+                running[tag] = {
+                    'changes': {},
+                    'result': False,
+                    'comment': _cmt,
+                    '__run_num__': self.__run_num,
+                    '__sls__': low['__sls__']
+                }
             self.__run_num += 1
         elif status == 'change' and not low.get('__prereq__'):
             ret = self.call(low, chunks, running)
@@ -1919,7 +1939,7 @@ class State(object):
 
     def call_listen(self, chunks, running):
         '''
-        Find all of the listen routines and call the associated mod_match runs
+        Find all of the listen routines and call the associated mod_watch runs
         '''
         listeners = []
         crefs = {}
@@ -1965,6 +1985,9 @@ class State(object):
                             low['sfun'] = chunk['fun']
                             low['fun'] = 'mod_watch'
                             low['__id__'] = 'listener_{0}'.format(low['__id__'])
+                            for req in STATE_REQUISITE_KEYWORDS:
+                                if req in low:
+                                    low.pop(req)
                             mod_watchers.append(low)
         ret = self.call_chunks(mod_watchers)
         running.update(ret)
@@ -1999,6 +2022,23 @@ class State(object):
             return errors
         ret = self.call_chunks(chunks)
         ret = self.call_listen(chunks, ret)
+
+        def _cleanup_accumulator_data():
+            accum_data_path = os.path.join(
+                salt.utils.get_accumulator_dir(self.opts['cachedir']),
+                self.instance_id
+            )
+            try:
+                os.remove(accum_data_path)
+                log.debug('Deleted accumulator data file {0}'.format(
+                    accum_data_path)
+                )
+            except OSError:
+                log.debug('File {0} does not exist, no need to cleanup.'.format(
+                    accum_data_path)
+                )
+        _cleanup_accumulator_data()
+
         return ret
 
     def render_template(self, high, template):
@@ -2401,7 +2441,6 @@ class BaseHighState(object):
         '''
         Render a state file and retrieve all of the include states
         '''
-        err = ''
         errors = []
         if not local:
             state_data = self.client.get_state(sls, saltenv)
@@ -2416,7 +2455,8 @@ class BaseHighState(object):
         if not fn_:
             errors.append(
                 'Specified SLS {0} in saltenv {1} is not '
-                'available on the salt master'.format(sls, saltenv)
+                'available on the salt master or through a configured '
+                'fileserver'.format(sls, saltenv)
             )
         state = None
         try:
@@ -2725,7 +2765,7 @@ class BaseHighState(object):
                     if state:
                         self.merge_included_states(highstate, state, errors)
                     for i, error in enumerate(errors[:]):
-                        if 'is not available on the salt master' in error:
+                        if 'is not available' in error:
                             # match SLS foobar in environment
                             this_sls = 'SLS {0} in saltenv'.format(
                                 sls_match)
@@ -2936,7 +2976,8 @@ class HighState(BaseHighState):
     stack = []
 
     def __init__(self, opts, pillar=None, jid=None):
-        self.client = salt.fileclient.get_file_client(opts)
+        self.opts = opts
+        self.client = salt.fileclient.get_file_client(self.opts)
         BaseHighState.__init__(self, opts)
         self.state = State(self.opts, pillar, jid)
         self.matcher = salt.minion.Matcher(self.opts)
