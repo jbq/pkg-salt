@@ -1,3 +1,9 @@
+salt (2014.7.5+ds-1lucid1) lucid; urgency=medium
+
+  * [de2b79a] Changes for ubuntu lucid
+
+ -- Joe Healy <joehealy@gmail.com>  Wed, 22 Apr 2015 15:58:15 +1000
+
 salt (2014.7.5+ds-1) UNRELEASED; urgency=medium
 
   * [f41091a] Imported Upstream version 2014.7.5+ds
