@@ -10,7 +10,7 @@ Forwarded: no
  from distutils.command.sdist import sdist
  from distutils.command.install_lib import install_lib
  # pylint: enable=E0611
-+from debian import changelog
++from debian_bundle import changelog
 +DEBIAN_CHANGELOG = changelog.Changelog(open("debian/changelog"))
 +DEBIAN_VERSION = DEBIAN_CHANGELOG.get_version()
 +DEBIAN_DATE = DEBIAN_CHANGELOG._blocks[0].date
