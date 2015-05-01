@@ -13,7 +13,7 @@ Forwarded: no
 +from debian_bundle import changelog
 +DEBIAN_CHANGELOG = changelog.Changelog(open("debian/changelog"))
 +DEBIAN_VERSION = DEBIAN_CHANGELOG.get_version()
-+DEBIAN_DATE = DEBIAN_CHANGELOG._blocks[0].date
++DEBIAN_DATE = DEBIAN_CHANGELOG._blocks[0].date.strip()
 +
  
  try:
