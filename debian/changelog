@@ -1,3 +1,9 @@
+salt (2014.7.5+ds-1lucid3) lucid; urgency=medium
+
+  * [c49554e] strip newline from datestring for _syspath.py date setting
+
+ -- Joe Healy <joehealy@gmail.com>  Fri, 01 May 2015 11:56:50 +1000
+
 salt (2014.7.5+ds-1lucid2) lucid; urgency=medium
 
   * [de90c4c] Fix python-debian import for lucid
