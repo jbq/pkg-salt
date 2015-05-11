@@ -191,21 +191,36 @@ method to use, you still need to specify that the file should be backed up!).
 What is the best way to restart a Salt daemon using Salt?
 ---------------------------------------------------------
 
-Restarting Salt using Salt without having the restart interrupt the whole
-process is a tricky problem to solve. We're still working on it but in the
-meantime a good way is to use the system scheduler with a short interval. The
-following example is a state that will always execute at the very end of a
-state run.
+Updating the salt-minion package requires a restart of the salt-minion service.
+But restarting the service while in the middle of a state run interrupts the
+process of the minion running states and sending results back to the master.
+It's a tricky problem to solve, and we're working on it, but in the meantime
+one way of handling this (on Linux and UNIX-based operating systems) is to use
+**at** (a job scheduler which predates cron) to schedule a restart of the
+service. **at** is not installed by default on most distros, and requires a
+service to be running (usually called **atd**) in order to schedule jobs.
+Here's an example of how to upgrade the salt-minion package at the end of a
+Salt run, and schedule a service restart for one minute after the package
+update completes.
 
 Linux/Unix
 **********
 
 .. code-block:: yaml
 
-    salt-minion-reload:
-      cmd.run:
-        - name: echo service salt-minion restart | at now + 1 minute
+    salt-minion:
+      pkg.installed:
+        - name: salt-minion
+        - version: 2014.1.7-3.el6
         - order: last
+      service.running:
+        - name: salt-minion
+        - require:
+          - pkg: salt-minion
+      cmd.wait:
+        - name: echo service salt-minion restart | at now + 1 minute
+        - watch:
+          - pkg: salt-minion
 
 To ensure that **at** is installed and **atd** is running, the following states
 can be used (be sure to double-check the package name and service name for the
@@ -235,17 +250,21 @@ process.
 Windows
 *******
 
+For Windows machines, restarting the minion at can be accomplished by
+adding the following state:
+
 .. code-block:: yaml
 
     schedule-start:
       cmd.run:
-        - name: at (Get-Date).AddMinutes(1).ToString("HH:mm") cmd /c "net start salt-minion"
-        - shell: powershell
+        - name: 'start powershell "Restart-Service -Name salt-minion"'
         - order: last
-      service.dead:
-        - name: salt-minion
-        - require:
-            - cmd: schedule-start
+
+or running immediately from the command line:
+
+.. code-block:: bash
+
+    salt -G kernel:Windows cmd.run 'start powershell "Restart-Service -Name salt-minion"'
 
 Salting the Salt Master
 -----------------------

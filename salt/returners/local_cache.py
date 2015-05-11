@@ -3,6 +3,7 @@
 Return data to local job cache
 
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import errno
@@ -15,6 +16,7 @@ import hashlib
 # Import salt libs
 import salt.payload
 import salt.utils
+import salt.utils.jid
 
 log = logging.getLogger(__name__)
 
@@ -71,12 +73,20 @@ def _format_job_instance(job):
     '''
     Format the job instance correctly
     '''
-    return {'Function': job.get('fun', 'unknown-function'),
-            'Arguments': list(job.get('arg', [])),
-            # unlikely but safeguard from invalid returns
-            'Target': job.get('tgt', 'unknown-target'),
-            'Target-type': job.get('tgt_type', []),
-            'User': job.get('user', 'root')}
+    ret = {'Function': job.get('fun', 'unknown-function'),
+           'Arguments': list(job.get('arg', [])),
+           # unlikely but safeguard from invalid returns
+           'Target': job.get('tgt', 'unknown-target'),
+           'Target-type': job.get('tgt_type', []),
+           'User': job.get('user', 'root')}
+
+    if 'metadata' in job:
+        ret['Metadata'] = job.get('metadata', {})
+    else:
+        if 'kwargs' in job:
+            if 'metadata' in job['kwargs']:
+                ret['Metadata'] = job['kwargs'].get('metadata', {})
+    return ret
 
 
 def _format_jid_instance(jid, job):
@@ -84,7 +94,7 @@ def _format_jid_instance(jid, job):
     Format the jid correctly
     '''
     ret = _format_job_instance(job)
-    ret.update({'StartTime': salt.utils.jid_to_time(jid)})
+    ret.update({'StartTime': salt.utils.jid.jid_to_time(jid)})
     return ret
 
 
@@ -96,7 +106,7 @@ def prep_jid(nocache=False, passed_jid=None):
     So do what you have to do to make sure that stays the case
     '''
     if passed_jid is None:  # this can be a None of an empty string
-        jid = salt.utils.gen_jid()
+        jid = salt.utils.jid.gen_jid()
     else:
         jid = passed_jid
 
@@ -111,10 +121,10 @@ def prep_jid(nocache=False, passed_jid=None):
         if passed_jid is None:
             return prep_jid(nocache=nocache)
 
-    with salt.utils.fopen(os.path.join(jid_dir_, 'jid'), 'w+') as fn_:
+    with salt.utils.fopen(os.path.join(jid_dir_, 'jid'), 'wb+') as fn_:
         fn_.write(jid)
     if nocache:
-        with salt.utils.fopen(os.path.join(jid_dir_, 'nocache'), 'w+') as fn_:
+        with salt.utils.fopen(os.path.join(jid_dir_, 'nocache'), 'wb+') as fn_:
             fn_.write('')
 
     return jid
@@ -203,6 +213,8 @@ def save_load(jid, clear_load):
 
     # Save the invocation information
     try:
+        if not os.path.exists(jid_dir):
+            os.makedirs(jid_dir)
         serial.dump(
             clear_load,
             salt.utils.fopen(os.path.join(jid_dir, LOAD_P), 'w+b')
@@ -292,7 +304,7 @@ def clean_old_jobs():
                     # No jid file means corrupted cache entry, scrub it
                     shutil.rmtree(f_path)
                 else:
-                    with salt.utils.fopen(jid_file, 'r') as fn_:
+                    with salt.utils.fopen(jid_file, 'rb') as fn_:
                         jid = fn_.read()
                     if len(jid) < 18:
                         # Invalid jid, scrub the dir

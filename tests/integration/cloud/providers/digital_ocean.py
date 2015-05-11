@@ -54,7 +54,7 @@ class DigitalOceanTest(integration.ShellCase):
                 .format(PROVIDER_NAME)
             )
 
-        # check if client_key and api_key are present
+        # check if client_key, api_key, ssh_key_file, and ssh_key_name are present
         path = os.path.join(integration.FILES,
                             'conf',
                             'cloud.providers.d',

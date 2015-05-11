@@ -2,18 +2,19 @@
 '''
 Support for iptables
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import os
 import re
 import sys
+import uuid
 import shlex
 
 # Import salt libs
 import salt.utils
 from salt.state import STATE_INTERNAL_KEYWORDS as _STATE_INTERNAL_KEYWORDS
 from salt.exceptions import SaltException
-import salt.modules.cmdmod as salt_cmd
 
 
 def __virtual__():
@@ -34,6 +35,21 @@ def _iptables_cmd(family='ipv4'):
         return salt.utils.which('ip6tables')
     else:
         return salt.utils.which('iptables')
+
+
+def _has_option(option, family='ipv4'):
+    '''
+    Return truth of whether iptables has `option`.  For example:
+
+    .. code-block:: python
+
+        _has_option('--wait')
+        _has_option('--check', family='ipv6')
+    '''
+    cmd = '{0} --help'.format(_iptables_cmd(family))
+    if option in __salt__['cmd.run'](cmd, output_loglevel='quiet'):
+        return True
+    return False
 
 
 def _conf(family='ipv4'):
@@ -141,7 +157,7 @@ def build_rule(table=None, chain=None, command=None, position='', full=None, fam
 
     rule = ''
     proto = False
-    bang_not_pat = re.compile(r'[!,not]\s?')
+    bang_not_pat = re.compile(r'[!|not]\s?')
 
     if 'if' in kwargs:
         if kwargs['if'].startswith('!') or kwargs['if'].startswith('not'):
@@ -300,6 +316,38 @@ def build_rule(table=None, chain=None, command=None, position='', full=None, fam
         after_jump.append('--reject-with {0} '.format(kwargs['reject-with']))
         del kwargs['reject-with']
 
+    if 'set-mark' in kwargs:
+        after_jump.append('--set-mark {0} '.format(kwargs['set-mark']))
+        del kwargs['set-mark']
+
+    if 'log' in kwargs:
+        after_jump.append('--log {0} '.format(kwargs['log']))
+        del kwargs['log']
+
+    if 'log-level' in kwargs:
+        after_jump.append('--log-level {0} '.format(kwargs['log-level']))
+        del kwargs['log-level']
+
+    if 'log-prefix' in kwargs:
+        after_jump.append('--log-prefix {0} '.format(kwargs['log-prefix']))
+        del kwargs['log-prefix']
+
+    if 'log-tcp-sequence' in kwargs:
+        after_jump.append('--log-tcp-sequence {0} '.format(kwargs['log-tcp-sequence']))
+        del kwargs['log-tcp-sequence']
+
+    if 'log-tcp-options' in kwargs:
+        after_jump.append('--log-tcp-options {0} '.format(kwargs['log-tcp-options']))
+        del kwargs['log-tcp-options']
+
+    if 'log-ip-options' in kwargs:
+        after_jump.append('--log-ip-options {0} '.format(kwargs['log-ip-options']))
+        del kwargs['log-ip-options']
+
+    if 'log-uid' in kwargs:
+        after_jump.append('--log-uid {0} '.format(kwargs['log-uid']))
+        del kwargs['log-uid']
+
     for item in kwargs:
         if str(kwargs[item]).startswith('!') or str(kwargs[item]).startswith('not'):
             kwargs[item] = re.sub(bang_not_pat, '', kwargs[item])
@@ -326,8 +374,10 @@ def build_rule(table=None, chain=None, command=None, position='', full=None, fam
         else:
             flag = '--'
 
-        return '{0} -t {1} {2}{3} {4} {5} {6}'.format(_iptables_cmd(family),
-               table, flag, command, chain, position, rule)
+        wait = '--wait' if _has_option('--wait', family) else ''
+
+        return '{0} {1} -t {2} {3}{4} {5} {6} {7}'.format(_iptables_cmd(family),
+               wait, table, flag, command, chain, position, rule)
 
     return rule
 
@@ -434,7 +484,9 @@ def set_policy(table='filter', chain=None, policy=None, family='ipv4'):
     if not policy:
         return 'Error: Policy needs to be specified'
 
-    cmd = '{0} -t {1} -P {2} {3}'.format(_iptables_cmd(family), table, chain, policy)
+    wait = '--wait' if _has_option('--wait', family) else ''
+    cmd = '{0} {1} -t {2} -P {3} {4}'.format(
+            _iptables_cmd(family), wait, table, chain, policy)
     out = __salt__['cmd.run'](cmd)
     return out
 
@@ -489,25 +541,30 @@ def check(table='filter', chain=None, rule=None, family='ipv4'):
         return 'Error: Chain needs to be specified'
     if not rule:
         return 'Error: Rule needs to be specified'
+    ipt_cmd = _iptables_cmd(family)
 
-    HAS_CHECK = False
-    if '--check' in salt_cmd.run('iptables --help', output_loglevel='quiet'):
-        HAS_CHECK = True
-
-    if HAS_CHECK is False:
-        cmd = '{0}-save' . format(_iptables_cmd(family))
-        out = __salt__['cmd.run'](cmd).find('-A {1} {2}'.format(
-            table,
-            chain,
-            rule,
-        ))
-        if out != -1:
-            out = ''
-        else:
-            return False
-    else:
-        cmd = '{0} -t {1} -C {2} {3}'.format(_iptables_cmd(family), table, chain, rule)
+    if _has_option('--check', family):
+        cmd = '{0} -t {1} -C {2} {3}'.format(ipt_cmd, table, chain, rule)
         out = __salt__['cmd.run'](cmd)
+    else:
+        _chain_name = hex(uuid.getnode())
+
+        # Create temporary table
+        __salt__['cmd.run']('{0} -t {1} -N {2}'.format(ipt_cmd, table, _chain_name))
+        __salt__['cmd.run']('{0} -t {1} -A {2} {3}'.format(ipt_cmd, table, _chain_name, rule))
+
+        out = __salt__['cmd.run']('{0}-save'.format(ipt_cmd))
+
+        # Clean up temporary table
+        __salt__['cmd.run']('{0} -t {1} -F {2}'.format(ipt_cmd, table, _chain_name))
+        __salt__['cmd.run']('{0} -t {1} -X {2}'.format(ipt_cmd, table, _chain_name))
+
+        for i in out.splitlines():
+            if i.startswith('-A {0}'.format(_chain_name)):
+                if i.replace(_chain_name, chain) in out.splitlines():
+                    return True
+
+        return False
 
     if not out:
         return True
@@ -534,7 +591,7 @@ def check_chain(table='filter', chain=None, family='ipv4'):
         return 'Error: Chain needs to be specified'
 
     cmd = '{0}-save -t {1}'.format(_iptables_cmd(family), table)
-    out = __salt__['cmd.run'](cmd).find(':{1} '.format(table, chain))
+    out = __salt__['cmd.run'](cmd).find(':{0} '.format(chain))
 
     if out != -1:
         out = True
@@ -563,7 +620,9 @@ def new_chain(table='filter', chain=None, family='ipv4'):
     if not chain:
         return 'Error: Chain needs to be specified'
 
-    cmd = '{0} -t {1} -N {2}'.format(_iptables_cmd(family), table, chain)
+    wait = '--wait' if _has_option('--wait', family) else ''
+    cmd = '{0} {1} -t {2} -N {3}'.format(
+            _iptables_cmd(family), wait, table, chain)
     out = __salt__['cmd.run'](cmd)
 
     if not out:
@@ -590,7 +649,9 @@ def delete_chain(table='filter', chain=None, family='ipv4'):
     if not chain:
         return 'Error: Chain needs to be specified'
 
-    cmd = '{0} -t {1} -X {2}'.format(_iptables_cmd(family), table, chain)
+    wait = '--wait' if _has_option('--wait', family) else ''
+    cmd = '{0} {1} -t {2} -X {3}'.format(
+            _iptables_cmd(family), wait, table, chain)
     out = __salt__['cmd.run'](cmd)
 
     if not out:
@@ -624,7 +685,9 @@ def append(table='filter', chain=None, rule=None, family='ipv4'):
     if not rule:
         return 'Error: Rule needs to be specified'
 
-    cmd = '{0} -t {1} -A {2} {3}'.format(_iptables_cmd(family), table, chain, rule)
+    wait = '--wait' if _has_option('--wait', family) else ''
+    cmd = '{0} {1} -t {2} -A {3} {4}'.format(
+            _iptables_cmd(family), wait, table, chain, rule)
     out = __salt__['cmd.run'](cmd)
     if len(out) == 0:
         return True
@@ -670,7 +733,9 @@ def insert(table='filter', chain=None, position=None, rule=None, family='ipv4'):
         size = len(rules[table][chain]['rules'])
         position = (size + position) + 1
 
-    cmd = '{0} -t {1} -I {2} {3} {4}'.format(_iptables_cmd(family), table, chain, position, rule)
+    wait = '--wait' if _has_option('--wait', family) else ''
+    cmd = '{0} {1} -t {2} -I {3} {4} {5}'.format(
+            _iptables_cmd(family), wait, table, chain, position, rule)
     out = __salt__['cmd.run'](cmd)
     return out
 
@@ -706,7 +771,9 @@ def delete(table, chain=None, position=None, rule=None, family='ipv4'):
     if position:
         rule = position
 
-    cmd = '{0} -t {1} -D {2} {3}'.format(_iptables_cmd(family), table, chain, rule)
+    wait = '--wait' if _has_option('--wait', family) else ''
+    cmd = '{0} {1} -t {2} -D {3} {4}'.format(
+            _iptables_cmd(family), wait, table, chain, rule)
     out = __salt__['cmd.run'](cmd)
     return out
 
@@ -726,10 +793,8 @@ def flush(table='filter', chain='', family='ipv4'):
         salt '*' iptables.flush filter INPUT family=ipv6
     '''
 
-    if chain:
-        cmd = '{0} -t {1} -F {2}'.format(_iptables_cmd(family), table, chain)
-    else:
-        cmd = '{0} -t {1} -F'.format(_iptables_cmd(family), table)
+    wait = '--wait' if _has_option('--wait', family) else ''
+    cmd = '{0} {1} -t {2} -F {3}'.format(_iptables_cmd(family), wait, table, chain)
     out = __salt__['cmd.run'](cmd)
     return out
 
@@ -820,7 +885,7 @@ def _parser():
         parser = optparse.OptionParser()
         add_arg = parser.add_option
     else:
-        import argparse
+        import argparse  # pylint: disable=minimum-python-version
         parser = argparse.ArgumentParser()
         add_arg = parser.add_argument
 
@@ -1076,7 +1141,7 @@ def _parser():
     ## sctp
     add_arg('--chunk-types', dest='chunk-types', action='append')
     ## set
-    add_arg('--match-set', dest='match-set', action='append')
+    add_arg('--match-set', dest='match-set', action='append', nargs=2)
     add_arg('--return-nomatch', dest='return-nomatch', action='append')
     add_arg('--update-counters', dest='update-counters', action='append')
     add_arg('--update-subcounters', dest='update-subcounters', action='append')

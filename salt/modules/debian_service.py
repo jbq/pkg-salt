@@ -2,14 +2,17 @@
 '''
 Service support for Debian systems (uses update-rc.d and /sbin/service)
 '''
+from __future__ import absolute_import
 
 # Import python libs
+import logging
 import glob
 import re
-try:
-    from shlex import quote as _cmd_quote  # pylint: disable=E0611
-except ImportError:
-    from pipes import quote as _cmd_quote
+
+# Import 3rd-party libs
+# pylint: disable=import-error
+from salt.ext.six.moves import shlex_quote as _cmd_quote
+# pylint: enable=import-error
 
 # Import salt libs
 from salt.modules.systemd import _sd_booted
@@ -21,7 +24,6 @@ __func_alias__ = {
 # Define the module's virtual name
 __virtualname__ = 'service'
 
-import logging
 log = logging.getLogger(__name__)
 
 
@@ -278,7 +280,7 @@ def disable(name, **kwargs):
     return not __salt__['cmd.retcode'](cmd)
 
 
-def enabled(name):
+def enabled(name, **kwargs):
     '''
     Return True if the named service is enabled, false otherwise
 

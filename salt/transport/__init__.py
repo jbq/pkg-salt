@@ -2,6 +2,7 @@
 '''
 Encapsulate the different transports available to Salt.  Currently this is only ZeroMQ.
 '''
+from __future__ import absolute_import
 import time
 import os
 import threading
@@ -9,9 +10,12 @@ import threading
 # Import Salt Libs
 import salt.payload
 import salt.auth
+import salt.crypt
 import salt.utils
 import logging
 from collections import defaultdict
+
+from salt.utils import kinds
 
 log = logging.getLogger(__name__)
 
@@ -23,8 +27,18 @@ except (ImportError, OSError):
     # Don't die on missing transport libs since only one transport is required
     pass
 
-jobber_stack = None  # global that holds raet jobber LaneStack
-jobber_rxMsgs = {}  # dict of deques one for each RaetChannel
+# Module globals for default LaneStack. Because RaetChannels are created on demand
+# they do not have access to the master estate that motivated their creation
+# Also in Raet a LaneStack can be shared shared by all channels in a given jobber
+# For these reasons module globals are used to setup a shared jobber_stack as
+# well has routing information for the master that motivated the jobber
+# when a channel is not used in a jobber context then a LaneStack is created
+# on demand.
+
+jobber_stack = None  # module global that holds raet jobber LaneStack
+jobber_rxMsgs = {}  # dict of deques one for each RaetChannel for the jobber
+jobber_estate_name = None  # module global of motivating master estate name
+jobber_yard_name = None  # module global of motivating master yard name
 
 
 class Channel(object):
@@ -51,6 +65,19 @@ class Channel(object):
             raise Exception('Channels are only defined for ZeroMQ and raet')
             # return NewKindOfChannel(opts, **kwargs)
 
+    def send(self, load, tries=3, timeout=60):
+        '''
+        Send "load" to the master.
+        '''
+        raise NotImplementedError()
+
+    def crypted_transfer_decode_dictentry(self, load, dictkey=None, tries=3, timeout=60):
+        '''
+        Send "load" to the master in a way that the load is only readable by
+        the minion and the master (not other minions etc.)
+        '''
+        raise NotImplementedError()
+
 
 class RAETChannel(Channel):
     '''
@@ -73,54 +100,14 @@ class RAETChannel(Channel):
     def __init__(self, opts, usage=None, **kwargs):
         self.opts = opts
         self.ttype = 'raet'
-        if usage == 'master_call':
-            self.dst = (None, None, 'local_cmd')  # runner.py master_call
-        elif usage == 'salt_call':
-            self.dst = (None, None, 'remote_cmd')  # salt_call caller
-        else:  # everything else
-            self.dst = (None, None, 'remote_cmd')  # normal use case minion to master
+        if usage == 'master_call':  # runner.py master_call
+            self.dst = (None, None, 'local_cmd')
+        else:  # everything else minion to master including salt-call
+            self.dst = (jobber_estate_name or None,
+                        jobber_yard_name or None,
+                        'remote_cmd')
         self.stack = None
-
-    def _setup_stack(self):
-        '''
-        Setup and return the LaneStack and Yard used by by channel when global
-        not already setup such as in salt-call to communicate to-from the minion
-
-        '''
-        kind = self.opts.get('__role', '')  # application kind 'master', 'minion', etc
-        if not kind:
-            emsg = ("Missing opts['__role']. required to setup RAETChannel.")
-            log.error(emsg + "\n")
-            raise ValueError(emsg)
-        if kind == 'master':
-            lanename = 'master'
-        elif kind == 'minion':
-            role = self.opts.get('id', '')
-            if not role:
-                emsg = ("Missing opts['id']. required to setup RAETChannel.")
-                log.error(emsg + "\n")
-                raise ValueError(emsg)
-            lanename = role  # add kind later
-        else:
-            emsg = ("Unsupported application kind '{0}' for RAETChannel "
-                                "Raet.".format(self.node))
-            log.error(emsg + '\n')
-            raise ValueError(emsg)
-
-        mid = self.opts.get('id', 'master')
-        uid = nacling.uuid(size=18)
-        name = 'channel' + uid
-        stack = LaneStack(name=name,
-                          lanename=lanename,
-                          sockdirpath=self.opts['sock_dir'])
-
-        stack.Pk = raeting.packKinds.pack
-        stack.addRemote(RemoteYard(stack=stack,
-                                   name='manor',
-                                   lanename=lanename,
-                                   dirpath=self.opts['sock_dir']))
-        log.debug("Created Channel Jobber Stack {0}\n".format(stack.name))
-        return stack
+        self.ryn = 'manor'  # remote yard name
 
     def __prep_stack(self):
         '''
@@ -131,8 +118,49 @@ class RAETChannel(Channel):
             if jobber_stack:
                 self.stack = jobber_stack
             else:
-                self.stack = jobber_stack = self._setup_stack()
-        log.debug("Using Jobber Stack at = {0}\n".format(self.stack.ha))
+                self.stack = jobber_stack = self._setup_stack(ryn=self.ryn)
+        log.debug("RAETChannel Using Jobber Stack at = {0}\n".format(self.stack.ha))
+
+    def _setup_stack(self, ryn='manor'):
+        '''
+        Setup and return the LaneStack and Yard used by by channel when global
+        not already setup such as in salt-call to communicate to-from the minion
+
+        '''
+        role = self.opts.get('id')
+        if not role:
+            emsg = ("Missing role required to setup RAETChannel.")
+            log.error(emsg + "\n")
+            raise ValueError(emsg)
+
+        kind = self.opts.get('__role')  # application kind 'master', 'minion', etc
+        if kind not in kinds.APPL_KINDS:
+            emsg = ("Invalid application kind = '{0}' for RAETChannel.".format(kind))
+            log.error(emsg + "\n")
+            raise ValueError(emsg)
+        if kind in [kinds.APPL_KIND_NAMES[kinds.applKinds.master],
+                    kinds.APPL_KIND_NAMES[kinds.applKinds.syndic]]:
+            lanename = 'master'
+        elif kind == [kinds.APPL_KIND_NAMES[kinds.applKinds.minion],
+                      kinds.APPL_KIND_NAMES[kinds.applKinds.caller]]:
+            lanename = "{0}_{1}".format(role, kind)
+        else:
+            emsg = ("Unsupported application kind '{0}' for RAETChannel.".format(kind))
+            log.error(emsg + '\n')
+            raise ValueError(emsg)
+
+        name = 'channel' + nacling.uuid(size=18)
+        stack = LaneStack(name=name,
+                          lanename=lanename,
+                          sockdirpath=self.opts['sock_dir'])
+
+        stack.Pk = raeting.PackKind.pack.value
+        stack.addRemote(RemoteYard(stack=stack,
+                                   name=ryn,
+                                   lanename=lanename,
+                                   dirpath=self.opts['sock_dir']))
+        log.debug("Created Channel Jobber Stack {0}\n".format(stack.name))
+        return stack
 
     def crypted_transfer_decode_dictentry(self, load, dictkey=None, tries=3, timeout=60):
         '''
@@ -153,7 +181,7 @@ class RAETChannel(Channel):
         src = (None, self.stack.local.name, track)
         self.route = {'src': src, 'dst': self.dst}
         msg = {'route': self.route, 'load': load}
-        self.stack.transmit(msg, self.stack.nameRemotes['manor'].uid)
+        self.stack.transmit(msg, self.stack.nameRemotes[self.ryn].uid)
         while track not in jobber_rxMsgs:
             self.stack.serviceAll()
             while self.stack.rxMsgs:
@@ -205,21 +233,23 @@ class ZeroMQChannel(Channel):
 
         key = self.sreq_key
 
-        if key not in ZeroMQChannel.sreq_cache:
-            master_type = self.opts.get('master_type', None)
-            if master_type == 'failover':
-                # remove all cached sreqs to the old master to prevent
-                # zeromq from reconnecting to old masters automagically
-                # iterate over a copy since we will mutate the dict
-                for check_key in self.sreq_cache.keys():
-                    if self.opts['master_uri'] != check_key[0]:
-                        del self.sreq_cache[check_key]
-                        log.debug('Removed obsolete sreq-object from '
-                                  'sreq_cache for master {0}'.format(check_key[0]))
+        if not self.opts['cache_sreqs']:
+            return salt.payload.SREQ(self.master_uri, opts=self.opts)
+        else:
+            if key not in ZeroMQChannel.sreq_cache:
+                master_type = self.opts.get('master_type', None)
+                if master_type == 'failover':
+                    # remove all cached sreqs to the old master to prevent
+                    # zeromq from reconnecting to old masters automagically
+                    for check_key in self.sreq_cache.keys():
+                        if self.opts['master_uri'] != check_key[0]:
+                            del self.sreq_cache[check_key]
+                            log.debug('Removed obsolete sreq-object from '
+                                      'sreq_cache for master {0}'.format(check_key[0]))
 
-            ZeroMQChannel.sreq_cache[key] = salt.payload.SREQ(self.master_uri)
+                ZeroMQChannel.sreq_cache[key] = salt.payload.SREQ(self.master_uri, opts=self.opts)
 
-        return ZeroMQChannel.sreq_cache[key]
+            return ZeroMQChannel.sreq_cache[key]
 
     def __init__(self, opts, **kwargs):
         self.opts = opts
@@ -228,23 +258,25 @@ class ZeroMQChannel(Channel):
         # crypt defaults to 'aes'
         self.crypt = kwargs.get('crypt', 'aes')
 
-        self.serial = salt.payload.Serial(opts)
-        if self.crypt != 'clear':
-            if 'auth' in kwargs:
-                self.auth = kwargs['auth']
-            else:
-                self.auth = salt.crypt.SAuth(opts)
         if 'master_uri' in kwargs:
             self.master_uri = kwargs['master_uri']
         else:
             self.master_uri = opts['master_uri']
 
+        if self.crypt != 'clear':
+            # we don't need to worry about auth as a kwarg, since its a singleton
+            self.auth = salt.crypt.SAuth(self.opts)
+
     def crypted_transfer_decode_dictentry(self, load, dictkey=None, tries=3, timeout=60):
         ret = self.sreq.send('aes', self.auth.crypticle.dumps(load), tries, timeout)
         key = self.auth.get_keys()
-        aes = key.private_decrypt(ret['key'], 4)
-        pcrypt = salt.crypt.Crypticle(self.opts, aes)
-        return pcrypt.loads(ret[dictkey])
+        try:
+            aes = key.private_decrypt(ret['key'], 4)
+        except (TypeError, KeyError):
+            return None
+        else:
+            pcrypt = salt.crypt.Crypticle(self.opts, aes)
+            return pcrypt.loads(ret[dictkey])
 
     def _crypted_transfer(self, load, tries=3, timeout=60):
         '''
@@ -269,16 +301,14 @@ class ZeroMQChannel(Channel):
         try:
             return _do_transfer()
         except salt.crypt.AuthenticationError:
-            self.auth = salt.crypt.SAuth(self.opts)
+            self.auth.authenticate()
             return _do_transfer()
 
     def _uncrypted_transfer(self, load, tries=3, timeout=60):
         return self.sreq.send(self.crypt, load, tries, timeout)
 
     def send(self, load, tries=3, timeout=60):
-
-        if self.crypt != 'clear':
-            return self._crypted_transfer(load, tries, timeout)
-        else:
+        if self.crypt == 'clear':  # for sign-in requests
             return self._uncrypted_transfer(load, tries, timeout)
-        # Do we ever do non-crypted transfers?
+        else:  # for just about everything else
+            return self._crypted_transfer(load, tries, timeout)

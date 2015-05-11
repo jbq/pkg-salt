@@ -2,6 +2,8 @@
 '''
 Clone a remote git repository and use the filesystem as a Pillar source
 
+Currently GitPython is the only supported provider for git Pillars
+
 This external Pillar source can be configured in the master config file like
 so:
 
@@ -15,6 +17,10 @@ to look for Pillar files (such as ``top.sls``).
 
 .. versionchanged:: 2014.7.0
     The optional ``root`` parameter will be added.
+
+.. versionchanged:: 2015.5.0
+    The special branch name '__env__' will be replace by the
+    environment ({{env}})
 
 Note that this is not the same thing as configuring pillar data using the
 :conf_master:`pillar_roots` parameter. The branch referenced in the
@@ -54,7 +60,25 @@ section in it, like this:
     dev:
       '*':
         - bar
+
+In a gitfs base setup with pillars from the same repository as the states,
+the ``ext_pillar:`` configuration would be like:
+
+.. code-block:: yaml
+
+    ext_pillar:
+      - git: _ git://gitserver/git-pillar.git root=pillar
+
+The (optinal) root=pillar defines the directory that contains the pillar data.
+The corresponding ``top.sls`` would be like:
+
+.. code-block:: yaml
+
+    {{env}}:
+      '*':
+        - bar
 '''
+from __future__ import absolute_import
 
 # Import python libs
 from copy import deepcopy
@@ -105,7 +129,7 @@ class GitPillar(object):
         '''
         Try to initialize the Git repo object
         '''
-        self.branch = branch
+        self.branch = self.map_branch(branch, opts)
         self.rp_location = repo_location
         self.opts = opts
         self._envs = set()
@@ -151,6 +175,14 @@ class GitPillar(object):
             else:
                 if self.repo.remotes.origin.url != self.rp_location:
                     self.repo.remotes.origin.config_writer.set('url', self.rp_location)
+
+    def map_branch(self, branch, opts=None):
+        opts = __opts__ if opts is None else opts
+        if branch == '__env__':
+            branch = opts.get('environment', 'base')
+            if branch == 'base':
+                branch = opts.get('gitfs_base', 'master')
+        return branch
 
     def update(self):
         '''
@@ -216,17 +248,16 @@ def envs(branch, repo_location):
     return gitpil.envs()
 
 
-def _extract_key_val(kv, delim='='):
+def _extract_key_val(kv, delimiter='='):
     '''Extract key and value from key=val string.
 
     Example:
     >>> _extract_key_val('foo=bar')
     ('foo', 'bar')
     '''
-    delim = '='
-    pieces = kv.split(delim)
+    pieces = kv.split(delimiter)
     key = pieces[0]
-    val = delim.join(pieces[1:])
+    val = delimiter.join(pieces[1:])
     return key, val
 
 
@@ -258,13 +289,15 @@ def ext_pillar(minion_id,
 
     # environment is "different" from the branch
     branch, _, environment = branch_env.partition(':')
+
+    gitpil = GitPillar(branch, repo_location, __opts__)
+    branch = gitpil.branch
+
     if environment == '':
         if branch == 'master':
             environment = 'base'
         else:
             environment = branch
-
-    gitpil = GitPillar(branch, repo_location, __opts__)
 
     # normpath is needed to remove appended '/' if root is empty string.
     pillar_dir = os.path.normpath(os.path.join(gitpil.working_dir, root))

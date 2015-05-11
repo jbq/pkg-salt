@@ -24,19 +24,22 @@ Set up the cloud configuration at ``/etc/salt/cloud.providers`` or
 
 :depends: requests
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import time
 import json
 import pprint
-import requests
 import logging
 import hmac
-import urllib
 import uuid
 import sys
 import base64
 from hashlib import sha1
+
+# Import 3rd-party libs
+import requests
+from salt.ext.six.moves.urllib.parse import quote as _quote  # pylint: disable=import-error,no-name-in-module
 
 # Import salt cloud libs
 import salt.utils.cloud
@@ -118,7 +121,7 @@ def avail_images(kwargs=None, call=None):
             '-f or --function, or with the --list-images option'
         )
 
-    if type(kwargs) is not dict:
+    if not isinstance(kwargs, dict):
         kwargs = {}
 
     provider = get_configured_provider()
@@ -516,7 +519,7 @@ def create_node(kwargs):
     '''
     Convenience function to make the rest api call for node creation.
     '''
-    if type(kwargs) is not dict:
+    if not isinstance(kwargs, dict):
         kwargs = {}
 
     # Required parameters
@@ -663,13 +666,13 @@ def _compute_signature(parameters, access_key_secret):
             s = line.decode().encode('utf8')
         else:
             s = line.decode(sys.stdin.encoding).encode('utf8')
-        res = urllib.quote(s, '')
+        res = _quote(s, '')
         res = res.replace('+', '%20')
         res = res.replace('*', '%2A')
         res = res.replace('%7E', '~')
         return res
 
-    sortedParameters = sorted(parameters.items(), key=lambda items: items[0])
+    sortedParameters = sorted(list(parameters.items()), key=lambda items: items[0])
 
     canonicalizedQueryString = ''
     for (k, v) in sortedParameters:
@@ -718,7 +721,7 @@ def query(params=None):
     signature = _compute_signature(parameters, access_key_secret)
     parameters['Signature'] = signature
 
-    request = requests.get(path, params=parameters, verify=False)
+    request = requests.get(path, params=parameters, verify=True)
     if request.status_code != 200:
         raise SaltCloudSystemExit(
             'An error occurred while querying aliyun ECS. HTTP Code: {0}  '
@@ -800,7 +803,7 @@ def list_monitor_data(kwargs=None, call=None):
             'The list_monitor_data must be called with -f or --function.'
         )
 
-    if type(kwargs) is not dict:
+    if not isinstance(kwargs, dict):
         kwargs = {}
 
     ret = {}
@@ -865,7 +868,7 @@ def show_image(kwargs, call=None):
             '-f or --function'
         )
 
-    if type(kwargs) is not dict:
+    if not isinstance(kwargs, dict):
         kwargs = {}
 
     location = get_location()

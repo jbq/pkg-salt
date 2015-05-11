@@ -1,20 +1,26 @@
 # -*- coding: utf-8 -*-
 '''
-Module for manging the Salt schedule on a minion
+Module for managing the Salt schedule on a minion
 
 .. versionadded:: 2014.7.0
 
 '''
+from __future__ import absolute_import
 
 # Import Python libs
+import copy as pycopy
 import difflib
 import os
 import yaml
 
 import salt.utils
 import salt.utils.odict
+import salt.ext.six as six
 
 __proxyenabled__ = ['*']
+
+import logging
+log = logging.getLogger(__name__)
 
 __func_alias__ = {
     'list_': 'list',
@@ -28,6 +34,8 @@ SCHEDULE_CONF = [
         'splay',
         'range',
         'when',
+        'once',
+        'once_fmt',
         'returner',
         'jid_include',
         'args',
@@ -38,6 +46,8 @@ SCHEDULE_CONF = [
         'hours',
         'days',
         'enabled',
+        'return_job',
+        'metadata',
         'cron'
 ]
 
@@ -69,9 +79,10 @@ def list_(show_all=False, return_yaml=True):
             del schedule[job]
             continue
 
-        for item in schedule[job]:
+        for item in pycopy.copy(schedule[job]):
             if item not in SCHEDULE_CONF:
                 del schedule[job][item]
+                continue
             if schedule[job][item] == 'true':
                 schedule[job][item] = True
             if schedule[job][item] == 'false':
@@ -217,6 +228,12 @@ def build_schedule_item(name, **kwargs):
         if item in kwargs:
             schedule[name][item] = kwargs[item]
 
+    if 'return_job' in kwargs:
+        schedule[name]['return_job'] = kwargs['return_job']
+
+    if 'metadata' in kwargs:
+        schedule[name]['metadata'] = kwargs['metadata']
+
     if 'job_args' in kwargs:
         schedule[name]['args'] = kwargs['job_args']
 
@@ -245,7 +262,8 @@ def build_schedule_item(name, **kwargs):
         else:
             schedule[name]['splay'] = kwargs['splay']
 
-    for item in ['range', 'when', 'cron', 'returner']:
+    for item in ['range', 'when', 'once', 'once_fmt', 'cron', 'returner',
+            'return_config']:
         if item in kwargs:
             schedule[name][item] = kwargs[item]
 
@@ -261,6 +279,8 @@ def add(name, **kwargs):
     .. code-block:: bash
 
         salt '*' schedule.add job1 function='test.ping' seconds=3600
+        # If function have some arguments, use job_args
+        salt '*' schedule.add job2 function='cmd.run' job_args=['date >> /tmp/date.log'] seconds=60
     '''
 
     ret = {'comment': [],
@@ -665,4 +685,178 @@ def reload_():
         else:
             ret['comment'].append('Failed to reload schedule on minion.  Saved file is empty or invalid.')
             ret['result'] = False
+    return ret
+
+
+def move(name, target, **kwargs):
+    '''
+    Move scheduled job to another minion or minions.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' schedule.move jobname target
+    '''
+
+    ret = {'comment': [],
+           'result': True}
+
+    if not name:
+        ret['comment'] = 'Job name is required.'
+        ret['result'] = False
+
+    if name in __opts__['schedule']:
+        if 'test' in kwargs and kwargs['test']:
+            ret['comment'] = 'Job: {0} would be moved from schedule.'.format(name)
+        else:
+            schedule_opts = []
+            for key, value in six.iteritems(__opts__['schedule'][name]):
+                temp = '{0}={1}'.format(key, value)
+                schedule_opts.append(temp)
+            response = __salt__['publish.publish'](target, 'schedule.add', schedule_opts)
+
+            # Get errors and list of affeced minions
+            errors = []
+            minions = []
+            for minion in response:
+                minions.append(minion)
+                if not response[minion]:
+                    errors.append(minion)
+
+            # parse response
+            if not response:
+                ret['comment'] = 'no servers answered the published schedule.add command'
+                return ret
+            elif len(errors) > 0:
+                ret['comment'] = 'the following minions return False'
+                ret['minions'] = errors
+                return ret
+            else:
+                delete(name)
+                ret['result'] = True
+                ret['comment'] = 'Moved Job {0} from schedule.'.format(name)
+                ret['minions'] = minions
+                return ret
+    elif 'schedule' in __pillar__ and name in __pillar__['schedule']:
+        if 'test' in kwargs and kwargs['test']:
+            ret['comment'] = 'Job: {0} would be moved from schedule.'.format(name)
+        else:
+            schedule_opts = []
+            for key, value in six.iteritems(__opts__['schedule'][name]):
+                temp = '{0}={1}'.format(key, value)
+                schedule_opts.append(temp)
+            response = __salt__['publish.publish'](target, 'schedule.add', schedule_opts)
+
+            # Get errors and list of affeced minions
+            errors = []
+            minions = []
+            for minion in response:
+                minions.append(minion)
+                if not response[minion]:
+                    errors.append(minion)
+
+            # parse response
+            if not response:
+                ret['comment'] = 'no servers answered the published schedule.add command'
+                return ret
+            elif len(errors) > 0:
+                ret['comment'] = 'the following minions return False'
+                ret['minions'] = errors
+                return ret
+            else:
+                delete(name, where='pillar')
+                ret['result'] = True
+                ret['comment'] = 'Moved Job {0} from schedule.'.format(name)
+                ret['minions'] = minions
+                return ret
+    else:
+        ret['comment'] = 'Job {0} does not exist.'.format(name)
+        ret['result'] = False
+    return ret
+
+
+def copy(name, target, **kwargs):
+    '''
+    Copy scheduled job to another minion or minions.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' schedule.copy jobname target
+    '''
+
+    ret = {'comment': [],
+           'result': True}
+
+    if not name:
+        ret['comment'] = 'Job name is required.'
+        ret['result'] = False
+
+    if name in __opts__['schedule']:
+        if 'test' in kwargs and kwargs['test']:
+            ret['comment'] = 'Job: {0} would be copied.'.format(name)
+        else:
+            schedule_opts = []
+            for key, value in six.iteritems(__opts__['schedule'][name]):
+                temp = '{0}={1}'.format(key, value)
+                schedule_opts.append(temp)
+            response = __salt__['publish.publish'](target, 'schedule.add', schedule_opts)
+
+            # Get errors and list of affeced minions
+            errors = []
+            minions = []
+            for minion in response:
+                minions.append(minion)
+                if not response[minion]:
+                    errors.append(minion)
+
+            # parse response
+            if not response:
+                ret['comment'] = 'no servers answered the published schedule.add command'
+                return ret
+            elif len(errors) > 0:
+                ret['comment'] = 'the following minions return False'
+                ret['minions'] = errors
+                return ret
+            else:
+                ret['result'] = True
+                ret['comment'] = 'Copied Job {0} from schedule to minion(s).'.format(name)
+                ret['minions'] = minions
+                return ret
+    elif 'schedule' in __pillar__ and name in __pillar__['schedule']:
+        if 'test' in kwargs and kwargs['test']:
+            ret['comment'] = 'Job: {0} would be moved from schedule.'.format(name)
+        else:
+            schedule_opts = []
+            for key, value in six.iteritems(__opts__['schedule'][name]):
+                temp = '{0}={1}'.format(key, value)
+                schedule_opts.append(temp)
+            response = __salt__['publish.publish'](target, 'schedule.add', schedule_opts)
+
+            # Get errors and list of affeced minions
+            errors = []
+            minions = []
+            for minion in response:
+                minions.append(minion)
+                if not response[minion]:
+                    errors.append(minion)
+
+            # parse response
+            if not response:
+                ret['comment'] = 'no servers answered the published schedule.add command'
+                return ret
+            elif len(errors) > 0:
+                ret['comment'] = 'the following minions return False'
+                ret['minions'] = errors
+                return ret
+            else:
+                ret['result'] = True
+                ret['comment'] = 'Copied Job {0} from schedule to minion(s).'.format(name)
+                ret['minions'] = minions
+                return ret
+    else:
+        ret['comment'] = 'Job {0} does not exist.'.format(name)
+        ret['result'] = False
     return ret

@@ -31,6 +31,7 @@ will set the desired branch method. Possible values are: ``branches``,
 :depends:   - mercurial
             - python bindings for mercurial (``python-hglib``)
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import copy
@@ -58,7 +59,7 @@ except ImportError:
 # Import salt libs
 import salt.utils
 import salt.fileserver
-from salt._compat import string_types
+from salt.ext.six import string_types
 from salt.utils.event import tagify
 
 log = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ def __virtual__():
     if __opts__['hgfs_branch_method'] not in VALID_BRANCH_METHODS:
         log.error(
             'Invalid hgfs_branch_method {0!r}. Valid methods are: {1}'
-            .format(VALID_BRANCH_METHODS)
+            .format(__opts__['hgfs_branch_method'], VALID_BRANCH_METHODS)
         )
         return False
     return __virtualname__

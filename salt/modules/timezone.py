@@ -2,6 +2,7 @@
 '''
 Module for managing timezone on POSIX-like systems.
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import os
@@ -51,13 +52,12 @@ def get_zone():
         cmd = 'grep ZONE /etc/sysconfig/clock | grep -vE "^#"'
     elif 'Debian' in __grains__['os_family']:
         with salt.utils.fopen('/etc/timezone', 'r') as ofh:
-            return ofh.read()
+            return ofh.read().strip()
     elif 'Gentoo' in __grains__['os_family']:
         with salt.utils.fopen('/etc/timezone', 'r') as ofh:
-            return ofh.read()
-    elif 'FreeBSD' in __grains__['os_family']:
-        return ('FreeBSD does not store a human-readable timezone. Please'
-                'consider using timezone.get_zonecode or timezone.zonecompare')
+            return ofh.read().strip()
+    elif __grains__['os_family'] in ('FreeBSD', 'OpenBSD', 'NetBSD'):
+        return os.readlink('/etc/localtime').lstrip('/usr/share/zoneinfo/')
     elif 'Solaris' in __grains__['os_family']:
         cmd = 'grep "TZ=" /etc/TIMEZONE'
     out = __salt__['cmd.run'](cmd, python_shell=True).split('=')

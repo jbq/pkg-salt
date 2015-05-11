@@ -6,12 +6,15 @@ in here
 '''
 
 # Import python libs
+from __future__ import absolute_import
 # import sys  # Use if sys is commented out below
 import logging
+import gc
 
 # Import salt libs
 import salt.log
-import salt.crypt
+import salt.ext.six as six
+
 from salt.exceptions import SaltReqTimeoutError
 
 # Import third party libs
@@ -42,7 +45,7 @@ except ImportError:
         log.fatal('Unable to import msgpack or msgpack_pure python modules')
         # Don't exit if msgpack is not available, this is to make local mode
         # work without msgpack
-        #sys.exit(salt.exitcodes.EX_GENERIC)
+        #sys.exit(salt.defaults.exitcodes.EX_GENERIC)
 
 
 def package(payload):
@@ -91,13 +94,15 @@ class Serial(object):
         Run the correct loads serialization format
         '''
         try:
+            gc.disable()  # performance optimization for msgpack
             return msgpack.loads(msg, use_list=True)
         except Exception as exc:
             log.critical('Could not deserialize msgpack message: {0}'
-                         'In an attempt to keep Salt running, returning an empty dict.'
                          'This often happens when trying to read a file not in binary mode.'
                          'Please open an issue and include the following error: {1}'.format(msg, exc))
-            return {}
+            raise
+        finally:
+            gc.enable()
 
     def load(self, fn_):
         '''
@@ -114,6 +119,25 @@ class Serial(object):
         '''
         try:
             return msgpack.dumps(msg)
+        except OverflowError:
+            # msgpack can't handle the very long Python longs for jids
+            # Convert any very long longs to strings
+            # We borrow the technique used by TypeError below
+            def verylong_encoder(obj):
+                if isinstance(obj, dict):
+                    for key, value in six.iteritems(obj.copy()):
+                        obj[key] = verylong_encoder(value)
+                    return dict(obj)
+                elif isinstance(obj, (list, tuple)):
+                    obj = list(obj)
+                    for idx, entry in enumerate(obj):
+                        obj[idx] = verylong_encoder(entry)
+                    return obj
+                if isinstance(obj, long) and long > pow(2, 64):
+                    return str(obj)
+                else:
+                    return obj
+            return msgpack.dumps(verylong_encoder(msg))
         except TypeError:
             if msgpack.version >= (0, 2, 0):
                 # Should support OrderedDict serialization, so, let's
@@ -128,7 +152,7 @@ class Serial(object):
             # list/tuple
             def odict_encoder(obj):
                 if isinstance(obj, dict):
-                    for key, value in obj.copy().iteritems():
+                    for key, value in six.iteritems(obj.copy()):
                         obj[key] = odict_encoder(value)
                     return dict(obj)
                 elif isinstance(obj, (list, tuple)):

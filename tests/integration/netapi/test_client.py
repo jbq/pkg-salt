@@ -42,7 +42,8 @@ class NetapiClientTest(TestCase):
         # Remove all the volatile values before doing the compare.
         self.assertIn('jid', ret)
         ret.pop('jid', None)
-        self.assertEqual(set(ret['minions']), set(['minion', 'sub_minion']))
+        ret['minions'] = sorted(ret['minions'])
+        self.assertEqual(ret, {'minions': sorted(['minion', 'sub_minion'])})
 
     def test_wheel(self):
         low = {'client': 'wheel', 'fun': 'key.list_all'}
@@ -65,11 +66,12 @@ class NetapiClientTest(TestCase):
         data.pop('_stamp', None)
 
         self.maxDiff = None
-        self.assertEqual(ret, {
+        self.assertEqual({
             'data': {
                 'return': {
                     'minions_pre': [],
                     'minions_rejected': [],
+                    'minions_denied': [],
                     'local': [
                         'master.pem', 'master.pub', 'minion.pem', 'minion.pub',
                         'minion_master.pub', 'syndic_master.pub'
@@ -78,7 +80,7 @@ class NetapiClientTest(TestCase):
                 'success': True,
                 'user': 'saltdev_auto',
                 'fun': 'wheel.key.list_all'
-            }})
+            }}, ret)
 
     def test_wheel_async(self):
         low = {'client': 'wheel_async', 'fun': 'key.list_all'}
