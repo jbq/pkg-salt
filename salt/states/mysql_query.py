@@ -19,6 +19,7 @@ Its output may be stored in a file or in a grain.
         - query:    "SELECT * FROM table;"
         - output:   "/tmp/query_id.txt"
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import sys
@@ -74,7 +75,7 @@ def run(name,
         grain to store the output (need output=grain)
 
     key:
-        the specified grain will be treated as a dictionnary, the result
+        the specified grain will be treated as a dictionary, the result
         of this state will be stored under the specified key.
 
     overwrite:
@@ -175,7 +176,7 @@ def run(name,
         with salt.utils.fopen(output, 'w') as output_file:
             if 'results' in query_result:
                 for res in query_result['results']:
-                    for col, val in res:
+                    for col, val in res.iteritems():
                         output_file.write(col + ':' + val + '\n')
             else:
                 output_file.write(str(query_result))

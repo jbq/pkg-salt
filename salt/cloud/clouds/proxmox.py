@@ -25,6 +25,7 @@ Set up the cloud configuration at ``/etc/salt/cloud.providers`` or
 :depends: requests >= 2.2.1
 :depends: IPy >= 0.81
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import copy
@@ -108,7 +109,7 @@ def _authenticate():
     full_url = 'https://{0}:8006/api2/json/access/ticket'.format(url)
 
     returned_data = requests.post(
-        full_url, verify=False, data=connect_data).json()
+        full_url, verify=True, data=connect_data).json()
 
     ticket = {'PVEAuthCookie': returned_data['data']['ticket']}
     csrf = str(returned_data['data']['CSRFPreventionToken'])
@@ -132,24 +133,24 @@ def query(conn_type, option, post_data=None):
 
     if conn_type == 'post':
         httpheaders['CSRFPreventionToken'] = csrf
-        response = requests.post(full_url, verify=False,
+        response = requests.post(full_url, verify=True,
                                  data=post_data,
                                  cookies=ticket,
                                  headers=httpheaders)
     elif conn_type == 'put':
         httpheaders['CSRFPreventionToken'] = csrf
-        response = requests.put(full_url, verify=False,
+        response = requests.put(full_url, verify=True,
                                 data=post_data,
                                 cookies=ticket,
                                 headers=httpheaders)
     elif conn_type == 'delete':
         httpheaders['CSRFPreventionToken'] = csrf
-        response = requests.delete(full_url, verify=False,
+        response = requests.delete(full_url, verify=True,
                                    data=post_data,
                                    cookies=ticket,
                                    headers=httpheaders)
     elif conn_type == 'get':
-        response = requests.get(full_url, verify=False,
+        response = requests.get(full_url, verify=True,
                                 cookies=ticket)
 
     response.raise_for_status()
@@ -191,7 +192,7 @@ def _getVmById(vmid, allDetails=False):
 
 def _get_next_vmid():
     '''
-    Proxmox allows to use alternative ids instead of autoincrementing.
+    Proxmox allows the use of alternative ids instead of autoincrementing.
     Because of that its required to query what the first available ID is.
     '''
     return int(query('get', 'cluster/nextid'))
@@ -535,7 +536,7 @@ def create(vm_):
 
     # Wait until the VM has fully started
     log.debug('Waiting for state "running" for vm {0} on {1}'.format(vmid, host))
-    if not wait_for_state(vmid, host, nodeType, 'running'):
+    if not wait_for_state(vmid, 'running'):
         return {'Error': 'Unable to start {0}, command timed out'.format(name)}
 
     ssh_username = config.get_cloud_config_value(
@@ -707,7 +708,7 @@ def create_node(vm_):
     newnode['vmid'] = _get_next_vmid()
 
     for prop in ('cpuunits', 'description', 'memory', 'onboot'):
-        if prop in vm_:  # if the propery is set, use it for the VM request
+        if prop in vm_:  # if the property is set, use it for the VM request
             newnode[prop] = vm_[prop]
 
     if vm_['technology'] == 'openvz':
@@ -717,12 +718,12 @@ def create_node(vm_):
 
         # optional VZ settings
         for prop in ('cpus', 'disk', 'ip_address', 'nameserver', 'password', 'swap', 'poolid'):
-            if prop in vm_:  # if the propery is set, use it for the VM request
+            if prop in vm_:  # if the property is set, use it for the VM request
                 newnode[prop] = vm_[prop]
     elif vm_['technology'] == 'qemu':
         # optional Qemu settings
         for prop in ('acpi', 'cores', 'cpu', 'pool'):
-            if prop in vm_:  # if the propery is set, use it for the VM request
+            if prop in vm_:  # if the property is set, use it for the VM request
                 newnode[prop] = vm_[prop]
 
     # The node is ready. Lets request it to be added
@@ -792,9 +793,9 @@ def wait_for_created(upid, timeout=300):
         info = _lookup_proxmox_task(upid)
 
 
-def wait_for_state(vmid, node, nodeType, state, timeout=300):
+def wait_for_state(vmid, state, timeout=300):
     '''
-    Wait until a specific state has been reached on  a node
+    Wait until a specific state has been reached on a node
     '''
     start_time = time.time()
     node = get_vm_status(vmid=vmid)
@@ -844,8 +845,15 @@ def destroy(name, call=None):
 
     vmobj = _getVmByName(name)
     if vmobj is not None:
-        query('delete', 'nodes/{0}/{1}/{2}'.format(
-            vmobj['host'], vmobj['type'], vmobj['id']
+        # stop the vm
+        stop(name, vmobj['vmid'], 'action')
+
+        # wait until stopped
+        if not wait_for_state(vmobj['vmid'], 'stopped'):
+            return {'Error': 'Unable to stop {0}, command timed out'.format(name)}
+
+        query('delete', 'nodes/{0}/{1}'.format(
+            vmobj['node'], vmobj['id']
         ))
         salt.utils.cloud.fire_event(
             'event',

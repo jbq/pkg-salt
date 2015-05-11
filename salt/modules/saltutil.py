@@ -6,6 +6,7 @@ minion.
 
 :depends:   - esky Python module for update functionality
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import os
@@ -13,10 +14,21 @@ import shutil
 import signal
 import logging
 import fnmatch
-import time
 import sys
 import copy
-from urllib2 import URLError
+
+# Import 3rd-party libs
+# pylint: disable=import-error
+try:
+    import esky
+    from esky import EskyVersionError
+    HAS_ESKY = True
+except ImportError:
+    HAS_ESKY = False
+# pylint: disable=no-name-in-module
+from salt.ext.six import string_types
+from salt.ext.six.moves.urllib.error import URLError
+# pylint: enable=import-error,no-name-in-module
 
 # Fix a nasty bug with Win32 Python not supporting all of the standard signals
 try:
@@ -29,6 +41,7 @@ import salt
 import salt.payload
 import salt.state
 import salt.client
+import salt.client.ssh.client
 import salt.config
 import salt.runner
 import salt.utils
@@ -39,17 +52,8 @@ import salt.wheel
 from salt.exceptions import (
     SaltReqTimeoutError, SaltRenderError, CommandExecutionError
 )
-from salt._compat import string_types
 
 __proxyenabled__ = ['*']
-
-# Import third party libs
-try:
-    import esky
-    from esky import EskyVersionError
-    HAS_ESKY = True
-except ImportError:
-    HAS_ESKY = False
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +69,7 @@ def _get_top_file_envs():
             st_ = salt.state.HighState(__opts__)
             top = st_.get_top()
             if top:
-                envs = st_.top_matches(top).keys() or 'base'
+                envs = list(st_.top_matches(top).keys()) or 'base'
             else:
                 envs = 'base'
         except SaltRenderError as exc:
@@ -149,7 +153,7 @@ def _sync(form, saltenv=None):
                 break
             for emptydir in emptydirs:
                 touched = True
-                os.rmdir(emptydir)
+                shutil.rmtree(emptydir, ignore_errors=True)
     # Dest mod_dir is touched? trigger reload if requested
     if touched:
         mod_file = os.path.join(__opts__['cachedir'], 'module_refresh')
@@ -413,7 +417,14 @@ def refresh_pillar():
 
         salt '*' saltutil.refresh_pillar
     '''
-    return __salt__['event.fire']({}, 'pillar_refresh')
+    try:
+        ret = __salt__['event.fire']({}, 'pillar_refresh')
+    except KeyError:
+        log.error('Event module not available. Module refresh failed.')
+        ret = False  # Effectively a no-op, since we can't really return without an event system
+    return ret
+
+pillar_refresh = refresh_pillar
 
 
 def refresh_modules():
@@ -426,7 +437,12 @@ def refresh_modules():
 
         salt '*' saltutil.refresh_modules
     '''
-    return __salt__['event.fire']({}, 'module_refresh')
+    try:
+        ret = __salt__['event.fire']({}, 'module_refresh')
+    except KeyError:
+        log.error('Event module not available. Module refresh failed.')
+        ret = False  # Effectively a no-op, since we can't really return without an event system
+    return ret
 
 
 def is_running(fun):
@@ -522,7 +538,11 @@ def find_cached_job(jid):
         buf = fp_.read()
         fp_.close()
         if buf:
-            data = serial.loads(buf)
+            try:
+                data = serial.loads(buf)
+            except NameError:
+                # msgpack error in salt-ssh
+                return
         else:
             return
     if not isinstance(data, dict):
@@ -606,16 +626,19 @@ def regen_keys():
             os.remove(path)
         except os.error:
             pass
-    time.sleep(60)
-    sreq = salt.payload.SREQ(__opts__['master_uri'])
-    auth = salt.crypt.SAuth(__opts__)
+    # TODO: move this into a channel function? Or auth?
+    # create a channel again, this will force the key regen
+    channel = salt.transport.Channel.factory(__opts__)
 
 
-def revoke_auth():
+def revoke_auth(preserve_minion_cache=False):
     '''
     The minion sends a request to the master to revoke its own key.
     Note that the minion session will be revoked and the minion may
     not be able to return the result of this command back to the master.
+
+    If the 'preserve_minion_cache' flag is set to True, the master
+    cache for this minion will not be removed.
 
     CLI Example:
 
@@ -623,26 +646,22 @@ def revoke_auth():
 
         salt '*' saltutil.revoke_auth
     '''
-    # sreq = salt.payload.SREQ(__opts__['master_uri'])
-    auth = salt.crypt.SAuth(__opts__)
-    tok = auth.gen_token('salt')
+    channel = salt.transport.Channel.factory(__opts__)
+    tok = channel.auth.gen_token('salt')
     load = {'cmd': 'revoke_auth',
             'id': __opts__['id'],
-            'tok': tok}
+            'tok': tok,
+            'preserve_minion_cache': preserve_minion_cache}
 
-    sreq = salt.transport.Channel.factory(__opts__)
     try:
-        sreq.send(load)
-        # return auth.crypticle.loads(
-        #         sreq.send('aes', auth.crypticle.dumps(load), 1))
+        return channel.send(load)
     except SaltReqTimeoutError:
         return False
-    return False
 
 
 def _get_ssh_or_api_client(cfgfile, ssh=False):
     if ssh:
-        client = salt.client.SSHClient(cfgfile)
+        client = salt.client.ssh.client.SSHClient(cfgfile)
     else:
         client = salt.client.get_local_client(cfgfile)
     return client
@@ -716,10 +735,10 @@ def cmd_iter(tgt,
 
     .. code-block:: bash
 
-        salt '*' saltutil.cmd
+        salt '*' saltutil.cmd_iter
     '''
     if ssh:
-        client = salt.client.SSHClient(__opts__['conf_file'])
+        client = salt.client.ssh.client.SSHClient(__opts__['conf_file'])
     else:
         client = salt.client.get_local_client(__opts__['conf_file'])
     for ret in client.cmd_iter(
@@ -782,7 +801,7 @@ def wheel(fun, **kwargs):
         salt '*' saltutil.wheel key.accept match=jerry
     '''
     wclient = salt.wheel.WheelClient(__opts__)
-    return wclient.cmd(fun, **kwargs)
+    return wclient.cmd(fun, kwarg=kwargs)
 
 
 # this is the only way I could figure out how to get the REAL file_roots

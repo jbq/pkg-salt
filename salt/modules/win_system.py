@@ -2,6 +2,7 @@
 '''
 Support for reboot, shutdown, etc
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import logging
@@ -134,6 +135,7 @@ def set_computer_name(name):
     '''
     cmd = ('wmic computersystem where name="%COMPUTERNAME%"'
            ' call rename name="{0}"'.format(name))
+    log.debug('Attempting to change computer name. Cmd is: {0}'.format(cmd))
     ret = __salt__['cmd.run'](cmd, python_shell=True)
     if 'ReturnValue = 0;' in ret:
         ret = {'Computer Name': {'Current': get_computer_name()}}
@@ -292,12 +294,12 @@ def join_domain(
         join_options = 1
     cmd = ('wmic /interactive:off ComputerSystem Where '
            'name="%computername%" call JoinDomainOrWorkgroup FJoinOptions={0} '
-           'Name={1} UserName={2} Password={3}'
+           'Name={1} UserName={2} Password="{3}"'
            ).format(
                join_options,
                _cmd_quote(domain),
                _cmd_quote(username),
-               _cmd_quote(password))
+               password)
     if account_ou:
         # contrary to RFC#2253, 2.1, 'wmic' requires a ; as a RDN separator
         # for the DN
@@ -309,6 +311,7 @@ def join_domain(
     if 'ReturnValue = 0;' in ret:
         return {'Domain': domain}
     return_values = {
+        2:    'Invalid OU or specifying OU is not supported',
         5:    'Access is denied',
         87:   'The parameter is incorrect',
         110:  'The system cannot open the specified object',

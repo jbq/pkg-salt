@@ -8,6 +8,8 @@ References:
 '''
 
 # Import python libs
+from __future__ import absolute_import
+import salt.ext.six as six
 import functools
 import logging
 import os.path
@@ -123,6 +125,7 @@ _DEB_CONFIG_PPPOE_OPTS = {
     'persist': 'persist',
     'mtu': 'mtu',
     'noaccomp': 'noaccomp',
+    'linkname': 'linkname',
 }
 
 _DEB_ROUTES_FILE = '/etc/network/routes'
@@ -388,7 +391,14 @@ SALT_ATTR_TO_DEBIAN_ATTR_MAP = {
 }
 
 
-IPV4_VALID_PROTO = ['bootp', 'dhcp', 'static', 'manual', 'loopback']
+DEBIAN_ATTR_TO_SALT_ATTR_MAP = dict(
+    (v, k) for (k, v) in SALT_ATTR_TO_DEBIAN_ATTR_MAP.items())
+
+#TODO
+DEBIAN_ATTR_TO_SALT_ATTR_MAP['address'] = 'address'
+DEBIAN_ATTR_TO_SALT_ATTR_MAP['hwaddress'] = 'hwaddress'
+
+IPV4_VALID_PROTO = ['bootp', 'dhcp', 'static', 'manual', 'loopback', 'ppp']
 
 IPV4_ATTR_MAP = {
     'proto': __within(IPV4_VALID_PROTO, dtype=str),
@@ -1255,8 +1265,8 @@ def _parse_network_settings(opts, current):
     the global network settings file.
     '''
     # Normalize keys
-    opts = dict((k.lower(), v) for (k, v) in opts.iteritems())
-    current = dict((k.lower(), v) for (k, v) in current.iteritems())
+    opts = dict((k.lower(), v) for (k, v) in six.iteritems(opts))
+    current = dict((k.lower(), v) for (k, v) in six.iteritems(current))
     result = {}
 
     valid = _CONFIG_TRUE + _CONFIG_FALSE
@@ -1298,7 +1308,7 @@ def _parse_routes(iface, opts):
     the route settings file.
     '''
     # Normalize keys
-    opts = dict((k.lower(), v) for (k, v) in opts.iteritems())
+    opts = dict((k.lower(), v) for (k, v) in six.iteritems(opts))
     result = {}
     if 'routes' not in opts:
         _raise_error_routes(iface, 'routes', 'List of routes')
@@ -1528,6 +1538,7 @@ def build_interface(iface, iface_type, enabled, **settings):
 
     elif iface_type == 'vlan':
         settings['vlan'] = 'yes'
+        __salt__['pkg.install']('vlan')
 
     elif iface_type == 'pppoe':
         settings['pppoe'] = 'yes'
@@ -1746,16 +1757,33 @@ def apply_network_settings(**settings):
     if 'require_reboot' not in settings:
         settings['require_reboot'] = False
 
+    if 'apply_hostname' not in settings:
+        settings['apply_hostname'] = False
+
+    hostname_res = True
+    if settings['apply_hostname'] in _CONFIG_TRUE:
+        if 'hostname' in settings:
+            hostname_res = __salt__['network.mod_hostname'](settings['hostname'])
+        else:
+            log.warning(
+                'The network state sls is trying to apply hostname '
+                'changes but no hostname is defined.'
+            )
+            hostname_res = False
+
+    res = True
     if settings['require_reboot'] in _CONFIG_TRUE:
         log.warning(
             'The network state sls is requiring a reboot of the system to '
             'properly apply network configuration.'
         )
-        return True
+        res = True
     else:
         stop = __salt__['service.stop']('networking')
         time.sleep(2)
-        return stop and __salt__['service.start']('networking')
+        res = stop and __salt__['service.start']('networking')
+
+    return hostname_res and res
 
 
 def build_network_settings(**settings):
@@ -1813,6 +1841,7 @@ def build_network_settings(**settings):
 
     # Only write the hostname if it has changed
     if not opts['hostname'] == current_network_settings['hostname']:
+        # TODO  replace wiht a call to network.mod_hostname instead
         _write_file_network(hostname, _DEB_HOSTNAME_FILE)
 
     new_domain = False

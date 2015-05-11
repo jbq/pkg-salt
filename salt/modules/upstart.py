@@ -38,6 +38,7 @@ about this, at least.
     used, as it supports the hybrid upstart/sysvinit system used in
     RHEL/CentOS 6.
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import glob
@@ -45,6 +46,8 @@ import os
 
 # Import salt libs
 import salt.utils
+import salt.modules.cmdmod
+from salt.modules.systemd import _sd_booted
 
 __func_alias__ = {
     'reload_': 'reload'
@@ -59,7 +62,9 @@ def __virtual__():
     Only work on Ubuntu
     '''
     # Disable on these platforms, specific service modules exist:
-    if __grains__['os'] in ('Ubuntu', 'Linaro', 'elementary OS'):
+    if _sd_booted(__context__):
+        return False
+    elif __grains__['os'] in ('Ubuntu', 'Linaro', 'elementary OS'):
         return __virtualname__
     elif __grains__['os'] in ('Debian', 'Raspbian'):
         debian_initctl = '/sbin/initctl'
@@ -406,8 +411,15 @@ def status(name, sig=None):
         return bool(__salt__['status.pid'](sig))
     cmd = ['service', name, 'status']
     if _service_is_upstart(name):
-        return 'start/running' in __salt__['cmd.run'](cmd, python_shell=False)
-    return not bool(__salt__['cmd.retcode'](cmd, python_shell=False))
+        # decide result base on cmd output, thus ignore retcode,
+        # which makes cmd output not at error lvl even when cmd fail.
+        return 'start/running' in __salt__['cmd.run'](cmd, python_shell=False,
+                                                      ignore_retcode=True)
+    # decide result base on retcode, thus ignore output (set quite)
+    # because there is no way to avoid logging at error lvl when
+    # service is not running - retcode != 0 (which is totally relevant).
+    return not bool(__salt__['cmd.retcode'](cmd, python_shell=False,
+                                            quite=True))
 
 
 def _get_service_exec():
@@ -425,7 +437,7 @@ def _upstart_disable(name):
     Disable an Upstart service.
     '''
     override = '/etc/init/{0}.override'.format(name)
-    with file(override, 'w') as ofile:
+    with salt.utils.fopen(override, 'w') as ofile:
         ofile.write('manual')
     return _upstart_is_disabled(name)
 
@@ -453,7 +465,7 @@ def enable(name, **kwargs):
     if _service_is_upstart(name):
         return _upstart_enable(name)
     executable = _get_service_exec()
-    cmd = [executable, '-f', name, 'defaults']
+    cmd = '{0} -f {1} enable'.format(executable, name)
     return not __salt__['cmd.retcode'](cmd, python_shell=False)
 
 
@@ -474,7 +486,7 @@ def disable(name, **kwargs):
     return not __salt__['cmd.retcode'](cmd, python_shell=False)
 
 
-def enabled(name):
+def enabled(name, **kwargs):
     '''
     Check to see if the named service is enabled to start on boot
 

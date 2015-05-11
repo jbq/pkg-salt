@@ -13,13 +13,15 @@ Primary interfaces for the salt-cloud system
 
 # Import python libs
 from __future__ import print_function
+from __future__ import absolute_import
 import os
 import sys
 import logging
+from salt.ext.six.moves import input
 
 # Import salt libs
 import salt.config
-import salt.exitcodes
+import salt.defaults.exitcodes
 import salt.output
 import salt.utils
 from salt.utils import parsers
@@ -28,6 +30,7 @@ from salt.utils.verify import check_user, verify_env, verify_files
 # Import salt.cloud libs
 import salt.cloud
 from salt.exceptions import SaltCloudException, SaltCloudSystemExit
+import salt.ext.six as six
 
 log = logging.getLogger(__name__)
 
@@ -77,10 +80,22 @@ class SaltCloud(parsers.SaltCloudParser):
                 self.options.output, self.config
             )
             print(display_output(ret))
-            self.exit(salt.exitcodes.EX_OK)
+            self.exit(salt.defaults.exitcodes.EX_OK)
 
         log.info('salt-cloud starting')
         mapper = salt.cloud.Map(self.config)
+
+        names = self.config.get('names', None)
+        if names is not None:
+            filtered_rendered_map = {}
+            for map_profile in mapper.rendered_map:
+                filtered_map_profile = {}
+                for name in mapper.rendered_map[map_profile]:
+                    if name in names:
+                        filtered_map_profile[name] = mapper.rendered_map[map_profile][name]
+                if filtered_map_profile:
+                    filtered_rendered_map[map_profile] = filtered_map_profile
+            mapper.rendered_map = filtered_rendered_map
 
         ret = {}
 
@@ -90,6 +105,14 @@ class SaltCloud(parsers.SaltCloudParser):
                     ret = mapper.provider_list()
                 except (SaltCloudException, Exception) as exc:
                     msg = 'There was an error listing providers: {0}'
+                    self.handle_exception(msg, exc)
+
+            elif self.selected_query_option == 'list_profiles':
+                provider = self.options.list_profiles
+                try:
+                    ret = mapper.profile_list(provider)
+                except(SaltCloudException, Exception) as exc:
+                    msg = 'There was an error listing profiles: {0}'
                     self.handle_exception(msg, exc)
 
             elif self.config.get('map', None):
@@ -150,13 +173,13 @@ class SaltCloud(parsers.SaltCloudParser):
 
             if not matching:
                 print('No machines were found to be destroyed')
-                self.exit(salt.exitcodes.EX_OK)
+                self.exit(salt.defaults.exitcodes.EX_OK)
 
             msg = 'The following virtual machines are set to be destroyed:\n'
             names = set()
-            for alias, drivers in matching.iteritems():
+            for alias, drivers in six.iteritems(matching):
                 msg += '  {0}:\n'.format(alias)
-                for driver, vms in drivers.iteritems():
+                for driver, vms in six.iteritems(drivers):
                     msg += '    {0}:\n'.format(driver)
                     for name in vms:
                         msg += '      {0}\n'.format(name)
@@ -244,7 +267,7 @@ class SaltCloud(parsers.SaltCloudParser):
                 self.selected_query_option is None:
             if len(mapper.rendered_map) == 0:
                 sys.stderr.write('No nodes defined in this map')
-                self.exit(salt.exitcodes.EX_GENERIC)
+                self.exit(salt.defaults.exitcodes.EX_GENERIC)
             try:
                 ret = {}
                 run_map = True
@@ -256,7 +279,7 @@ class SaltCloud(parsers.SaltCloudParser):
                 if 'errors' in dmap:
                     # display profile errors
                     msg += 'Found the following errors:\n'
-                    for profile_name, error in dmap['errors'].iteritems():
+                    for profile_name, error in six.iteritems(dmap['errors']):
                         msg += '  {0}: {1}\n'.format(profile_name, error)
                     sys.stderr.write(msg)
                     sys.stderr.flush()
@@ -311,13 +334,13 @@ class SaltCloud(parsers.SaltCloudParser):
         )
         # display output using salt's outputter system
         print(display_output(ret))
-        self.exit(salt.exitcodes.EX_OK)
+        self.exit(salt.defaults.exitcodes.EX_OK)
 
     def print_confirm(self, msg):
         if self.options.assume_yes:
             return True
         print(msg)
-        res = raw_input('Proceed? [N/y] ')
+        res = input('Proceed? [N/y] ')
         if not res.lower().startswith('y'):
             return False
         print('... proceeding')
@@ -350,4 +373,4 @@ class SaltCloud(parsers.SaltCloudParser):
             # enabled
             exc_info_on_loglevel=logging.DEBUG
         )
-        self.exit(salt.exitcodes.EX_GENERIC)
+        self.exit(salt.defaults.exitcodes.EX_GENERIC)

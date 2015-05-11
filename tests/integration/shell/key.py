@@ -27,7 +27,7 @@ class KeyTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
         '''
         test salt-key -l for accepted arguments
         '''
-        for key in ('acc', 'pre', 'un', 'rej'):
+        for key in ('acc', 'pre', 'den', 'un', 'rej'):
             # These should not trigger any error
             data = self.run_key('-l {0}'.format(key), catch_stderr=True)
             self.assertNotIn('error:', '\n'.join(data[1]))
@@ -45,6 +45,7 @@ class KeyTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
                 'Accepted Keys:',
                 'minion',
                 'sub_minion',
+                'Denied Keys:',
                 'Unaccepted Keys:',
                 'Rejected Keys:'
             ]
@@ -69,6 +70,7 @@ class KeyTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
             expect = [
                 '{',
                 '    "minions_rejected": [], ',
+                '    "minions_denied": [], ',
                 '    "minions_pre": [], ',
                 '    "minions": [',
                 '        "minion", ',
@@ -101,6 +103,7 @@ class KeyTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
                 'minions:',
                 '- minion',
                 '- sub_minion',
+                'minions_denied: []',
                 'minions_pre: []',
                 'minions_rejected: []',
             ]
@@ -123,7 +126,7 @@ class KeyTest(integration.ShellCase, integration.ShellCaseCommonTestsMixIn):
         expect = None
         if self.master_opts['transport'] == 'zeromq':
             expect = [
-                "{'minions_rejected': [], 'minions_pre': [], "
+                "{'minions_rejected': [], 'minions_denied': [], 'minions_pre': [], "
                 "'minions': ['minion', 'sub_minion']}"
             ]
         elif self.master_opts['transport'] == 'raet':

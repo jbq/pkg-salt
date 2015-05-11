@@ -12,6 +12,8 @@ The data sent to the state calls is as follows:
       }
 '''
 
+from __future__ import absolute_import
+
 # Import python libs
 import os
 import sys
@@ -31,10 +33,13 @@ import salt.fileclient
 import salt.utils.event
 import salt.syspaths as syspaths
 from salt.utils import context, immutabletypes
-from salt._compat import string_types
+from salt.ext.six import string_types
 from salt.template import compile_template, compile_template_str
 from salt.exceptions import SaltRenderError, SaltReqTimeoutError, SaltException
 from salt.utils.odict import OrderedDict, DefaultOrderedDict
+
+# Import third party libs
+from salt.ext.six.moves import range
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +72,8 @@ STATE_RUNTIME_KEYWORDS = frozenset([
     'unless',
     'order',
     'reload_modules',
+    'reload_grains',
+    'reload_pillar',
     'saltenv',
     'use',
     'use_in',
@@ -79,6 +86,7 @@ STATE_RUNTIME_KEYWORDS = frozenset([
     '__pub_fun',
     '__pub_tgt',
     '__pub_ret',
+    '__pub_pid',
     '__pub_tgt_type',
     ])
 STATE_INTERNAL_KEYWORDS = STATE_REQUISITE_KEYWORDS.union(STATE_REQUISITE_IN_KEYWORDS).union(STATE_RUNTIME_KEYWORDS)
@@ -189,9 +197,9 @@ def format_log(ret):
                 if 'diff' in chg:
                     if isinstance(chg['diff'], string_types):
                         msg = 'File changed:\n{0}'.format(chg['diff'])
-                if all([isinstance(x, dict) for x in chg.itervalues()]):
+                if all([isinstance(x, dict) for x in chg.values()]):
                     if all([('old' in x and 'new' in x)
-                            for x in chg.itervalues()]):
+                            for x in chg.values()]):
                         # This is the return data from a package install
                         msg = 'Installed Packages:\n'
                         for pkg in chg:
@@ -504,7 +512,7 @@ class Compiler(object):
                     for entry in names:
                         live = copy.deepcopy(chunk)
                         if isinstance(entry, dict):
-                            low_name = entry.iterkeys().next()
+                            low_name = next(iter(entry.keys()))
                             live['name'] = low_name
                             live.update(entry[low_name][0])
                         else:
@@ -540,7 +548,7 @@ class Compiler(object):
                 # Explicitly declared exclude
                 if len(exc) != 1:
                     continue
-                key = exc.iterkeys().next()
+                key = next(iter(exc.keys()))
                 if key == 'sls':
                     ex_sls.add(exc['sls'])
                 elif key == 'id':
@@ -587,6 +595,7 @@ class State(object):
                 self.opts['grains'],
                 self.opts['id'],
                 self.opts['environment'],
+                pillar=self._pillar_override
                 )
         ret = pillar.compile_pillar()
         if self._pillar_override and isinstance(self._pillar_override, dict):
@@ -642,7 +651,7 @@ class State(object):
             else:
                 low_data_onlyif = low_data['onlyif']
             for entry in low_data_onlyif:
-                cmd = self.functions['cmd.retcode'](entry, ignore_retcode=True, **cmd_opts)
+                cmd = self.functions['cmd.retcode'](entry, ignore_retcode=True, python_shell=True, **cmd_opts)
                 log.debug('Last command return code: {0}'.format(cmd))
                 if cmd != 0 and ret['result'] is False:
                     ret.update({'comment': 'onlyif execution failed',
@@ -659,7 +668,7 @@ class State(object):
             else:
                 low_data_unless = low_data['unless']
             for entry in low_data_unless:
-                cmd = self.functions['cmd.retcode'](entry, ignore_retcode=True, **cmd_opts)
+                cmd = self.functions['cmd.retcode'](entry, ignore_retcode=True, python_shell=True, **cmd_opts)
                 log.debug('Last command return code: {0}'.format(cmd))
                 if cmd == 0 and ret['result'] is False:
                     ret.update({'comment': 'unless execution succeeded',
@@ -681,7 +690,7 @@ class State(object):
         if 'shell' in self.opts['grains']:
             cmd_opts['shell'] = self.opts['grains'].get('shell')
         for entry in low_data['check_cmd']:
-            cmd = self.functions['cmd.retcode'](entry, ignore_retcode=True, **cmd_opts)
+            cmd = self.functions['cmd.retcode'](entry, ignore_retcode=True, python_shell=True, **cmd_opts)
             log.debug('Last command return code: {0}'.format(cmd))
             if cmd == 0 and ret['result'] is False:
                 ret.update({'comment': 'check_cmd determined the state succeeded', 'result': True})
@@ -744,7 +753,18 @@ class State(object):
         possible module type, e.g. a python, pyx, or .so. Always refresh if the
         function is recurse, since that can lay down anything.
         '''
-        if data.get('reload_modules', False) is True:
+        _reload_modules = False
+        if data.get('reload_grains', False):
+            log.debug('Refreshing grains...')
+            self.opts['grains'] = salt.loader.grains(self.opts)
+            _reload_modules = True
+
+        if data.get('reload_pillar', False):
+            log.debug('Refreshing pillar...')
+            self.opts['pillar'] = self._gather_pillar()
+            _reload_modules = True
+
+        if data.get('reload_modules', False) or _reload_modules:
             # User explicitly requests a reload
             self.module_refresh()
             return
@@ -806,20 +826,20 @@ class State(object):
         if full not in self.states:
             if '__sls__' in data:
                 errors.append(
-                    'State {0!r} found in SLS {1!r} is unavailable'.format(
+                    'State \'{0}\' was not found in SLS \'{1}\''.format(
                         full,
                         data['__sls__']
                         )
                     )
             else:
                 errors.append(
-                        'Specified state {0!r} is unavailable.'.format(
+                        'Specified state \'{0}\' was not found'.format(
                             full
                             )
                         )
         else:
             # First verify that the parameters are met
-            aspec = salt.utils.get_function_argspec(self.states[full])
+            aspec = salt.utils.args.get_function_argspec(self.states[full])
             arglen = 0
             deflen = 0
             if isinstance(aspec.args, list):
@@ -1106,7 +1126,7 @@ class State(object):
                     for entry in names:
                         live = copy.deepcopy(chunk)
                         if isinstance(entry, dict):
-                            low_name = entry.iterkeys().next()
+                            low_name = next(iter(entry.keys()))
                             live['name'] = low_name
                             live.update(entry[low_name][0])
                         else:
@@ -1217,7 +1237,7 @@ class State(object):
                 # Explicitly declared exclude
                 if len(exc) != 1:
                     continue
-                key = exc.iterkeys().next()
+                key = next(iter(exc.keys()))
                 if key == 'sls':
                     ex_sls.add(exc['sls'])
                 elif key == 'id':
@@ -1389,9 +1409,9 @@ class State(object):
                                         if next(iter(arg)) in ignore_args:
                                             continue
                                         # Don't use name or names
-                                        if arg.iterkeys().next() == 'name':
+                                        if next(iter(arg.keys())) == 'name':
                                             continue
-                                        if arg.iterkeys().next() == 'names':
+                                        if next(iter(arg.keys())) == 'names':
                                             continue
                                         extend[ext_id][_state].append(arg)
                                     continue
@@ -1415,9 +1435,9 @@ class State(object):
                                         if next(iter(arg)) in ignore_args:
                                             continue
                                         # Don't use name or names
-                                        if arg.iterkeys().next() == 'name':
+                                        if next(iter(arg.keys())) == 'name':
                                             continue
-                                        if arg.iterkeys().next() == 'names':
+                                        if next(iter(arg.keys())) == 'names':
                                             continue
                                         extend[id_][state].append(arg)
                                     continue
@@ -1486,7 +1506,8 @@ class State(object):
 
         state_func_name = '{0[state]}.{0[fun]}'.format(low)
         cdata = salt.utils.format_call(
-            self.states[state_func_name], low,
+            self.states[state_func_name],
+            low,
             initial_ret={'full': state_func_name},
             expected_extra_kws=STATE_INTERNAL_KEYWORDS
         )
@@ -1546,8 +1567,8 @@ class State(object):
         except Exception:
             trb = traceback.format_exc()
             # There are a number of possibilities to not have the cdata
-            # populated with what we might have expected, so just be enought
-            # smart to not raise another KeyError as the name is easily
+            # populated with what we might have expected, so just be smart
+            # enough to not raise another KeyError as the name is easily
             # guessable and fallback in all cases to present the real
             # exception to the user
             if len(cdata['args']) > 0:
@@ -2016,11 +2037,37 @@ class State(object):
             return errors
         # Compile and verify the raw chunks
         chunks = self.compile_high_data(high)
+
+        # Check for any disabled states
+        disabled = {}
+        if 'state_runs_disabled' in self.opts['grains']:
+            _chunks = copy.deepcopy(chunks)
+            for low in _chunks:
+                state_ = '{0}.{1}'.format(low['state'], low['fun'])
+                for pat in self.opts['grains']['state_runs_disabled']:
+                    if fnmatch.fnmatch(state_, pat):
+                        comment = (
+                                    'The state function "{0}" is currently disabled by "{1}", '
+                                    'to re-enable, run state.enable {1}.'
+                                  ).format(
+                                    state_,
+                                    pat,
+                                  )
+                        _tag = _gen_tag(low)
+                        disabled[_tag] = {'changes': {},
+                                          'result': False,
+                                          'comment': comment,
+                                          '__run_num__': self.__run_num,
+                                          '__sls__': low['__sls__']}
+                        self.__run_num += 1
+                        chunks.remove(low)
+                        break
+
         # If there are extensions in the highstate, process them and update
         # the low data chunks
         if errors:
             return errors
-        ret = self.call_chunks(chunks)
+        ret = dict(list(disabled.items()) + list(self.call_chunks(chunks).items()))
         ret = self.call_listen(chunks, ret)
 
         def _cleanup_accumulator_data():
@@ -2218,7 +2265,7 @@ class BaseHighState(object):
         envs = set(['base'])
         if 'file_roots' in self.opts:
             envs.update(list(self.opts['file_roots']))
-        return envs
+        return envs.union(set(self.client.envs()))
 
     def get_tops(self):
         '''
@@ -2237,7 +2284,7 @@ class BaseHighState(object):
                             ),
                         self.state.rend,
                         self.state.opts['renderer'],
-                        env=self.opts['environment']
+                        saltenv=self.opts['environment']
                         )
                     ]
         else:
@@ -2295,7 +2342,7 @@ class BaseHighState(object):
         Cleanly merge the top files
         '''
         top = DefaultOrderedDict(OrderedDict)
-        for ctops in tops.itervalues():
+        for ctops in tops.values():
             for ctop in ctops:
                 for saltenv, targets in ctop.items():
                     if saltenv == 'include':
@@ -2342,7 +2389,7 @@ class BaseHighState(object):
                     'The top file matches for saltenv {0} are not '
                     'formatted as a dict'.format(saltenv)
                 )
-            for slsmods in matches.itervalues():
+            for slsmods in matches.values():
                 if not isinstance(slsmods, list):
                     errors.append('Malformed topfile (state declarations not '
                                   'formed as a list)')
@@ -2350,7 +2397,7 @@ class BaseHighState(object):
                 for slsmod in slsmods:
                     if isinstance(slsmod, dict):
                         # This value is a match option
-                        for val in slsmod.itervalues():
+                        for val in slsmod.values():
                             if not val:
                                 errors.append(
                                     'Improperly formatted top file matcher '
@@ -2516,7 +2563,7 @@ class BaseHighState(object):
                         env_key = saltenv
 
                     if env_key not in self.avail:
-                        msg = ('Nonexistant saltenv {0!r} found in include '
+                        msg = ('Nonexistent saltenv {0!r} found in include '
                                'of {1!r} within SLS \'{2}:{3}\''
                                .format(env_key, inc_sls, saltenv, sls))
                         log.error(msg)
@@ -2620,7 +2667,7 @@ class BaseHighState(object):
                     for arg in state[name][s_dec]:
                         if isinstance(arg, dict):
                             if len(arg) > 0:
-                                if arg.iterkeys().next() == 'order':
+                                if next(iter(arg.keys())) == 'order':
                                     found = True
                     if not found:
                         if not isinstance(state[name][s_dec], list):
@@ -2904,7 +2951,7 @@ class BaseHighState(object):
             return err
         if not high:
             return ret
-        cumask = os.umask(077)
+        cumask = os.umask(0o77)
         try:
             if salt.utils.is_windows():
                 # Make sure cache file isn't read-only
@@ -3064,7 +3111,7 @@ class RemoteHighState(object):
         self.grains = grains
         self.serial = salt.payload.Serial(self.opts)
         # self.auth = salt.crypt.SAuth(opts)
-        self.sreq = salt.transport.Channel.factory(self.opts['master_uri'])
+        self.channel = salt.transport.Channel.factory(self.opts['master_uri'])
 
     def compile_master(self):
         '''
@@ -3074,11 +3121,6 @@ class RemoteHighState(object):
                 'opts': self.opts,
                 'cmd': '_master_state'}
         try:
-            return self.sreq.send(load, tries=3, timeout=72000)
-            # return self.auth.crypticle.loads(self.sreq.send(
-            #         'aes',
-            #         self.auth.crypticle.dumps(load),
-            #         3,
-            #         72000))
+            return self.channel.send(load, tries=3, timeout=72000)
         except SaltReqTimeoutError:
             return {}

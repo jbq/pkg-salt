@@ -4,6 +4,8 @@ This module contains routines used to verify the matcher against the minions
 expected to return
 '''
 
+from __future__ import absolute_import
+
 # Import python libs
 import os
 import fnmatch
@@ -13,12 +15,13 @@ import logging
 # Import salt libs
 import salt.payload
 import salt.utils
+from salt.defaults import DEFAULT_TARGET_DELIM
 from salt.exceptions import CommandExecutionError
 from salt._compat import string_types
 
 HAS_RANGE = False
 try:
-    import seco.range
+    import seco.range  # pylint: disable=import-error
     HAS_RANGE = True
 except ImportError:
     pass
@@ -43,18 +46,22 @@ def get_minion_data(minion, opts):
             # If no minion specified, take first one with valid grains
             for id_ in minions:
                 datap = os.path.join(cdir, id_, 'data.p')
-                if not os.path.isfile(datap):
+                try:
+                    with salt.utils.fopen(datap, 'rb') as fp_:
+                        miniondata = serial.load(fp_)
+                except (IOError, OSError):
                     continue
-                miniondata = serial.load(salt.utils.fopen(datap, 'rb'))
                 grains = miniondata.get('grains')
                 pillar = miniondata.get('pillar')
                 return id_, grains, pillar
         else:
             # Search for specific minion
             datap = os.path.join(cdir, minion, 'data.p')
-            if not os.path.isfile(datap):
+            try:
+                with salt.utils.fopen(datap, 'rb') as fp_:
+                    miniondata = serial.load(fp_)
+            except (IOError, OSError):
                 return minion, None, None
-            miniondata = serial.load(salt.utils.fopen(datap, 'rb'))
             grains = miniondata.get('grains')
             pillar = miniondata.get('pillar')
             return minion, grains, pillar
@@ -62,31 +69,40 @@ def get_minion_data(minion, opts):
     return minion if minion else None, None, None
 
 
-def nodegroup_comp(group, nodegroups, skip=None):
+def nodegroup_comp(nodegroup, nodegroups, skip=None):
     '''
-    Take the nodegroup and the nodegroups and fill in nodegroup refs
+    Recursively expand ``nodegroup`` from ``nodegroups``; ignore nodegroups in ``skip``
     '''
-    k = 1
+
     if skip is None:
-        skip = set([group])
-        k = 0
-    if group not in nodegroups:
+        skip = set()
+    elif nodegroup in skip:
+        log.error('Failed nodegroup expansion: illegal nested nodegroup "{0}"'.format(nodegroup))
         return ''
-    gstr = nodegroups[group]
-    ret = ''
-    for comp in gstr.split(','):
-        if not comp.startswith('N@'):
-            ret += '{0} or '.format(comp)
-            continue
-        ngroup = comp[2:]
-        if ngroup in skip:
-            continue
-        skip.add(ngroup)
-        ret += nodegroup_comp(ngroup, nodegroups, skip)
-    if k == 1:
-        return ret
-    else:
-        return ret[:-3]
+
+    if nodegroup not in nodegroups:
+        log.error('Failed nodegroup expansion: unknown nodegroup "{0}"'.format(nodegroup))
+        return ''
+
+    skip.add(nodegroup)
+    nglookup = nodegroups[nodegroup]
+
+    ret = []
+    opers = ['and', 'or', 'not', '(', ')']
+    tokens = nglookup.split()
+    for match in tokens:
+        if match in opers:
+            ret.append(match)
+        elif len(match) >= 3 and match.startswith('N@'):
+            ret.append(nodegroup_comp(match[2:], nodegroups, skip=skip))
+        else:
+            ret.append(match)
+
+    skip.remove(nodegroup)
+
+    expanded = '( {0} )'.format(' '.join(ret)) if ret else ''
+    log.debug('nodegroup_comp("{0}") => {1}'.format(nodegroup, expanded))
+    return expanded
 
 
 class CkMinions(object):
@@ -142,6 +158,7 @@ class CkMinions(object):
 
     def _check_cache_minions(self,
                              expr,
+                             delimiter,
                              greedy,
                              search_type,
                              regex_match=False,
@@ -182,32 +199,44 @@ class CkMinions(object):
                     minions.remove(id_)
         return list(minions)
 
-    def _check_grain_minions(self, expr, greedy):
+    def _check_grain_minions(self, expr, delimiter, greedy):
         '''
         Return the minions found by looking via grains
         '''
-        return self._check_cache_minions(expr, greedy, 'grains')
+        return self._check_cache_minions(expr, delimiter, greedy, 'grains')
 
-    def _check_grain_pcre_minions(self, expr, greedy):
+    def _check_grain_pcre_minions(self, expr, delimiter, greedy):
         '''
         Return the minions found by looking via grains with PCRE
         '''
         return self._check_cache_minions(expr,
+                                         delimiter,
                                          greedy,
                                          'grains',
                                          regex_match=True)
 
-    def _check_pillar_minions(self, expr, greedy):
+    def _check_pillar_minions(self, expr, delimiter, greedy):
         '''
         Return the minions found by looking via pillar
         '''
-        return self._check_cache_minions(expr, greedy, 'pillar')
+        return self._check_cache_minions(expr, delimiter, greedy, 'pillar')
 
-    def _check_pillar_exact_minions(self, expr, greedy):
+    def _check_pillar_pcre_minions(self, expr, delimiter, greedy):
+        '''
+        Return the minions found by looking via pillar with PCRE
+        '''
+        return self._check_cache_minions(expr,
+                                         delimiter,
+                                         greedy,
+                                         'pillar',
+                                         regex_match=True)
+
+    def _check_pillar_exact_minions(self, expr, delimiter, greedy):
         '''
         Return the minions found by looking via pillar
         '''
         return self._check_cache_minions(expr,
+                                         delimiter,
                                          greedy,
                                          'pillar',
                                          exact_match=True)
@@ -239,10 +268,11 @@ class CkMinions(object):
                     if not greedy and id_ in minions:
                         minions.remove(id_)
                     continue
-                grains = self.serial.load(
-                    salt.utils.fopen(datap, 'rb')
-                ).get('grains')
-
+                try:
+                    with salt.utils.fopen(datap, 'rb') as fp_:
+                        grains = self.serial.load(fp_).get('grains')
+                except (IOError, OSError):
+                    continue
                 num_parts = len(expr.split('/'))
                 if num_parts > 2:
                     # Target is not valid CIDR, no minions match
@@ -272,7 +302,7 @@ class CkMinions(object):
         '''
         if not HAS_RANGE:
             raise CommandExecutionError(
-                'Range matcher unavailble (unable to import seco.range, '
+                'Range matcher unavailable (unable to import seco.range, '
                 'module most likely not installed)'
             )
         if not hasattr(self, '_range'):
@@ -291,15 +321,22 @@ class CkMinions(object):
             else:
                 return list()
 
-    def _check_compound_pillar_exact_minions(self, expr, greedy):
+    def _check_compound_pillar_exact_minions(self, expr, delimiter, greedy):
         '''
         Return the minions found by looking via compound matcher
 
         Disable pillar glob matching
         '''
-        return self._check_compound_minions(expr, greedy, pillar_exact=True)
+        return self._check_compound_minions(expr,
+                                            delimiter,
+                                            greedy,
+                                            pillar_exact=True)
 
-    def _check_compound_minions(self, expr, greedy, pillar_exact=False):  # pylint: disable=unused-argument
+    def _check_compound_minions(self,
+                                expr,
+                                delimiter,
+                                greedy,
+                                pillar_exact=False):  # pylint: disable=unused-argument
         '''
         Return the minions found by looking via compound matcher
         '''
@@ -310,31 +347,39 @@ class CkMinions(object):
             ref = {'G': self._check_grain_minions,
                    'P': self._check_grain_pcre_minions,
                    'I': self._check_pillar_minions,
+                   'J': self._check_pillar_pcre_minions,
                    'L': self._check_list_minions,
                    'S': self._check_ipcidr_minions,
                    'E': self._check_pcre_minions,
                    'R': self._all_minions}
             if pillar_exact:
                 ref['I'] = self._check_pillar_exact_minions
+                ref['J'] = self._check_pillar_exact_minions
             results = []
             unmatched = []
             opers = ['and', 'or', 'not', '(', ')']
             tokens = expr.split()
             for match in tokens:
                 # Try to match tokens from the compound target, first by using
-                # the 'G, X, I, L, S, E' matcher types, then by hostname glob.
+                # the 'G, X, I, J, L, S, E' matcher types, then by hostname glob.
                 if '@' in match and match[1] == '@':
                     comps = match.split('@')
                     matcher = ref.get(comps[0])
+
+                    matcher_args = ['@'.join(comps[1:])]
+                    if comps[0] in ('G', 'P', 'I', 'J'):
+                        matcher_args.append(delimiter)
+                    matcher_args.append(True)
+
                     if not matcher:
                         # If an unknown matcher is called at any time, fail out
                         return []
                     if unmatched and unmatched[-1] == '-':
-                        results.append(str(set(matcher('@'.join(comps[1:]), True))))
+                        results.append(str(set(matcher(*matcher_args))))
                         results.append(')')
                         unmatched.pop()
                     else:
-                        results.append(str(set(matcher('@'.join(comps[1:]), True))))
+                        results.append(str(set(matcher(*matcher_args))))
                 elif match in opers:
                     # We didn't match a target, so append a boolean operator or
                     # subexpression
@@ -417,8 +462,6 @@ class CkMinions(object):
                 search = os.listdir(cdir)
             for id_ in search:
                 datap = os.path.join(cdir, id_, 'data.p')
-                if not os.path.isfile(datap):
-                    continue
                 try:
                     with salt.utils.fopen(datap, 'rb') as fp_:
                         grains = self.serial.load(fp_).get('grains', {})
@@ -441,7 +484,11 @@ class CkMinions(object):
         '''
         return os.listdir(os.path.join(self.opts['pki_dir'], self.acc))
 
-    def check_minions(self, expr, expr_form='glob', greedy=True):
+    def check_minions(self,
+                      expr,
+                      expr_form='glob',
+                      delimiter=DEFAULT_TARGET_DELIM,
+                      greedy=True):
         '''
         Check the passed regex against the available minions' public keys
         stored for authentication. This should return a set of ids which
@@ -449,18 +496,17 @@ class CkMinions(object):
         make sure everyone has checked back in.
         '''
         try:
-            minions = {'glob': self._check_glob_minions,
-                       'pcre': self._check_pcre_minions,
-                       'list': self._check_list_minions,
-                       'grain': self._check_grain_minions,
-                       'grain_pcre': self._check_grain_pcre_minions,
-                       'pillar': self._check_pillar_minions,
-                       'compound': self._check_compound_minions,
-                       'ipcidr': self._check_ipcidr_minions,
-                       'range': self._check_range_minions,
-                       'pillar_exact': self._check_pillar_exact_minions,
-                       'compound_pillar_exact': self._check_compound_pillar_exact_minions,
-                       }[expr_form](expr, greedy)
+            check_func = getattr(self, '_check_{0}_minions'.format(expr_form), None)
+            if expr_form in ('grain',
+                             'grain_pcre',
+                             'pillar',
+                             'pillar_pcre',
+                             'pillar_exact',
+                             'compound',
+                             'compound_pillar_exact'):
+                minions = check_func(expr, delimiter, greedy)
+            else:
+                minions = check_func(expr, greedy)
         except Exception:
             log.exception(
                     'Failed matching available minions with {0} pattern: {1}'
@@ -476,6 +522,7 @@ class CkMinions(object):
         ref = {'G': 'grain',
                'P': 'grain_pcre',
                'I': 'pillar',
+               'J': 'pillar_pcre',
                'L': 'list',
                'S': 'ipcidr',
                'E': 'pcre',
@@ -483,7 +530,8 @@ class CkMinions(object):
         infinite = [
                 'node',
                 'ipcidr',
-                'pillar']
+                'pillar',
+                'pillar_pcre']
         if not self.opts.get('minion_data_cache', False):
             infinite.append('grain')
             infinite.append('grain_pcre')
@@ -556,7 +604,7 @@ class CkMinions(object):
         '''
         if publish_validate:
             v_tgt_type = tgt_type
-            if tgt_type.lower() == 'pillar':
+            if tgt_type.lower() in ('pillar', 'pillar_pcre'):
                 v_tgt_type = 'pillar_exact'
             elif tgt_type.lower() == 'compound':
                 v_tgt_type = 'compound_pillar_exact'
@@ -564,7 +612,8 @@ class CkMinions(object):
             minions = set(self.check_minions(tgt, tgt_type))
             mismatch = bool(minions.difference(v_minions))
             # If the non-exact match gets more minions than the exact match
-            # then pillar globbing is being used, and we have a problem
+            # then pillar globbing or PCRE is being used, and we have a
+            # problem
             if mismatch:
                 return False
         # compound commands will come in a list so treat everything as a list
@@ -581,7 +630,7 @@ class CkMinions(object):
                         if len(ind) != 1:
                             # Invalid argument
                             continue
-                        valid = ind.iterkeys().next()
+                        valid = next(iter(ind.keys()))
                         # Check if minions are allowed
                         if self.validate_tgt(
                                 valid,
@@ -633,7 +682,7 @@ class CkMinions(object):
             elif isinstance(ind, dict):
                 if len(ind) != 1:
                     continue
-                valid = ind.iterkeys().next()
+                valid = next(iter(ind.keys()))
                 if valid.startswith('@') and valid[1:] == mod:
                     if isinstance(ind[valid], string_types):
                         if self.match_check(ind[valid], fun):
@@ -664,7 +713,7 @@ class CkMinions(object):
             elif isinstance(ind, dict):
                 if len(ind) != 1:
                     continue
-                valid = ind.iterkeys().next()
+                valid = next(iter(ind.keys()))
                 if valid.startswith('@') and valid[1:] == mod:
                     if isinstance(ind[valid], string_types):
                         if self.match_check(ind[valid], fun):
@@ -698,7 +747,7 @@ class CkMinions(object):
             elif isinstance(ind, dict):
                 if len(ind) != 1:
                     continue
-                valid = ind.iterkeys().next()
+                valid = next(iter(ind.keys()))
                 if valid.startswith('@') and valid[1:] == mod:
                     if isinstance(ind[valid], string_types):
                         if self.match_check(ind[valid], fun):

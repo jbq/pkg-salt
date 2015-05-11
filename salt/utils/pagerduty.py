@@ -16,10 +16,11 @@ Library for interacting with PagerDuty API
             pagerduty.subdomain: mysubdomain
             pagerduty.api_key: F3Rbyjbve43rfFWf2214
 '''
+from __future__ import absolute_import
 
 import json
-import requests
 import logging
+import salt.utils.http
 from salt.version import __version__
 
 log = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ def query(method='GET', profile=None, url=None, path='api/v1',
         opts = {}
 
     if profile is not None:
-        creds = opts.get(profile)
+        creds = opts.get(profile, {})
     else:
         creds = {}
 
@@ -89,16 +90,18 @@ def query(method='GET', profile=None, url=None, path='api/v1',
     else:
         headers['Content-type'] = 'application/json'
 
-    result = requests.request(
-        method,
+    result = salt.utils.http.query(
         url,
-        headers=headers,
+        method,
         params=params,
+        header_dict=headers,
         data=json.dumps(data),
-        verify=verify_ssl
+        decode=False,
+        text=True,
+        opts=opts,
     )
 
-    return result.text
+    return result['text']
 
 
 def list_items(action, key, profile=None, api_key=None, opts=None):

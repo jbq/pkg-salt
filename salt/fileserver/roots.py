@@ -15,6 +15,7 @@ be in the :conf_master:`fileserver_backend` list to enable this backend.
 Fileserver environments are defined using the :conf_master:`file_roots`
 configuration option.
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import os
@@ -24,6 +25,7 @@ import logging
 import salt.fileserver
 import salt.utils
 from salt.utils.event import tagify
+import salt.ext.six as six
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +77,7 @@ def envs():
     '''
     Return the file server environments
     '''
-    return __opts__['file_roots'].keys()
+    return list(__opts__['file_roots'].keys())
 
 
 def serve_file(load, fnd):
@@ -150,7 +152,7 @@ def update():
     if not os.path.exists(mtime_map_path_dir):
         os.makedirs(mtime_map_path_dir)
     with salt.utils.fopen(mtime_map_path, 'w') as fp_:
-        for file_path, mtime in new_mtime_map.iteritems():
+        for file_path, mtime in six.iteritems(new_mtime_map):
             fp_.write('{file_path}:{mtime}\n'.format(file_path=file_path,
                                                      mtime=mtime))
 
@@ -194,7 +196,7 @@ def file_hash(load, fnd):
     cache_path = os.path.join(__opts__['cachedir'],
                               'roots/hash',
                               load['saltenv'],
-                              '{0}.hash.{1}'.format(fnd['rel'],
+                              u'{0}.hash.{1}'.format(fnd['rel'],
                               __opts__['hash_type']))
     # if we have a cache, serve that if the mtime hasn't changed
     if os.path.exists(cache_path):
