@@ -1,4 +1,11 @@
-salt (2014.7.5+ds-1) UNRELEASED; urgency=medium
+salt (2015.5.0+ds-1) unstable; urgency=medium
+
+  * [52d8863] Imported Upstream version 2015.5.0+ds. Closes: 783300
+  * [bd5ad46] Updated patches for 2015.5. Closes: 777664
+
+ -- Joe Healy <joehealy@gmail.com>  Mon, 11 May 2015 21:53:01 +1000
+
+salt (2014.7.5+ds-1) unstable; urgency=medium
 
   * [f41091a] Imported Upstream version 2014.7.5+ds
 
