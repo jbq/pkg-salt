@@ -10,14 +10,14 @@ becoming root first.
  salt/cli/daemons.py | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
---- a/salt/__init__.py
-+++ b/salt/__init__.py
-@@ -209,7 +209,7 @@
-                                                                     'udp://',
-                                                                     'file://')):
-                         # Logfile is not using Syslog, verify
--                        current_umask = os.umask(0077)
-+                        current_umask = os.umask(0o027)
-                         verify_files([logfile], self.config['user'])
-                         os.umask(current_umask)
-             except OSError as err:
+--- a/salt/cli/daemons.py
++++ b/salt/cli/daemons.py
+@@ -214,7 +214,7 @@
+                                                                 'udp://',
+                                                                 'file://')):
+                     # Logfile is not using Syslog, verify
+-                    current_umask = os.umask(0o077)
++                    current_umask = os.umask(0o027)
+                     verify_files([logfile], self.config['user'])
+                     os.umask(current_umask)
+         except OSError as err:
