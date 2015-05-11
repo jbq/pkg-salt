@@ -1,4 +1,4 @@
-salt (2015.5.0+ds-1ubuntu1) precise; urgency=medium
+salt (2015.5.0+ds-1precise1) precise; urgency=medium
 
   * [05986b9] Update to dependencies for saucy
   * [0e88689] Update of ubuntu packaging files from upstream
