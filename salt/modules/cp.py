@@ -2,6 +2,7 @@
 '''
 Minion side functions for salt-cp
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import os
@@ -252,6 +253,10 @@ def get_url(path, dest, saltenv='base', env=None):
     '''
     Used to get a single file from a URL.
 
+    The default behaviuor is to write the fetched file to the given
+    destination path. To simply return the text contents instead, set destination to
+    None.
+
     CLI Example:
 
     .. code-block:: bash
@@ -269,7 +274,10 @@ def get_url(path, dest, saltenv='base', env=None):
         saltenv = env
 
     _mk_client()
-    return __context__['cp.fileclient'].get_url(path, dest, False, saltenv)
+    if dest:
+        return __context__['cp.fileclient'].get_url(path, dest, False, saltenv)
+    else:
+        return __context__['cp.fileclient'].get_url(path, None, False, saltenv, no_cache=True)
 
 
 def get_file_str(path, saltenv='base', env=None):
@@ -320,14 +328,13 @@ def cache_file(path, saltenv='base', env=None):
     _mk_client()
     if path.startswith('salt://|'):
         # Strip pipe. Windows doesn't allow pipes in filenames
-        path = 'salt://{0}'.format(path[8:])
+        path = u'salt://{0}'.format(path[8:])
     env_splitter = '?saltenv='
     if '?env=' in path:
         salt.utils.warn_until(
             'Boron',
-            'Passing a salt environment should be done using '
-            '\'saltenv\' not \'env\'. This functionality will be '
-            'removed in Salt Boron.'
+            'Passing a salt environment should be done using \'saltenv\' '
+            'not \'env\'. This functionality will be removed in Salt Boron.'
         )
         env_splitter = '?env='
     try:
@@ -632,7 +639,7 @@ def hash_file(path, saltenv='base', env=None):
     return __context__['cp.fileclient'].hash_file(path, saltenv)
 
 
-def push(path):
+def push(path, keep_symlinks=False):
     '''
     Push a file from the minion up to the master, the file will be saved to
     the salt master in the master's minion files cachedir
@@ -643,17 +650,22 @@ def push(path):
     ``file_recv`` to ``True`` in the master configuration file, and restart the
     master.
 
+    keep_symlinks
+        Keep the path value without resolving its canonical form
+
     CLI Example:
 
     .. code-block:: bash
 
         salt '*' cp.push /etc/fstab
+        salt '*' cp.push /etc/system-release keep_symlinks=True
     '''
     log.debug('Trying to copy {0!r} to master'.format(path))
     if '../' in path or not os.path.isabs(path):
         log.debug('Path must be absolute, returning False')
         return False
-    path = os.path.realpath(path)
+    if not keep_symlinks:
+        path = os.path.realpath(path)
     if not os.path.isfile(path):
         log.debug('Path failed os.path.isfile check, returning False')
         return False
@@ -663,14 +675,14 @@ def push(path):
             'id': __opts__['id'],
             'path': path.lstrip(os.sep),
             'tok': auth.gen_token('salt')}
-    sreq = salt.transport.Channel.factory(__opts__)
+    channel = salt.transport.Channel.factory(__opts__)
     with salt.utils.fopen(path, 'rb') as fp_:
         while True:
             load['loc'] = fp_.tell()
             load['data'] = fp_.read(__opts__['file_buffer_size'])
             if not load['data']:
                 return True
-            ret = sreq.send(load)
+            ret = channel.send(load)
             if not ret:
                 log.error('cp.push Failed transfer failed. Ensure master has '
                 '\'file_recv\' set to \'True\' and that the file is not '
@@ -708,7 +720,7 @@ def push_dir(path, glob=None):
         for root, dirs, files in os.walk(path):
             filelist += [os.path.join(root, tmpfile) for tmpfile in files]
         if glob is not None:
-            filelist = filter(lambda fi: fnmatch.fnmatch(fi, glob), filelist)
+            filelist = [fi for fi in filelist if fnmatch.fnmatch(fi, glob)]
         for tmpfile in filelist:
             ret = push(tmpfile)
             if not ret:

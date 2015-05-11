@@ -2,6 +2,7 @@
 '''
 Manage transport commands via ssh
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import re
@@ -12,7 +13,7 @@ import logging
 import subprocess
 
 # Import salt libs
-import salt.exitcodes
+import salt.defaults.exitcodes
 import salt.utils
 import salt.utils.nb_popen
 import salt.utils.vt
@@ -186,7 +187,7 @@ class Shell(object):
         Execute ssh-copy-id to plant the id file on the target
         '''
         stdout, stderr, retcode = self._run_cmd(self._copy_id_str_old())
-        if salt.exitcodes.EX_OK != retcode and stderr.startswith('Usage'):
+        if salt.defaults.exitcodes.EX_OK != retcode and stderr.startswith('Usage'):
             stdout, stderr, retcode = self._run_cmd(self._copy_id_str_new())
         return stdout, stderr, retcode
 
@@ -285,15 +286,22 @@ class Shell(object):
         logmsg = 'Executing command: {0}'.format(cmd)
         if self.passwd:
             logmsg = logmsg.replace(self.passwd, ('*' * 6))
-        log.debug(logmsg)
+        if 'decode("base64")' in logmsg:
+            log.debug('Executed SHIM command. Command logged to TRACE')
+            log.trace(logmsg)
+        else:
+            log.debug(logmsg)
 
         ret = self._run_cmd(cmd)
         return ret
 
-    def send(self, local, remote):
+    def send(self, local, remote, makedirs=False):
         '''
         scp a file or files to a remote system
         '''
+        if makedirs:
+            self.exec_cmd('mkdir -p {0}'.format(os.path.dirname(remote)))
+
         cmd = '{0} {1}:{2}'.format(local, self.host, remote)
         cmd = self._cmd_str(cmd, ssh='scp')
 
@@ -313,7 +321,9 @@ class Shell(object):
                 cmd,
                 shell=True,
                 log_stdout=True,
+                log_stdout_level='trace',
                 log_stderr=True,
+                log_stderr_level='trace',
                 stream_stdout=False,
                 stream_stderr=False)
         sent_passwd = 0

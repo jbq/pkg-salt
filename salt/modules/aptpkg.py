@@ -9,13 +9,13 @@ Support for APT (Advanced Packaging Tool)
 
     For repository management, the ``python-apt`` package must be installed.
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import copy
 import os
 import re
 import logging
-import urllib2
 import json
 try:
     from shlex import quote as _cmd_quote  # pylint: disable=E0611
@@ -24,22 +24,26 @@ except ImportError:
 
 # Import third party libs
 import yaml
+# pylint: disable=no-name-in-module,import-error,redefined-builtin
+import salt.ext.six as six
+from salt.ext.six.moves import range
+from salt.ext.six.moves.urllib.error import HTTPError
+from salt.ext.six.moves.urllib.request import Request as _Request, urlopen as _urlopen
+# pylint: enable=no-name-in-module,import-error,redefined-builtin
 
 # Import salt libs
 from salt.modules.cmdmod import _parse_env
 import salt.utils
-from salt._compat import string_types
 from salt.exceptions import (
     CommandExecutionError, MinionError, SaltInvocationError
 )
 
-
 log = logging.getLogger(__name__)
 
-
+# pylint: disable=import-error
 try:
-    import apt.cache    # pylint: disable=E0611
-    import apt.debfile  # pylint: disable=E0611
+    import apt.cache
+    import apt.debfile
     from aptsources import sourceslist
     HAS_APT = True
 except ImportError:
@@ -50,6 +54,7 @@ try:
     HAS_SOFTWAREPROPERTIES = True
 except ImportError:
     HAS_SOFTWAREPROPERTIES = False
+# pylint: disable=import-error
 
 # Source format for urllib fallback on PPA handling
 LP_SRC_FORMAT = 'deb http://ppa.launchpad.net/{0}/{1}/ubuntu {2} main'
@@ -105,8 +110,8 @@ def _get_ppa_info_from_launchpad(owner_name, ppa_name):
 
     lp_url = 'https://launchpad.net/api/1.0/~{0}/+archive/{1}'.format(
         owner_name, ppa_name)
-    request = urllib2.Request(lp_url, headers={'Accept': 'application/json'})
-    lp_page = urllib2.urlopen(request)
+    request = _Request(lp_url, headers={'Accept': 'application/json'})
+    lp_page = _urlopen(request)
     return json.load(lp_page)
 
 
@@ -238,7 +243,7 @@ def latest_version(*names, **kwargs):
 
     virtpkgs = _get_virtual()
     all_virt = set()
-    for provides in virtpkgs.itervalues():
+    for provides in six.itervalues(virtpkgs):
         all_virt.update(provides)
 
     for name in names:
@@ -325,7 +330,18 @@ def refresh_db():
     '''
     ret = {}
     cmd = 'apt-get -q update'
-    out = __salt__['cmd.run_stdout'](cmd, output_loglevel='trace')
+    call = __salt__['cmd.run_all'](cmd, output_loglevel='trace')
+    if call['retcode'] != 0:
+        comment = ''
+        if 'stderr' in call:
+            comment += call['stderr']
+
+        raise CommandExecutionError(
+            '{0}'.format(comment)
+        )
+    else:
+        out = call['stdout']
+
     for line in out.splitlines():
         cols = line.split()
         if not cols:
@@ -427,6 +443,16 @@ def install(name=None,
 
         .. versionadded:: 0.17.4
 
+    install_recommends
+        Whether to install the packages marked as recommended.  Default is True.
+
+        .. versionadded:: 2015.5.0
+
+    only_upgrade
+        Only upgrade the packages, if they are already installed. Default is False.
+
+        .. versionadded:: 2015.5.0
+
     Returns a dict containing the new package names and versions::
 
         {'<package>': {'old': '<old-version>',
@@ -447,7 +473,7 @@ def install(name=None,
             refreshdb = False
             for pkg in pkgs:
                 if isinstance(pkg, dict):
-                    _name = pkg.iterkeys().next()
+                    _name = next(pkg.iterkeys())
                     _latest_version = latest_version(_name, refresh=False, show_installed=True)
                     _version = pkg[_name]
                     # If the versions don't match, refresh is True, otherwise no need to refresh
@@ -488,9 +514,9 @@ def install(name=None,
         if pkgs is None and kwargs.get('version') and len(pkg_params) == 1:
             # Only use the 'version' param if 'name' was not specified as a
             # comma-separated list
-            pkg_params = {name: kwargs.get('version')}
+            pkg_params = {name: str(kwargs.get('version'))}
         targets = []
-        for param, version_num in pkg_params.iteritems():
+        for param, version_num in six.iteritems(pkg_params):
             if version_num is None:
                 targets.append(param)
             else:
@@ -501,7 +527,7 @@ def install(name=None,
                                                         ver2=cver,
                                                         cmp_func=version_cmp):
                     downgrade = True
-                targets.append('{0}={1}'.format(param, version_num.lstrip('=')))
+                targets.append('{0}={1}'.format(param, str(version_num).lstrip('=')))
         if fromrepo:
             log.info('Targeting repo {0!r}'.format(fromrepo))
         cmd = ['apt-get', '-q', '-y']
@@ -509,6 +535,10 @@ def install(name=None,
             cmd.append('--force-yes')
         cmd = cmd + ['-o', 'DPkg::Options::=--force-confold']
         cmd = cmd + ['-o', 'DPkg::Options::=--force-confdef']
+        if 'install_recommends' in kwargs and not kwargs['install_recommends']:
+            cmd.append('--no-install-recommends')
+        if 'only_upgrade' in kwargs and kwargs['only_upgrade']:
+            cmd.append('--only-upgrade')
         if skip_verify:
             cmd.append('--allow-unauthenticated')
         if fromrepo:
@@ -564,6 +594,54 @@ def _uninstall(action='remove', name=None, pkgs=None, **kwargs):
         return ret
     else:
         return ret['installed']
+
+
+def autoremove(list_only=False):
+    '''
+    .. versionadded:: 2015.5.0
+
+    Remove packages not required by another package using ``apt-get
+    autoremove``.
+
+    list_only : False
+        Only retrieve the list of packages to be auto-removed, do not actually
+        perform the auto-removal.
+
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' pkg.autoremove
+        salt '*' pkg.autoremove list_only=True
+    '''
+    if list_only:
+        ret = []
+        out = __salt__['cmd.run'](
+            ['apt-get', '--assume-no', 'autoremove'],
+            python_shell=False,
+            ignore_retcode=True
+        )
+        found = False
+        for line in out.splitlines():
+            if found is True:
+                if line.startswith(' '):
+                    ret.extend(line.split())
+                else:
+                    found = False
+            elif 'The following packages will be REMOVED:' in line:
+                found = True
+        ret.sort()
+        return ret
+    else:
+        old = list_pkgs()
+        __salt__['cmd.run'](
+            ['apt-get', '--assume-yes', 'autoremove'],
+            python_shell=False
+        )
+        __context__.pop('pkg.list_pkgs', None)
+        new = list_pkgs()
+        return salt.utils.compare_dicts(old, new)
 
 
 def remove(name=None, pkgs=None, **kwargs):
@@ -831,7 +909,7 @@ def _clean_pkglist(pkgs):
     markers. If there is a mix of actual package versions and virtual package
     markers, remove the virtual package markers.
     '''
-    for name, versions in pkgs.iteritems():
+    for name, versions in six.iteritems(pkgs):
         stripped = [v for v in versions if v != '1']
         if not stripped:
             pkgs[name] = ['1']
@@ -931,7 +1009,7 @@ def list_pkgs(versions_as_list=False,
     if not removed:
         virtpkgs_all = _get_virtual()
         virtpkgs = set()
-        for realpkg, provides in virtpkgs_all.iteritems():
+        for realpkg, provides in six.iteritems(virtpkgs_all):
             # grep-available returns info on all virtual packages. Ignore any
             # virtual packages that do not have the real package installed.
             if realpkg in ret['installed']:
@@ -966,7 +1044,19 @@ def _get_upgradable():
     '''
 
     cmd = 'apt-get --just-print dist-upgrade'
-    out = __salt__['cmd.run_stdout'](cmd, output_loglevel='trace')
+    call = __salt__['cmd.run_all'](cmd, output_loglevel='trace')
+
+    if call['retcode'] != 0:
+        comment = ''
+        if 'stderr' in call:
+            comment += call['stderr']
+        if 'stdout' in call:
+            comment += call['stdout']
+        raise CommandExecutionError(
+            '{0}'.format(comment)
+        )
+    else:
+        out = call['stdout']
 
     # rexp parses lines that look like the following:
     # Conf libxfont1 (1:1.4.5-1 Debian:testing [i386])
@@ -1077,7 +1167,7 @@ def _consolidate_repo_sources(sources):
         if repo.file != base_file:
             delete_files.add(repo.file)
 
-    sources.list = consolidated.values()
+    sources.list = list(consolidated.values())
     sources.save()
     for file_ in delete_files:
         try:
@@ -1172,7 +1262,7 @@ def get_repo(repo, **kwargs):
                 .format(repo)
             )
 
-        for source in repos.itervalues():
+        for source in six.itervalues(repos):
             for sub in source:
                 if (sub['type'] == repo_type and
                     # strip trailing '/' from repo_uri, it's valid in definition
@@ -1271,7 +1361,7 @@ def del_repo(repo, **kwargs):
             for source in sources:
                 if source.file in deleted_from:
                     deleted_from[source.file] += 1
-            for repo_file, count in deleted_from.iteritems():
+            for repo_file, count in six.iteritems(deleted_from):
                 msg = 'Repo {0!r} has been removed from {1}.\n'
                 if count == 0 and 'sources.list.d/' in repo_file:
                     if os.path.isfile(repo_file):
@@ -1383,7 +1473,7 @@ def mod_repo(repo, saltenv='base', **kwargs):
                             raise CommandExecutionError(
                                 error_str.format(owner_name, ppa_name)
                             )
-                except urllib2.HTTPError as exc:
+                except HTTPError as exc:
                     raise CommandExecutionError(
                         'Launchpad does not know about {0}/{1}: {2}'.format(
                             owner_name, ppa_name, exc)
@@ -1597,7 +1687,7 @@ def _strip_uri(repo):
     Remove the trailing slash from the URI in a repo definition
     '''
     splits = repo.split()
-    for idx in xrange(len(splits)):
+    for idx in range(len(splits)):
         if any(splits[idx].startswith(x)
                for x in ('http://', 'https://', 'ftp://')):
             splits[idx] = splits[idx].rstrip('/')
@@ -1632,7 +1722,7 @@ def expand_repo_def(repokwargs):
             else:
                 repo = LP_SRC_FORMAT.format(owner_name, ppa_name, dist)
 
-        if file not in repokwargs:
+        if 'file' not in repokwargs:
             filename = '/etc/apt/sources.list.d/{0}-{1}-{2}.list'
             repokwargs['file'] = filename.format(owner_name, ppa_name,
                                                  dist)
@@ -1660,7 +1750,7 @@ def _parse_selections(dpkgselection):
     pkg.get_selections and pkg.set_selections work with.
     '''
     ret = {}
-    if isinstance(dpkgselection, string_types):
+    if isinstance(dpkgselection, six.string_types):
         dpkgselection = dpkgselection.split('\n')
     for line in dpkgselection:
         if line:
@@ -1765,7 +1855,7 @@ def set_selections(path=None, selection=None, clear=False, saltenv='base'):
                'specified together')
         raise SaltInvocationError(err)
 
-    if isinstance(selection, string_types):
+    if isinstance(selection, six.string_types):
         try:
             selection = yaml.safe_load(selection)
         except (yaml.parser.ParserError, yaml.scanner.ScannerError) as exc:
@@ -1798,10 +1888,10 @@ def set_selections(path=None, selection=None, clear=False, saltenv='base'):
                     raise CommandExecutionError(err)
 
         sel_revmap = {}
-        for _state, _pkgs in get_selections().iteritems():
+        for _state, _pkgs in six.iteritems(get_selections()):
             sel_revmap.update(dict((_pkg, _state) for _pkg in _pkgs))
 
-        for _state, _pkgs in selection.iteritems():
+        for _state, _pkgs in six.iteritems(selection):
             for _pkg in _pkgs:
                 if _state == sel_revmap.get(_pkg):
                     continue
@@ -1872,7 +1962,7 @@ def owner(*paths):
     .. versionadded:: 2014.7.0
 
     Return the name of the package that owns the file. Multiple file paths can
-    be passed. Like :mod:`pkg.version <salt.modules.aptpkg.version`, if a
+    be passed. Like :mod:`pkg.version <salt.modules.aptpkg.version>`, if a
     single path is passed, a string will be returned, and if multiple paths are
     passed, a dictionary of file/package name pairs will be returned.
 
@@ -1895,5 +1985,5 @@ def owner(*paths):
         if 'no path found' in ret[path].lower():
             ret[path] = ''
     if len(ret) == 1:
-        return ret.itervalues().next()
+        return next(ret.itervalues())
     return ret

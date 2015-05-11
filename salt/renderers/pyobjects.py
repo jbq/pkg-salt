@@ -28,8 +28,8 @@ Creating state data
 ^^^^^^^^^^^^^^^^^^^
 Pyobjects takes care of creating an object for each of the available states on
 the minion. Each state is represented by an object that is the CamelCase
-version of its name (ie. ``File``, ``Service``, ``User``, etc), and these
-objects expose all of their available state functions (ie. ``File.managed``,
+version of its name (i.e. ``File``, ``Service``, ``User``, etc), and these
+objects expose all of their available state functions (i.e. ``File.managed``,
 ``Service.running``, etc).
 
 The name of the state is split based upon underscores (``_``), then each part
@@ -259,18 +259,22 @@ TODO
 * Interface for working with reactor files
 '''
 
+from __future__ import absolute_import
+
 import logging
 import re
-import sys
+from salt.ext.six import exec_
 
 import salt.utils
-from salt.loader import _create_loader
+import salt.loader
+
 from salt.fileclient import get_file_client
 from salt.utils.pyobjects import Registry, StateFactory, SaltObject, Map
 
 # our import regexes
 FROM_RE = r'^\s*from\s+(salt:\/\/.*)\s+import (.*)$'
 IMPORT_RE = r'^\s*import\s+(salt:\/\/.*)$'
+FROM_AS_RE = r'^(.*) as (.*)$'
 
 log = logging.getLogger(__name__)
 
@@ -290,23 +294,22 @@ def load_states():
     __opts__['grains'] = __grains__
     __opts__['pillar'] = __pillar__
 
-    # we need to build our own loader so that we can process the virtual names
-    # in our own way.
-    load = _create_loader(__opts__, 'states', 'states')
-    load.load_modules()
-    for mod in load.modules:
-        module_name = mod.__name__.rsplit('.', 1)[-1]
+    # TODO: honor __virtual__? The old one didn't...
+    # create our own loader that ignores __virtual__()
+    lazy_states = salt.loader.LazyLoader(
+        salt.loader._module_dirs(__opts__, 'states', 'states'),
+        __opts__,
+        tag='states',
+        pack={'__salt__': __salt__},
+        virtual_enable=False,
+    )
 
-        (virtual_ret, virtual_name) = load.process_virtual(mod, module_name)
-
-        # if the module returned a True value and a new name use that
-        # otherwise use the default module name
-        if virtual_ret and virtual_name != module_name:
-            module_name = virtual_name
-
-        # load our functions from the module, pass None in as the module_name
-        # so that our function names come back unprefixed
-        states[module_name] = load.load_functions(mod, None)
+    # TODO: some way to lazily do this? This requires loading *all* state modules
+    for key, func in lazy_states.iteritems():
+        mod_name, func_name = key.split('.', 1)
+        if mod_name not in states:
+            states[mod_name] = {}
+        states[mod_name][func_name] = func
 
     __context__['pyobjects_states'] = states
 
@@ -334,12 +337,7 @@ def render(template, saltenv='base', sls='', salt_data=True, **kwargs):
             mod,
             valid_funcs
         )
-        if sys.version_info[0] > 2:
-            # in py3+ exec is a function
-            exec(mod_cmd, mod_globals, mod_locals)
-        else:
-            # prior to that it is a statement
-            exec mod_cmd in mod_globals, mod_locals
+        exec_(mod_cmd, mod_globals, mod_locals)
 
         _globals[mod_camel] = mod_locals[mod_camel]
 
@@ -410,24 +408,25 @@ def render(template, saltenv='base', sls='', salt_data=True, **kwargs):
                 state_contents = f.read()
 
             state_locals = {}
-            if sys.version_info[0] > 2:
-                # in py3+ exec is a function
-                exec(state_contents, _globals, state_locals)
-            else:
-                # prior to that it is a statement
-                exec state_contents in _globals, state_locals
+            exec_(state_contents, _globals, state_locals)
 
             if imports is None:
-                imports = state_locals.keys()
+                imports = list(state_locals.keys())
 
             for name in imports:
-                name = name.strip()
+                name = alias = name.strip()
+
+                matches = re.match(FROM_AS_RE, name)
+                if matches is not None:
+                    name = matches.group(1).strip()
+                    alias = matches.group(2).strip()
+
                 if name not in state_locals:
                     raise ImportError("{0!r} was not found in {1!r}".format(
                         name,
                         import_file
                     ))
-                _globals[name] = state_locals[name]
+                _globals[alias] = state_locals[name]
 
             matched = True
             break
@@ -441,11 +440,6 @@ def render(template, saltenv='base', sls='', salt_data=True, **kwargs):
     Registry.enabled = True
 
     # now exec our template using our created scopes
-    if sys.version_info[0] > 2:
-        # in py3+ exec is a function
-        exec(final_template, _globals)
-    else:
-        # prior to that it is a statement
-        exec final_template in _globals
+    exec_(final_template, _globals)
 
     return Registry.salt_data()

@@ -4,10 +4,12 @@ Manage Windows users with the net user command
 
 NOTE: This currently only works with local user accounts, not domain accounts
 '''
+from __future__ import absolute_import
 
 # Import salt libs
 import salt.utils
-from salt._compat import string_types
+from salt.ext.six import string_types
+from salt.exceptions import CommandExecutionError
 import logging
 
 log = logging.getLogger(__name__)
@@ -49,6 +51,7 @@ def add(name,
         roomnumber=False,
         workphone=False,
         homephone=False,
+        loginclass=False,
         createhome=False
         # pylint: enable=W0613
         ):
@@ -62,11 +65,9 @@ def add(name,
         salt '*' user.add name password
     '''
     if password:
-        cmd = ['net', 'user', name, password, '/add', '/y']
-        ret = __salt__['cmd.run_all'](cmd, python_shell=False)
+        ret = __salt__['cmd.run_all']('net user {0} {1} /add /y'.format(name, password))
     else:
-        cmd = ['net', 'user', name, '/add']
-        ret = __salt__['cmd.run_all'](cmd, python_shell=False)
+        ret = __salt__['cmd.run_all']('net user {0} /add'.format(name))
     if groups:
         chgroups(name, groups)
     if fullname:
@@ -92,8 +93,7 @@ def delete(name,
 
         salt '*' user.delete name
     '''
-    cmd = ['net', 'user', name, '/delete']
-    ret = __salt__['cmd.run_all'](cmd, python_shell=False)
+    ret = __salt__['cmd.run_all']('net user {0} /delete'.format(name))
     return ret['retcode'] == 0
 
 
@@ -108,9 +108,7 @@ def setpassword(name, password):
         salt '*' user.setpassword name password
     '''
     ret = __salt__['cmd.run_all'](
-        ['net', 'user', name, password],
-        output_loglevel='quiet',
-        python_shell=False
+        'net user {0} {1}'.format(name, password), output_loglevel='quiet'
     )
     return ret['retcode'] == 0
 
@@ -131,8 +129,7 @@ def addgroup(name, group):
     if group in user['groups']:
         return True
     ret = __salt__['cmd.run_all'](
-        ['net', 'localgroup', group, name, '/add'],
-        python_shell=False
+        'net localgroup {0} {1} /add'.format(group, name)
     )
     return ret['retcode'] == 0
 
@@ -156,8 +153,7 @@ def removegroup(name, group):
         return True
 
     ret = __salt__['cmd.run_all'](
-        ['net', 'localgroup', group, name, '/delete'],
-        python_shell=False
+        'net localgroup {0} {1} /delete'.format(group, name)
     )
     return ret['retcode'] == 0
 
@@ -180,8 +176,8 @@ def chhome(name, home):
     if home == pre_info['home']:
         return True
 
-    cmd = ['net', 'user', name, '/homedir:{0}'.format(home)]
-    if __salt__['cmd.retcode'](cmd, python_shell=False) != 0:
+    if __salt__['cmd.retcode']('net user {0} /homedir:{1}'.format(
+            name, home)) != 0:
         return False
 
     post_info = info(name)
@@ -208,8 +204,8 @@ def chprofile(name, profile):
 
     if profile == pre_info['profile']:
         return True
-    cmd = ['net', 'user', name, '/profilepath:{0}'.format(profile)]
-    if __salt__['cmd.retcode'](cmd, python_shell=False) != 0:
+    if __salt__['cmd.retcode']('net user {0} /profilepath:{1}'.format(
+            name, profile)) != 0:
         return False
 
     post_info = info(name)
@@ -236,8 +232,8 @@ def chfullname(name, fullname):
 
     if fullname == pre_info['fullname']:
         return True
-    cmd = ['net', 'user', name, '/fullname:{0}'.format(fullname)]
-    if __salt__['cmd.retcode'](cmd, python_shell=False) != 0:
+    if __salt__['cmd.retcode']('net user {0} /fullname:"{1}"'.format(
+            name, fullname)) != 0:
         return False
 
     post_info = info(name)
@@ -269,14 +265,14 @@ def chgroups(name, groups, append=False):
     if not append:
         for group in ugrps:
             if group not in groups:
-                cmd = ['net', 'localgroup', group, name, '/delete']
-                __salt__['cmd.retcode'](cmd, python_shell=False)
+                __salt__['cmd.retcode'](
+                        'net localgroup {0} {1} /delete'.format(group, name))
 
     for group in groups:
         if group in ugrps:
             continue
-        cmd = ['net', 'localgroup', group, name, '/add']
-        __salt__['cmd.retcode'](cmd, python_shell=False)
+        __salt__['cmd.retcode'](
+                'net localgroup {0} {1} /add'.format(group, name))
     agrps = set(list_groups(name))
     return len(ugrps - agrps) == 0
 
@@ -413,3 +409,27 @@ def list_users():
         return user_list
     except win32net.error:
         pass
+
+
+def rename(name, new_name):
+    '''
+    Change the username for a named user
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' user.rename name new_name
+    '''
+    current_info = info(name)
+    if not current_info:
+        raise CommandExecutionError('User {0!r} does not exist'.format(name))
+    new_info = info(new_name)
+    if new_info:
+        raise CommandExecutionError('User {0!r} already exists'.format(new_name))
+    cmd = 'wmic useraccount where name="{0}" rename {1}'.format(name, new_name)
+    __salt__['cmd.run'](cmd)
+    post_info = info(new_name)
+    if post_info['name'] != current_info['name']:
+        return post_info['name'] == new_name
+    return False

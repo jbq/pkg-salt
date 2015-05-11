@@ -2,6 +2,7 @@
 '''
 Module for managing locales on POSIX-like systems.
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import logging
@@ -10,7 +11,8 @@ import os
 
 # Import salt libs
 import salt.utils
-import salt.utils.decorators as decorators
+import salt.ext.six as six
+from salt.exceptions import CommandExecutionError
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +66,7 @@ def _localectl_set(locale=''):
     locale_params = _parse_localectl()
     locale_params['LANG'] = str(locale)
     args = ' '.join(['{0}="{1}"'.format(k, v)
-                     for k, v in locale_params.iteritems()])
+                     for k, v in six.iteritems(locale_params)])
     cmd = 'localectl set-locale {0}'.format(args)
     return __salt__['cmd.retcode'](cmd, python_shell=False) == 0
 
@@ -225,10 +227,12 @@ def avail(locale):
     return locale_exists
 
 
-@decorators.which('locale-gen')
-def gen_locale(locale):
+def gen_locale(locale, **kwargs):
     '''
-    Generate a locale.
+    Generate a locale. Options:
+
+    verbose
+        Show extra warnings about errors that are normally ignored.
 
     .. versionadded:: 2014.7.0
 
@@ -243,19 +247,25 @@ def gen_locale(locale):
         salt '*' locale.gen_locale 'en_IE@euro ISO-8859-15'
     '''
     on_debian = __grains__.get('os') == 'Debian'
+    on_ubuntu = __grains__.get('os') == 'Ubuntu'
     on_gentoo = __grains__.get('os_family') == 'Gentoo'
+    on_suse = __grains__.get('os_family') == 'Suse'
+    locale_info = _split_locale(locale)
 
-    if on_debian or on_gentoo:
+    if on_debian or on_gentoo:  # file-based search
         search = '/usr/share/i18n/SUPPORTED'
         valid = __salt__['file.search'](search, '^{0}$'.format(locale))
-    else:
-        parts = _split_locale(locale)
-        parts['codeset'] = ''
-        parts['charmap'] = ''
-        search_locale = _join_locale(parts)
-
-        search = '/usr/share/i18n/locales'
-        valid = search_locale in os.listdir(search)
+    else:  # directory-based search
+        if on_suse:
+            search = '/usr/share/locale'
+        else:
+            search = '/usr/share/i18n/locales'
+        try:
+            valid = "{0}_{1}".format(locale_info['language'],
+                                     locale_info['territory']) in os.listdir(search)
+        except OSError, ex:
+            log.error(ex)
+            raise CommandExecutionError("Locale \"{0}\" is not available.".format(locale))
 
     if not valid:
         log.error('The provided locale "{0}" is not found in {1}'.format(locale, search))
@@ -268,10 +278,38 @@ def gen_locale(locale):
             '{0}'.format(locale),
             append_if_not_found=True
         )
+    elif on_ubuntu:
+        __salt__['file.touch'](
+            '/var/lib/locales/supported.d/{0}'.format(locale_info['language'])
+        )
+        __salt__['file.replace'](
+            '/var/lib/locales/supported.d/{0}'.format(locale_info['language']),
+            locale,
+            locale,
+            append_if_not_found=True
+        )
 
-    cmd = ['locale-gen']
-    if on_gentoo:
-        cmd.append('--generate')
-    cmd.append(locale)
+    if salt.utils.which("locale-gen") is not None:
+        cmd = ['locale-gen']
+        if on_gentoo:
+            cmd.append('--generate')
+        if not on_ubuntu:
+            cmd.append(locale)
+    elif salt.utils.which("localedef") is not None:
+        cmd = ['localedef', '--force',
+               '-i', "{0}_{1}".format(locale_info['language'], locale_info['territory']),
+               '-f', locale_info['codeset'],
+               locale]
+        cmd.append(kwargs.get('verbose', False) and '--verbose' or '--quiet')
+    else:
+        raise CommandExecutionError(
+            'Command "locale-gen" or "localedef" was not found on this system.')
 
-    return __salt__['cmd.retcode'](cmd, python_shell=False)
+    res = __salt__['cmd.run_all'](cmd)
+    if res['retcode']:
+        log.error(res['stderr'])
+
+    if kwargs.get('verbose'):
+        return res
+    else:
+        return res['retcode'] == 0

@@ -2,6 +2,7 @@
 '''
 Module for managing timezone on Windows systems.
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import salt.utils
@@ -456,7 +457,7 @@ def __virtual__():
     '''
     Only load on windows
     '''
-    if salt.utils.is_windows():
+    if salt.utils.is_windows() and salt.utils.which('tzutil'):
         return __virtualname__
     return False
 

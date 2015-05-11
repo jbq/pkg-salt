@@ -3,6 +3,8 @@
 Helpful decorators module writing
 '''
 
+from __future__ import absolute_import
+
 # Import python libs
 import inspect
 import logging
@@ -22,8 +24,8 @@ class Depends(object):
     dependencies passed in are in the globals of the module. If not, it will
     cause the function to be unloaded (or replaced)
     '''
-    # Dependency -> list of things that depend on it
-    dependency_dict = defaultdict(set)
+    # kind -> Dependency -> list of things that depend on it
+    dependency_dict = defaultdict(lambda: defaultdict(set))
 
     def __init__(self, *dependencies, **kwargs):
         '''
@@ -58,24 +60,35 @@ class Depends(object):
         class wide depandancy_dict
         '''
         module = inspect.getmodule(inspect.stack()[1][0])
+        # module name is something like salt.loaded.int.modules.test
+        kind = module.__name__.rsplit('.', 2)[1]
         for dep in self.dependencies:
-            self.dependency_dict[dep].add(
+            self.dependency_dict[kind][dep].add(
                 (module, function, self.fallback_function)
             )
         return function
 
     @classmethod
-    def enforce_dependencies(cls, functions):
+    def enforce_dependencies(cls, functions, kind):
         '''
         This is a class global method to enforce the dependencies that you
         currently know about.
         It will modify the "functions" dict and remove/replace modules that
         are missing dependencies.
         '''
-        for dependency, dependent_set in cls.dependency_dict.iteritems():
+        for dependency, dependent_set in cls.dependency_dict[kind].items():
             # check if dependency is loaded
             for module, func, fallback_function in dependent_set:
                 # check if you have the dependency
+                if dependency is True:
+                    log.trace(
+                        'Dependency for {0}.{1} exists, not unloading'.format(
+                            module.__name__.split('.')[-1],
+                            func.__name__,
+                        )
+                    )
+                    continue
+
                 if dependency in dir(module):
                     log.trace(
                         'Dependency ({0}) already loaded inside {1}, '
@@ -95,8 +108,13 @@ class Depends(object):
                 )
                 # if not, unload dependent_set
                 if module:
+                    try:
+                        func_name = module.__func_alias__[func.__name__]
+                    except (AttributeError, KeyError):
+                        func_name = func.__name__
+
                     mod_key = '{0}.{1}'.format(module.__name__.split('.')[-1],
-                                               func.__name__)
+                                               func_name)
 
                     # if we don't have this module loaded, skip it!
                     if mod_key not in functions:
@@ -163,7 +181,7 @@ def identical_signature_wrapper(original_function, wrapped_function):
         '    return __wrapped__({2})'.format(
             # Keep the original function name
             original_function.__name__,
-            # The function signature including defaults, ie, 'timeout=1'
+            # The function signature including defaults, i.e., 'timeout=1'
             inspect.formatargspec(
                 *inspect.getargspec(original_function)
             )[1:-1],
@@ -176,7 +194,7 @@ def identical_signature_wrapper(original_function, wrapped_function):
         '<string>',
         'exec'
     )
-    exec function_def in context
+    exec(function_def, context)
     return wraps(original_function)(context[original_function.__name__])
 
 

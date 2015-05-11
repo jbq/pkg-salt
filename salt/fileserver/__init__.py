@@ -2,6 +2,7 @@
 '''
 File server pluggable modules and generic backend functions
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import errno
@@ -15,6 +16,8 @@ import time
 import salt.loader
 import salt.utils
 from salt.ext.six import string_types
+import salt.ext.six as six
+
 
 log = logging.getLogger(__name__)
 
@@ -171,7 +174,7 @@ def generate_mtime_map(path_map):
     Generate a dict of filename -> mtime
     '''
     file_map = {}
-    for saltenv, path_list in path_map.iteritems():
+    for saltenv, path_list in six.iteritems(path_map):
         for path in path_list:
             for directory, dirnames, filenames in os.walk(path):
                 for item in filenames:
@@ -305,6 +308,12 @@ class Fileserver(object):
         Simplify master opts
         '''
         return self.opts
+
+    def update_opts(self):
+        # This fix func monkey patching by pillar
+        for name, func in self.servers.items():
+            if '__opts__' in func.__globals__:
+                func.__globals__['__opts__'].update(self.opts)
 
     def clear_cache(self, back=None):
         '''

@@ -60,7 +60,7 @@ and each event tag has a list of reactor SLS files to be run.
 
 
 Reactor sls files are similar to state and pillar sls files.  They are
-by default yaml + Jinja templates and are passed familar context variables.
+by default yaml + Jinja templates and are passed familiar context variables.
 
 They differ because of the addition of the ``tag`` and ``data`` variables.
 
@@ -105,7 +105,7 @@ To fire an event from a minion call ``event.send``
 
     salt-call event.send 'foo' '{overstate: refresh}'
 
-After this is called, any reactor sls files matching event tag ``foo`` will 
+After this is called, any reactor sls files matching event tag ``foo`` will
 execute with ``{{ data['data']['overstate'] }}`` equal to ``'refresh'``.
 
 See :py:mod:`salt.modules.event` for more information.
@@ -170,6 +170,19 @@ rendered SLS file (or any errors generated while rendering the SLS file).
 
         salt-master -l debug
 
+3.  Look for log entries in the form:
+
+    .. code-block:: text
+
+        [DEBUG   ] Gathering reactors for tag foo/bar
+        [DEBUG   ] Compiling reactions for tag foo/bar
+        [DEBUG   ] Rendered data from file: /path/to/the/reactor_file.sls:
+        <... Rendered output appears here. ...>
+
+    The rendered output is the result of the Jinja parsing and is a good way to
+    view the result of referencing Jinja variables. If the result is empty then
+    Jinja produced an empty result and the Reactor will ignore it.
+
 Understanding the Structure of Reactor Formulas
 ===============================================
 
@@ -211,8 +224,13 @@ Specifically, the Reactor calls the async version of :py:meth:`this function
 <salt.client.LocalClient.cmd>`. You can see that function has 'arg' and 'kwarg'
 parameters which are both values that are sent down to the minion.
 
-The result is, to execute a remote command, a reactor formula would look like
-this:
+Executing remote commands maps to the :strong:`LocalClient` interface which is
+used by the :strong:`salt` command. This interface more specifically maps to
+the :strong:`cmd_async` method inside of the :strong:`LocalClient` class. This
+means that the arguments passed are being passed to the :strong:`cmd_async`
+method, not the remote method. A field starts with :strong:`local` to use the
+:strong:`LocalClient` subsystem. The result is, to execute a remote command,
+a reactor formula would look like this:
 
 .. code-block:: yaml
 
@@ -430,6 +448,12 @@ Ink servers in the master configuration.
     highstate_run:
       local.state.highstate:
         - tgt: {{ data['id'] }}
+        - ret: smtp_return
+
+The above will also return the highstate result data using the `smtp_return`
+returner. The returner needs to be configured on the minion for this to
+work. See :mod:`salt.returners.smtp_return <salt.returners.smtp_return>` documentation for
+that.
 
 .. _minion-start-reactor:
 

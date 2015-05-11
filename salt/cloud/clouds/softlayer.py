@@ -26,6 +26,8 @@ SoftLayer salt.cloud modules. See: https://pypi.python.org/pypi/SoftLayer
 '''
 # pylint: disable=E0102
 
+from __future__ import absolute_import
+
 # Import python libs
 import copy
 import pprint
@@ -571,6 +573,8 @@ def list_nodes(call=None):
             ret[node]['public_ips'] = nodes[node]['primaryIpAddress']
         if 'primaryBackendIpAddress' in nodes[node]:
             ret[node]['private_ips'] = nodes[node]['primaryBackendIpAddress']
+        if 'status' in nodes[node]:
+            ret[node]['state'] = str(nodes[node]['status']['name'])
     return ret
 
 

@@ -2,6 +2,7 @@
 '''
 Extract the pillar data for this minion
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import collections
@@ -12,17 +13,20 @@ import yaml
 # Import salt libs
 import salt.pillar
 import salt.utils
-from salt._compat import string_types
+from salt.defaults import DEFAULT_TARGET_DELIM
+from salt.ext.six import string_types
 
 __proxyenabled__ = ['*']
 
 
-def get(key, default='', merge=False, delimiter=':'):
+def get(key, default=KeyError, merge=False, delimiter=DEFAULT_TARGET_DELIM):
     '''
     .. versionadded:: 0.14
 
     Attempt to retrieve the named value from pillar, if the named value is not
-    available return the passed default. The default return is an empty string.
+    available return the passed default. The default return is an empty string
+    except __opts__['PILLAR_RAISE_ON_MISSING'] is set to True, in which case a
+    KeyError will be raised.
 
     If the merge parameter is set to ``True``, the default will be recursively
     merged into the returned pillar data.
@@ -54,25 +58,41 @@ def get(key, default='', merge=False, delimiter=':'):
 
         salt '*' pillar.get pkg:apache
     '''
+    if not __opts__.get('pillar_raise_on_missing'):
+        if default is KeyError:
+            default = ''
+
     if merge:
         ret = salt.utils.traverse_dict_and_list(__pillar__, key, {}, delimiter)
         if isinstance(ret, collections.Mapping) and \
                 isinstance(default, collections.Mapping):
             return salt.utils.dictupdate.update(default, ret)
 
-    return salt.utils.traverse_dict_and_list(__pillar__,
-                                             key,
-                                             default,
-                                             delimiter)
+    ret = salt.utils.traverse_dict_and_list(__pillar__,
+                                            key,
+                                            default,
+                                            delimiter)
+    if ret is KeyError:
+        raise KeyError("Pillar key not found: {0}".format(key))
+
+    return ret
 
 
-def items(*args):
+def items(*args, **kwargs):
     '''
     Calls the master for a fresh pillar and generates the pillar data on the
     fly
 
     Contrast with :py:func:`raw` which returns the pillar data that is
     currently loaded into the minion.
+
+    pillar : none
+        if specified, allows for a dictionary of pillar data to be made
+        available to pillar and ext_pillar rendering. these pillar variables
+        will also override any variables of the same name in pillar or
+        ext_pillar.
+
+        .. versionadded:: 2015.5.0
 
     CLI Example:
 
@@ -88,7 +108,8 @@ def items(*args):
         __opts__,
         __grains__,
         __opts__['id'],
-        __opts__['environment'])
+        __opts__['environment'],
+        pillar=kwargs.get('pillar'))
 
     return pillar.compile_pillar()
 
@@ -96,11 +117,19 @@ def items(*args):
 data = items
 
 
-def item(*args):
+def item(*args, **kwargs):
     '''
     .. versionadded:: 0.16.2
 
-    Return one ore more pillar entries
+    Return one or more pillar entries
+
+    pillar : none
+        if specified, allows for a dictionary of pillar data to be made
+        available to pillar and ext_pillar rendering. these pillar variables
+        will also override any variables of the same name in pillar or
+        ext_pillar.
+
+        .. versionadded:: 2015.5.0
 
     CLI Examples:
 
@@ -110,7 +139,7 @@ def item(*args):
         salt '*' pillar.item foo bar baz
     '''
     ret = {}
-    pillar = items()
+    pillar = items(**kwargs)
     for arg in args:
         try:
             ret[arg] = pillar[arg]
@@ -145,11 +174,19 @@ def raw(key=None):
     return ret
 
 
-def ext(external):
+def ext(external, pillar=None):
     '''
     Generate the pillar and apply an explicit external pillar
 
     CLI Example:
+
+    pillar : None
+        If specified, allows for a dictionary of pillar data to be made
+        available to pillar and ext_pillar rendering. These pillar variables
+        will also override any variables of the same name in pillar or
+        ext_pillar.
+
+        .. versionadded:: 2015.5.0
 
     .. code-block:: bash
 
@@ -157,13 +194,14 @@ def ext(external):
     '''
     if isinstance(external, string_types):
         external = yaml.safe_load(external)
-    pillar = salt.pillar.get_pillar(
+    pillar_obj = salt.pillar.get_pillar(
         __opts__,
         __grains__,
         __opts__['id'],
         __opts__['environment'],
-        external)
+        ext=external,
+        pillar=pillar)
 
-    ret = pillar.compile_pillar()
+    ret = pillar_obj.compile_pillar()
 
     return ret

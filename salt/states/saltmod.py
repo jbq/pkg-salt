@@ -9,9 +9,10 @@ modules. These state functions wrap Salt's :ref:`Python API <python-api>`.
 
 .. seealso:: More Orchestrate documentation
 
-    * :ref:`Full Orchestrate Tutorial <orchestrate-tutorial>`
+    * :ref:`Full Orchestrate Tutorial <orchestrate-runner>`
     * :py:func:`The Orchestrate runner <salt.runners.state.orchestrate>`
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import fnmatch
@@ -22,7 +23,8 @@ import time
 import salt.syspaths
 import salt.utils
 import salt.utils.event
-import salt._compat
+import salt.ext.six as six
+from salt.ext.six import string_types
 
 log = logging.getLogger(__name__)
 
@@ -228,7 +230,7 @@ def state(
 
     if fail_minions is None:
         fail_minions = ()
-    elif isinstance(fail_minions, salt._compat.string_types):
+    elif isinstance(fail_minions, string_types):
         fail_minions = [minion.strip() for minion in fail_minions.split(',')]
     elif not isinstance(fail_minions, list):
         ret.setdefault('warnings', []).append(
@@ -237,11 +239,14 @@ def state(
         )
         fail_minions = ()
 
-    for minion, mdata in cmd_ret.iteritems():
+    for minion, mdata in six.iteritems(cmd_ret):
         if mdata.get('out', '') != 'highstate':
             log.warning("Output from salt state not highstate")
 
         m_ret = False
+
+        if 'return' in mdata and 'ret' not in mdata:
+            mdata['ret'] = mdata.pop('return')
 
         if mdata.get('failed', False):
             m_state = False
@@ -254,7 +259,7 @@ def state(
                 fail.add(minion)
             failures[minion] = m_ret and m_ret or 'Minion did not respond'
             continue
-        for state_item in m_ret.itervalues():
+        for state_item in six.itervalues(m_ret):
             if state_item['changes']:
                 changes[minion] = m_ret
                 break
@@ -274,7 +279,7 @@ def state(
             ret['comment'] += ' No changes made to {0}.'.format(', '.join(no_change))
     if failures:
         ret['comment'] += '\nFailures:\n'
-        for minion, failure in failures.iteritems():
+        for minion, failure in six.iteritems(failures):
             ret['comment'] += '\n'.join(
                     (' ' * 4 + l)
                     for l in salt.output.out_format(
@@ -334,15 +339,19 @@ def function(
     ssh
         Set to `True` to use the ssh client instaed of the standard salt client
     '''
-    if kwarg is None:
-        kwarg = {}
-
-    cmd_kw = {'arg': arg or [], 'kwarg': kwarg, 'ret': ret, 'timeout': timeout}
-
     ret = {'name': name,
            'changes': {},
            'comment': '',
            'result': True}
+    if kwarg is None:
+        kwarg = {}
+    if isinstance(arg, str):
+        ret['warnings'] = ['Please specify \'arg\' as a list, not a string. '
+                           'Modifying in place, but please update SLS file '
+                           'to remove this warning.']
+        arg = arg.split()
+
+    cmd_kw = {'arg': arg or [], 'kwarg': kwarg, 'ret': ret, 'timeout': timeout}
 
     if expr_form and tgt_type:
         ret['warnings'] = [
@@ -358,6 +367,7 @@ def function(
     cmd_kw['expr_form'] = tgt_type
     cmd_kw['ssh'] = ssh
     cmd_kw['expect_minions'] = expect_minions
+    cmd_kw['_cmd_meta'] = True
     fun = name
     if __opts__['test'] is True:
         ret['comment'] = (
@@ -373,7 +383,7 @@ def function(
 
     if fail_minions is None:
         fail_minions = ()
-    elif isinstance(fail_minions, salt._compat.string_types):
+    elif isinstance(fail_minions, string_types):
         fail_minions = [minion.strip() for minion in fail_minions.split(',')]
     elif not isinstance(fail_minions, list):
         ret.setdefault('warnings', []).append(
@@ -381,10 +391,11 @@ def function(
             'string. Ignored.'
         )
         fail_minions = ()
-
-    for minion, mdata in cmd_ret.iteritems():
+    for minion, mdata in six.iteritems(cmd_ret):
         m_ret = False
-
+        if mdata.get('retcode'):
+            ret['result'] = False
+            fail.add(minion)
         if mdata.get('failed', False):
             m_func = False
         else:
@@ -397,28 +408,31 @@ def function(
             failures[minion] = m_ret and m_ret or 'Minion did not respond'
             continue
         changes[minion] = m_ret
-
-    if changes:
-        ret['changes'] = {'out': 'highstate', 'ret': changes}
-    if fail:
+    if not cmd_ret:
         ret['result'] = False
-        ret['comment'] = 'Running function {0} failed on minions: {1}'.format(name, ', '.join(fail))
+        ret['command'] = 'No minions responded'
     else:
-        ret['comment'] = 'Function ran successfully.'
-    if changes:
-        ret['comment'] += ' Function {0} ran on {1}.'.format(name, ', '.join(changes))
-    if failures:
-        ret['comment'] += '\nFailures:\n'
-        for minion, failure in failures.iteritems():
-            ret['comment'] += '\n'.join(
-                    (' ' * 4 + l)
-                    for l in salt.output.out_format(
-                        {minion: failure},
-                        'highstate',
-                        __opts__,
-                        ).splitlines()
-                    )
-            ret['comment'] += '\n'
+        if changes:
+            ret['changes'] = {'out': 'highstate', 'ret': changes}
+        if fail:
+            ret['result'] = False
+            ret['comment'] = 'Running function {0} failed on minions: {1}'.format(name, ', '.join(fail))
+        else:
+            ret['comment'] = 'Function ran successfully.'
+        if changes:
+            ret['comment'] += ' Function {0} ran on {1}.'.format(name, ', '.join(changes))
+        if failures:
+            ret['comment'] += '\nFailures:\n'
+            for minion, failure in six.iteritems(failures):
+                ret['comment'] += '\n'.join(
+                        (' ' * 4 + l)
+                        for l in salt.output.out_format(
+                            {minion: failure},
+                            'highstate',
+                            __opts__,
+                            ).splitlines()
+                        )
+                ret['comment'] += '\n'
     return ret
 
 

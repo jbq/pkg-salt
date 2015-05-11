@@ -29,6 +29,7 @@ In other words `salt mac-machine pkg.refresh_db` is more like
 `apt-get update; apt-get upgrade dpkg apt-get` than simply `apt-get update`.
 
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import copy
@@ -37,6 +38,9 @@ import re
 
 # Import salt libs
 import salt.utils
+from salt.exceptions import (
+    CommandExecutionError
+)
 
 log = logging.getLogger(__name__)
 
@@ -56,8 +60,21 @@ def __virtual__():
 
 def _list(query=''):
     ret = {}
-    cmd = ['port', 'list', query]
-    out = __salt__['cmd.run'](cmd, output_loglevel='trace', python_shell=False)
+    cmd = 'port list {0}'.format(query)
+    call = __salt__['cmd.run_all'](cmd, output_loglevel='trace')
+
+    if call['retcode'] != 0:
+        comment = ''
+        if 'stderr' in call:
+            comment += call['stderr']
+        if 'stdout' in call:
+            comment += call['stdout']
+        raise CommandExecutionError(
+            '{0}'.format(comment)
+        )
+    else:
+        out = call['stdout']
+
     for line in out.splitlines():
         try:
             name, version_num, category = re.split(r'\s+', line.lstrip())[0:3]
@@ -350,14 +367,15 @@ def refresh_db():
     '''
     Update ports with ``port selfupdate``
     '''
-    cmd = ['port', 'selfupdate']
-    ret = __salt__['cmd.run_all'](cmd, output_loglevel='trace',
-                                  python_shell=False)
-    if ret['retcode'] != 0:
-        ret['success'] = False
-        return ret
-    else:
-        return {'success': True, 'retcode': 0}
+    call = __salt__['cmd.run_all']('port selfupdate', output_loglevel='trace')
+    if call['retcode'] != 0:
+        comment = ''
+        if 'stderr' in call:
+            comment += call['stderr']
+
+        raise CommandExecutionError(
+            '{0}'.format(comment)
+        )
 
 
 def upgrade(refresh=True):  # pylint: disable=W0613
@@ -380,6 +398,10 @@ def upgrade(refresh=True):  # pylint: disable=W0613
 
         salt '*' pkg.upgrade
     '''
+    ret = {'changes': {},
+           'result': True,
+           'comment': '',
+           }
 
     if refresh:
         refresh_db()

@@ -16,12 +16,19 @@ nodegroups. Here's an example nodegroup configuration within
     nodegroups:
       group1: 'L@foo.domain.com,bar.domain.com,baz.domain.com or bl*.domain.com'
       group2: 'G@os:Debian and foo.domain.com'
+      group3: 'G@os:Debian and N@group1'
 
 .. note::
 
     The ``L`` within group1 is matching a list of minions, while the ``G`` in
     group2 is matching specific grains. See the :doc:`compound matchers
     <compound>` documentation for more details.
+
+.. note::
+
+    Nodgroups can reference other nodegroups as seen in ``group3``.  Ensure
+    that you do not have circular references.  Circular references will be
+    detected and cause partial expansion with a logged error message.
 
 To match a nodegroup on the CLI, use the ``-N`` command-line option:
 
@@ -42,7 +49,7 @@ nodegroup`` on the line directly following the nodegroup name.
 .. note::
 
     When adding or modifying nodegroups to a master configuration file, the master must be restarted
-    for those changes to be fully recognized. 
+    for those changes to be fully recognized.
 
     A limited amount of functionality, such as targeting with -N from the command-line may be
     available without a restart.

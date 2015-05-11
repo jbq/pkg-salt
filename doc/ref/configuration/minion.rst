@@ -122,6 +122,21 @@ Python's :func:`random.shuffle <python2:random.shuffle>` method.
 
     master_shuffle: True
 
+.. conf_minion:: retry_dns
+
+``retry_dns``
+---------------
+
+Default: ``30``
+
+Set the number of seconds to wait before attempting to resolve
+the master hostname if name resolution fails. Defaults to 30 seconds.
+Set to zero if the minion should shutdown and not retry.
+
+.. code-block:: yaml
+    
+    retry_dns: 30
+
 .. conf_minion:: master_port
 
 ``master_port``
@@ -414,6 +429,21 @@ environment, set this value to ``False``.
 .. code-block:: yaml
 
     dns_check: True
+
+.. conf_minion:: cache_sreqs
+
+``cache_sreqs``
+---------------
+
+Default: ``True``
+
+The connection to the master ret_port is kept open. When set to False, the minion
+creates a new connection for every return to the master.
+environment, set this value to ``False``.
+
+.. code-block:: yaml
+
+    cache_sreqs: True
 
 .. conf_minion:: ipc_mode
 
@@ -708,6 +738,20 @@ directed to look on the minion by setting this parameter to ``local``.
 
     file_client: remote
 
+.. conf_minion:: use_master_when_local
+
+``use_master_when_local``
+-------------------------
+
+Default: ``False``
+
+When using a local :conf_minion:`file_client`, this parameter is used to allow
+the client to connect to a master for remote execution.
+
+.. code-block:: yaml
+
+    use_master_when_local: False
+
 .. conf_minion:: file_roots
 
 ``file_roots``
@@ -744,7 +788,7 @@ the fileserver's environments. This parameter operates identically to the
 Default: ``md5``
 
 The hash_type is the hash to use when discovering the hash of a file on the
-local fileserver. The default is md5, but sha1, sha224, sha256, sha384 and
+local fileserver. The default is md5, but sha1, sha224, sha256, sha384, and
 sha512 are also supported.
 
 .. code-block:: yaml
