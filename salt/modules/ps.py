@@ -6,6 +6,7 @@ See http://code.google.com/p/psutil.
 :depends:   - psutil Python module, version 0.3.0 or later
             - python-utmp package (optional)
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import time
@@ -46,7 +47,10 @@ def _get_proc_cmdline(proc):
 
     It's backward compatible with < 2.0 versions of psutil.
     '''
-    return proc.cmdline() if PSUTIL2 else proc.cmdline
+    try:
+        return proc.cmdline() if PSUTIL2 else proc.cmdline
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return ''
 
 
 def _get_proc_create_time(proc):
@@ -55,7 +59,10 @@ def _get_proc_create_time(proc):
 
     It's backward compatible with < 2.0 versions of psutil.
     '''
-    return proc.create_time() if PSUTIL2 else proc.create_time
+    try:
+        return proc.create_time() if PSUTIL2 else proc.create_time
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return None
 
 
 def _get_proc_name(proc):
@@ -64,12 +71,10 @@ def _get_proc_name(proc):
 
     It's backward compatible with < 2.0 versions of psutil.
     '''
-    ret = []
     try:
-        ret = proc.name() if PSUTIL2 else proc.name
+        return proc.name() if PSUTIL2 else proc.name
     except (psutil.NoSuchProcess, psutil.AccessDenied):
-        pass
-    return ret
+        return []
 
 
 def _get_proc_status(proc):
@@ -78,7 +83,10 @@ def _get_proc_status(proc):
 
     It's backward compatible with < 2.0 versions of psutil.
     '''
-    return proc.status() if PSUTIL2 else proc.status
+    try:
+        return proc.status() if PSUTIL2 else proc.status
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return None
 
 
 def _get_proc_username(proc):
@@ -87,7 +95,10 @@ def _get_proc_username(proc):
 
     It's backward compatible with < 2.0 versions of psutil.
     '''
-    return proc.username() if PSUTIL2 else proc.username
+    try:
+        return proc.username() if PSUTIL2 else proc.username
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return None
 
 
 def _get_proc_pid(proc):
@@ -137,7 +148,7 @@ def top(num_processes=5, interval=3):
         if num_processes and idx >= num_processes:
             break
         if len(_get_proc_cmdline(process)) == 0:
-            cmdline = [_get_proc_name(process)]
+            cmdline = _get_proc_name(process)
         else:
             cmdline = _get_proc_cmdline(process)
         info = {'cmd': cmdline,
@@ -168,6 +179,32 @@ def get_pid_list():
         salt '*' ps.get_pid_list
     '''
     return psutil.get_pid_list()
+
+
+def proc_info(pid, attrs=None):
+    '''
+    Return a dictionary of information for a process id (PID).
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' ps.proc_info 2322
+        salt '*' ps.proc_info 2322 attrs='["pid", "name"]'
+
+    pid
+        PID of process to query.
+
+    attrs
+        Optional list of desired process attributes.  The list of possible
+        attributes can be found here:
+        http://pythonhosted.org/psutil/#psutil.Process
+    '''
+    try:
+        proc = psutil.Process(pid)
+        return proc.as_dict(attrs)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError) as exc:
+        raise CommandExecutionError(exc)
 
 
 def kill_pid(pid, signal=15):

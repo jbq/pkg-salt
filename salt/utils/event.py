@@ -2,44 +2,46 @@
 '''
 Manage events
 
-Events are all fired off via a zeromq 'pub' socket, and listened to with
-local zeromq 'sub' sockets
+Events are all fired off via a zeromq 'pub' socket, and listened to with local
+zeromq 'sub' sockets
 
 
-All of the formatting is self contained in the event module, so
-we should be able to modify the structure in the future since the same module
-used to read events is the same module used to fire off events.
+All of the formatting is self contained in the event module, so we should be
+able to modify the structure in the future since the same module used to read
+events is the same module used to fire off events.
 
-Old style event messages were comprised of two parts delimited
-at the 20 char point. The first 20 characters are used for the zeromq
-subscriber to match publications and 20 characters was chosen because it was at
-the time a few more characters than the length of a jid (Job ID).
-Any tags of length less than 20 characters were padded with "|" chars out to 20 characters.
-Although not explicit, the data for an event comprised a python dict that was serialized by
-msgpack.
+Old style event messages were comprised of two parts delimited at the 20 char
+point. The first 20 characters are used for the zeromq subscriber to match
+publications and 20 characters was chosen because it was at the time a few more
+characters than the length of a jid (Job ID).  Any tags of length less than 20
+characters were padded with "|" chars out to 20 characters.
 
-New style event messages support event tags longer than 20 characters while still
-being backwards compatible with old style tags.
+Although not explicit, the data for an event comprised a python dict that was
+serialized by msgpack.
+
+New style event messages support event tags longer than 20 characters while
+still being backwards compatible with old style tags.
+
 The longer tags better enable name spaced event tags which tend to be longer.
-Moreover, the constraint that the event data be a python dict is now an explicit
-constraint and fire-event will now raise a ValueError if not. Tags must be
-ascii safe strings, that is, have values less than 0x80
+Moreover, the constraint that the event data be a python dict is now an
+explicit constraint and fire-event will now raise a ValueError if not. Tags
+must be ascii safe strings, that is, have values less than 0x80
 
 Since the msgpack dict (map) indicators have values greater than or equal to 0x80
 it can be unambiguously determined if the start of data is at char 21 or not.
 
-In the new style:
-When the tag is longer than 20 characters, an end of tag string
-is appended to the tag given by the string constant TAGEND, that is, two line feeds '\n\n'.
-When the tag is less than 20 characters then the tag is padded with pipes
-"|" out to 20 characters as before.
-When the tag is exactly 20 characters no padded is done.
+In the new style, when the tag is longer than 20 characters, an end of tag
+string is appended to the tag given by the string constant TAGEND, that is, two
+line feeds '\n\n'.  When the tag is less than 20 characters then the tag is
+padded with pipes "|" out to 20 characters as before.  When the tag is exactly
+20 characters no padded is done.
 
-The get_event method intelligently figures out if the tag is longer than 20 characters.
+The get_event method intelligently figures out if the tag is longer than 20
+characters.
 
 
-The convention for namespacing is to use dot characters "." as the name space delimiter.
-The name space "salt" is reserved by SaltStack for internal events.
+The convention for namespacing is to use dot characters "." as the name space
+delimiter. The name space "salt" is reserved by SaltStack for internal events.
 
 For example:
 Namespaced tag
@@ -47,10 +49,10 @@ Namespaced tag
 
 '''
 
+from __future__ import absolute_import
+
 # Import python libs
 import os
-import fnmatch
-import glob
 import hashlib
 import errno
 import logging
@@ -65,16 +67,15 @@ try:
 except ImportError:
     # Local mode does not need zmq
     pass
-import yaml
 
 # Import salt libs
 import salt.payload
 import salt.loader
-import salt.state
 import salt.utils
 import salt.utils.cache
+import salt.utils.dicttrim
 import salt.utils.process
-from salt._compat import string_types
+import salt.utils.zeromq
 log = logging.getLogger(__name__)
 
 # The SUB_EVENT set is for functions that require events fired based on
@@ -112,10 +113,21 @@ def get_event(node, sock_dir=None, transport='zeromq', opts=None, listen=True):
         return SaltEvent(node, sock_dir, opts)
     elif transport == 'raet':
         import salt.utils.raetevent
-        return salt.utils.raetevent.SaltEvent(node,
+        return salt.utils.raetevent.RAETEvent(node,
                                               sock_dir=sock_dir,
                                               listen=listen,
                                               opts=opts)
+
+
+def get_master_event(opts, sock_dir, listen=True):
+    '''
+    Return an event object suitable for the named transport
+    '''
+    if opts['transport'] == 'zeromq':
+        return MasterEvent(sock_dir)
+    elif opts['transport'] == 'raet':
+        import salt.utils.raetevent
+        return salt.utils.raetevent.MasterEvent(opts=opts, sock_dir=sock_dir, listen=listen)
 
 
 def tagify(suffix='', prefix='', base=SALT):
@@ -140,6 +152,8 @@ def tagify(suffix='', prefix='', base=SALT):
 
 class SaltEvent(object):
     '''
+    Warning! Use the get_event function or the code will not be
+    RAET compatible
     The base class used to manage salt events
     '''
     def __init__(self, node, sock_dir=None, opts=None):
@@ -154,7 +168,12 @@ class SaltEvent(object):
         if sock_dir is None:
             sock_dir = opts.get('sock_dir', None)
         self.puburi, self.pulluri = self.__load_uri(sock_dir, node)
+        self.subscribe()
         self.pending_events = []
+        # since ZMQ connect()  has no guarantees about the socket actually being
+        # connected this is a hack to attempt to do so.
+        self.fire_event({}, tagify('event/new_client'), 0)
+        self.get_event(wait=1)
 
     def __load_uri(self, sock_dir, node):
         '''
@@ -170,12 +189,12 @@ class SaltEvent(object):
                     sock_dir,
                     'master_event_pub.ipc'
                     ))
-            salt.utils.check_ipc_path_max_len(puburi)
+            salt.utils.zeromq.check_ipc_path_max_len(puburi)
             pulluri = 'ipc://{0}'.format(os.path.join(
                     sock_dir,
                     'master_event_pull.ipc'
                     ))
-            salt.utils.check_ipc_path_max_len(pulluri)
+            salt.utils.zeromq.check_ipc_path_max_len(pulluri)
         else:
             if self.opts.get('ipc_mode', '') == 'tcp':
                 puburi = 'tcp://127.0.0.1:{0}'.format(
@@ -189,12 +208,12 @@ class SaltEvent(object):
                         sock_dir,
                         'minion_event_{0}_pub.ipc'.format(id_hash)
                         ))
-                salt.utils.check_ipc_path_max_len(puburi)
+                salt.utils.zeromq.check_ipc_path_max_len(puburi)
                 pulluri = 'ipc://{0}'.format(os.path.join(
                         sock_dir,
                         'minion_event_{0}_pull.ipc'.format(id_hash)
                         ))
-                salt.utils.check_ipc_path_max_len(pulluri)
+                salt.utils.zeromq.check_ipc_path_max_len(pulluri)
         log.debug(
             '{0} PUB socket URI: {1}'.format(self.__class__.__name__, puburi)
         )
@@ -224,6 +243,7 @@ class SaltEvent(object):
         self.sub.connect(self.puburi)
         self.poller.register(self.sub, zmq.POLLIN)
         self.sub.setsockopt(zmq.SUBSCRIBE, '')
+        self.sub.setsockopt(zmq.LINGER, 5000)
         self.cpub = True
 
     def connect_pull(self, timeout=1000):
@@ -241,6 +261,7 @@ class SaltEvent(object):
             # This is for ZMQ < 2.2 (Caught when ssh'ing into the Jenkins
             #                        CentOS5, which still uses 2.1.9)
             pass
+        self.push.setsockopt(zmq.LINGER, timeout)
         self.push.connect(self.pulluri)
         self.cpush = True
 
@@ -249,11 +270,7 @@ class SaltEvent(object):
         if serial is None:
             serial = salt.payload.Serial({'serial': 'msgpack'})
 
-        if ord(raw[20]) >= 0x80:  # old style
-            mtag = raw[0:20].rstrip('|')
-            mdata = raw[20:]
-        else:  # new style
-            mtag, _, mdata = raw.partition(TAGEND)  # split tag from data
+        mtag, sep, mdata = raw.partition(TAGEND)  # split tag from data
 
         data = serial.loads(mdata)
         return mtag, data
@@ -333,7 +350,6 @@ class SaltEvent(object):
 
             New in Boron
         '''
-        self.subscribe()
 
         if pending_tags is None:
             pending_tags = []
@@ -381,8 +397,6 @@ class SaltEvent(object):
         Send a single event into the publisher with payload dict "data" and event
         identifier "tag"
 
-        Supports new style long tags.
-        The 0MQ push timeout on the send is set to timeout in milliseconds
         The default is 1000 ms
         Note the linger timeout must be at least as long as this timeout
         '''
@@ -397,12 +411,8 @@ class SaltEvent(object):
 
         data['_stamp'] = datetime.datetime.utcnow().isoformat()
 
-        tagend = ''
-        if len(tag) <= 20:  # old style compatible tag
-            tag = '{0:|<20}'.format(tag)  # pad with pipes '|' to 20 character length
-        else:  # new style longer than 20 chars
-            tagend = TAGEND
-        serialized_data = salt.utils.trim_dict(self.serial.dumps(data),
+        tagend = TAGEND
+        serialized_data = salt.utils.dicttrim.trim_dict(self.serial.dumps(data),
                 self.opts.get('max_event_size', 1048576),
                 is_msgpacked=True
                 )
@@ -420,10 +430,8 @@ class SaltEvent(object):
             # Wait at most 2.5 secs to send any remaining messages in the
             # socket or the context.term() bellow will hang indefinitely.
             # See https://github.com/zeromq/pyzmq/issues/102
-            self.sub.setsockopt(zmq.LINGER, linger)
             self.sub.close()
         if self.cpush is True and self.push.closed is False:
-            self.push.setsockopt(zmq.LINGER, linger)
             self.push.close()
         # If sockets are not unregistered from a poller, nothing which touches
         # that poller gets garbage collected. The Poller itself, its
@@ -484,11 +492,18 @@ class SaltEvent(object):
                     pass
 
     def __del__(self):
-        self.destroy()
+        # skip exceptions in destroy-- since destroy() doesn't cover interpreter
+        # shutdown-- where globals start going missing
+        try:
+            self.destroy()
+        except Exception as ex:
+            log.debug(ex)
 
 
 class MasterEvent(SaltEvent):
     '''
+    Warning! Use the get_event function or the code will not be
+    RAET compatible
     Create a master event management object
     '''
     def __init__(self, sock_dir):
@@ -497,13 +512,32 @@ class MasterEvent(SaltEvent):
 
 class LocalClientEvent(MasterEvent):
     '''
+    Warning! Use the get_event function or the code will not be
+    RAET compatible
     This class is just used to differentiate who is handling the events,
     specially on logs, but it's the same as MasterEvent.
     '''
 
 
+class NamespacedEvent(object):
+    '''
+    A wrapper for sending events within a specific base namespace
+    '''
+    def __init__(self, event, base, print_func=None):
+        self.event = event
+        self.base = base
+        self.print_func = print_func
+
+    def fire_event(self, data, tag):
+        if self.print_func is not None:
+            self.print_func(tag, data)
+        self.event.fire_event(data, tagify(tag, base=self.base))
+
+
 class MinionEvent(SaltEvent):
     '''
+    Warning! Use the get_event function or the code will not be
+    RAET compatible
     Create a master event management object
     '''
     def __init__(self, opts):
@@ -532,16 +566,16 @@ class EventPublisher(multiprocessing.Process):
         epub_uri = 'ipc://{0}'.format(
                 os.path.join(self.opts['sock_dir'], 'master_event_pub.ipc')
                 )
-        salt.utils.check_ipc_path_max_len(epub_uri)
+        salt.utils.zeromq.check_ipc_path_max_len(epub_uri)
         # Prepare master event pull socket
         self.epull_sock = self.context.socket(zmq.PULL)
         epull_uri = 'ipc://{0}'.format(
                 os.path.join(self.opts['sock_dir'], 'master_event_pull.ipc')
                 )
-        salt.utils.check_ipc_path_max_len(epull_uri)
+        salt.utils.zeromq.check_ipc_path_max_len(epull_uri)
 
         # Start the master event publisher
-        old_umask = os.umask(0177)
+        old_umask = os.umask(0o177)
         try:
             self.epull_sock.bind(epull_uri)
             self.epub_sock.bind(epub_uri)
@@ -549,7 +583,7 @@ class EventPublisher(multiprocessing.Process):
                 os.chmod(
                         os.path.join(self.opts['sock_dir'],
                             'master_event_pub.ipc'),
-                        0666
+                        0o666
                         )
         finally:
             os.umask(old_umask)
@@ -575,207 +609,66 @@ class EventPublisher(multiprocessing.Process):
                 self.context.term()
 
 
-class Reactor(multiprocessing.Process, salt.state.Compiler):
+class EventReturn(multiprocessing.Process):
     '''
-    Read in the reactor configuration variable and compare it to events
-    processed on the master.
-    The reactor has the capability to execute pre-programmed executions
-    as reactions to events
+    A dedicated process which listens to the master event bus and queues
+    and forwards events to the specified returner.
     '''
     def __init__(self, opts):
-        multiprocessing.Process.__init__(self)
-        salt.state.Compiler.__init__(self, opts)
+        '''
+        Initialize the EventReturn system
 
+        Return an EventReturn instance
+        '''
+        multiprocessing.Process.__init__(self)
+
+        self.opts = opts
+        self.event_return_queue = self.opts['event_return_queue']
         local_minion_opts = self.opts.copy()
         local_minion_opts['file_client'] = 'local'
         self.minion = salt.minion.MasterMinion(local_minion_opts)
 
-    def render_reaction(self, glob_ref, tag, data):
-        '''
-        Execute the render system against a single reaction file and return
-        the data structure
-        '''
-        react = {}
-
-        if glob_ref.startswith('salt://'):
-            glob_ref = self.minion.functions['cp.cache_file'](glob_ref)
-
-        for fn_ in glob.glob(glob_ref):
-            try:
-                res = self.render_template(
-                    fn_,
-                    tag=tag,
-                    data=data)
-
-                # for #20841, inject the sls name here since verify_high()
-                # assumes it exists in case there are any errors
-                for name in res:
-                    res[name]['__sls__'] = fn_
-
-                react.update(res)
-            except Exception as e:
-                log.error('Failed to render "{0}"\n{1}'.format(fn_, e))
-        return react
-
-    def list_reactors(self, tag):
-        '''
-        Take in the tag from an event and return a list of the reactors to
-        process
-        '''
-        log.debug('Gathering reactors for tag {0}'.format(tag))
-        reactors = []
-        if isinstance(self.opts['reactor'], string_types):
-            try:
-                with salt.utils.fopen(self.opts['reactor']) as fp_:
-                    react_map = yaml.safe_load(fp_.read())
-            except (OSError, IOError):
-                log.error(
-                    'Failed to read reactor map: "{0}"'.format(
-                        self.opts['reactor']
-                        )
-                    )
-            except Exception:
-                log.error(
-                    'Failed to parse YAML in reactor map: "{0}"'.format(
-                        self.opts['reactor']
-                        )
-                    )
-        else:
-            react_map = self.opts['reactor']
-        for ropt in react_map:
-            if not isinstance(ropt, dict):
-                continue
-            if len(ropt) != 1:
-                continue
-            key = ropt.iterkeys().next()
-            val = ropt[key]
-            if fnmatch.fnmatch(tag, key):
-                if isinstance(val, string_types):
-                    reactors.append(val)
-                elif isinstance(val, list):
-                    reactors.extend(val)
-        return reactors
-
-    def reactions(self, tag, data, reactors):
-        '''
-        Render a list of reactor files and returns a reaction struct
-        '''
-        log.debug('Compiling reactions for tag {0}'.format(tag))
-        high = {}
-        chunks = []
-        try:
-            for fn_ in reactors:
-                high.update(self.render_reaction(fn_, tag, data))
-            if high:
-                errors = self.verify_high(high)
-                if errors:
-                    log.error(('Unable to render reactions for event {0} due to '
-                               'errors ({1}) in one or more of the sls files ({2})').format(tag, errors, reactors))
-                    return []  # We'll return nothing since there was an error
-                chunks = self.order_chunks(self.compile_high_data(high))
-        except Exception as exc:
-            log.error('Exception trying to compile reactions: {0}'.format(exc), exc_info=True)
-
-        return chunks
-
-    def call_reactions(self, chunks):
-        '''
-        Execute the reaction state
-        '''
-        for chunk in chunks:
-            self.wrap.run(chunk)
-
     def run(self):
         '''
-        Enter into the server loop
+        Spin up the multiprocess event returner
         '''
         salt.utils.appendproctitle(self.__class__.__name__)
-
-        # instantiate some classes inside our new process
-        self.event = SaltEvent('master', self.opts['sock_dir'])
-        self.wrap = ReactWrap(self.opts)
-
-        for data in self.event.iter_events(full=True):
-            reactors = self.list_reactors(data['tag'])
-            if not reactors:
-                continue
-            chunks = self.reactions(data['tag'], data['data'], reactors)
-            if chunks:
-                self.call_reactions(chunks)
-
-
-class ReactWrap(object):
-    '''
-    Create a wrapper that executes low data for the reaction system
-    '''
-    # class-wide cache of clients
-    client_cache = None
-
-    def __init__(self, opts):
-        self.opts = opts
-        if ReactWrap.client_cache is None:
-            ReactWrap.client_cache = salt.utils.cache.CacheDict(opts['reactor_refresh_interval'])
-
-        self.pool = salt.utils.process.ThreadPool(
-            self.opts['reactor_worker_threads'],  # number of workers for runner/wheel
-            queue_size=self.opts['reactor_worker_hwm']  # queue size for those workers
-        )
-
-    def run(self, low):
-        '''
-        Execute the specified function in the specified state by passing the
-        LowData
-        '''
-        l_fun = getattr(self, low['state'])
-        try:
-            f_call = salt.utils.format_call(l_fun, low)
-            l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))
-        except Exception:
-            log.error(
-                    'Failed to execute {0}: {1}\n'.format(low['state'], l_fun),
-                    exc_info=True
+        self.event = get_event('master', opts=self.opts)
+        events = self.event.iter_events(full=True)
+        self.event.fire_event({}, 'salt/event_listen/start')
+        event_queue = []
+        for event in events:
+            if self._filter(event):
+                event_queue.append(event)
+            if len(event_queue) >= self.event_return_queue:
+                event_return = '{0}.event_return'.format(
+                    self.opts['event_return']
+                )
+                if event_return in self.minion.returners:
+                    self.minion.returners[event_return](event_queue)
+                    event_queue = []
+                else:
+                    log.error(
+                        'Could not store return for event(s) {0}. Returner '
+                        '\'{1}\' not found.'
+                        .format(event_queue, self.opts['event_return'])
                     )
 
-    def local(self, *args, **kwargs):
+    def _filter(self, event):
         '''
-        Wrap LocalClient for running :ref:`execution modules <all-salt.modules>`
-        '''
-        if 'local' not in self.client_cache:
-            self.client_cache['local'] = salt.client.LocalClient(self.opts['conf_file'])
-        try:
-            self.client_cache['local'].cmd_async(*args, **kwargs)
-        except SystemExit:
-            log.warning('Attempt to exit in reactor by local. Ignored')
-        except Exception as exc:
-            log.warning('Exception caught by reactor: {0}'.format(exc))
+        Take an event and run it through configured filters.
 
-    cmd = local
-
-    def runner(self, fun, **kwargs):
+        Returns True if event should be stored, else False
         '''
-        Wrap RunnerClient for executing :ref:`runner modules <all-salt.runners>`
-        '''
-        if 'runner' not in self.client_cache:
-            self.client_cache['runner'] = salt.runner.RunnerClient(self.opts)
-        try:
-            self.pool.fire_async(self.client_cache['runner'].low, args=(fun, kwargs))
-        except SystemExit:
-            log.warning('Attempt to exit in reactor by runner. Ignored')
-        except Exception as exc:
-            log.warning('Exception caught by reactor: {0}'.format(exc))
-
-    def wheel(self, fun, **kwargs):
-        '''
-        Wrap Wheel to enable executing :ref:`wheel modules <all-salt.wheel>`
-        '''
-        if 'wheel' not in self.client_cache:
-            self.client_cache['wheel'] = salt.wheel.Wheel(self.opts)
-        try:
-            self.pool.fire_async(self.client_cache['wheel'].low, args=(fun, kwargs))
-        except SystemExit:
-            log.warning('Attempt to exit in reactor by wheel. Ignored')
-        except Exception as exc:
-            log.warning('Exception caught by reactor: {0}'.format(exc))
+        tag = event['tag']
+        if tag in self.opts['event_return_whitelist']:
+            if tag not in self.opts['event_return_blacklist']:
+                return True
+            else:
+                return False  # Event was whitelisted and blacklisted
+        elif tag in self.opts['event_return_blacklist']:
+            return False
+        return True
 
 
 class StateFire(object):
@@ -812,9 +705,9 @@ class StateFire(object):
                     'cmd': '_minion_event',
                     'tok': self.auth.gen_token('salt')})
 
-        sreq = salt.transport.Channel.factory(self.opts)
+        channel = salt.transport.Channel.factory(self.opts)
         try:
-            sreq.send(load)
+            channel.send(load)
         except Exception:
             pass
         return True
@@ -842,9 +735,9 @@ class StateFire(object):
                     {'tag': tag,
                      'data': running[stag]}
                     )
-        sreq = salt.transport.Channel.factory(self.opts)
+        channel = salt.transport.Channel.factory(self.opts)
         try:
-            sreq.send(load)
+            channel.send(load)
         except Exception:
             pass
         return True

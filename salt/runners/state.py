@@ -4,6 +4,7 @@ Execute overstate functions
 '''
 # Import pytohn libs
 from __future__ import print_function
+from __future__ import absolute_import
 
 import fnmatch
 import json
@@ -11,13 +12,12 @@ import logging
 import sys
 
 # Import salt libs
-import salt.output
 import salt.overstate
 import salt.syspaths
 import salt.utils.event
 from salt.exceptions import SaltInvocationError
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 def over(saltenv='base', os_fn=None):
@@ -56,25 +56,19 @@ def over(saltenv='base', os_fn=None):
     for stage in overstate.stages_iter():
         if isinstance(stage, dict):
             # This is highstate data
-            print('Stage execution results:')
+            __jid_event__.fire_event({'message': 'Stage execution results:'}, 'progress')
             for key, val in stage.items():
                 if '_|-' in key:
-                    salt.output.display_output(
-                            {'error': {key: val}},
-                            'highstate',
-                            opts=__opts__)
+                    __jid_event__.fire_event({'data': {'error': {key: val}}, 'outputter': 'highstate'}, 'progress')
                 else:
-                    salt.output.display_output(
-                            {key: val},
-                            'highstate',
-                            opts=__opts__)
+                    __jid_event__.fire_event({'data': {key: val}, 'outputter': 'highstate'}, 'progress')
         elif isinstance(stage, list):
             # This is a stage
             if stage_num == 0:
-                print('Executing the following Over State:')
+                __jid_event__.fire_event({'message': 'Executing the following Over State:'}, 'progress')
             else:
-                print('Executed Stage:')
-            salt.output.display_output(stage, 'overstatestage', opts=__opts__)
+                __jid_event__.fire_event({'message': 'Executed Stage:'}, 'progress')
+            __jid_event__.fire_event({'data': stage, 'outputter': 'overstatestage'}, 'progress')
             stage_num += 1
     return overstate.over_run
 
@@ -88,7 +82,7 @@ def orchestrate(mods, saltenv='base', test=None, exclude=None, pillar=None):
 
     .. seealso:: More Orchestrate documentation
 
-        * :ref:`Full Orchestrate Tutorial <orchestrate-tutorial>`
+        * :ref:`Full Orchestrate Tutorial <orchestrate-runner>`
         * :py:mod:`Docs for the master-side state module <salt.states.saltmod>`
 
     CLI Examples:
@@ -119,12 +113,78 @@ def orchestrate(mods, saltenv='base', test=None, exclude=None, pillar=None):
             exclude,
             pillar=pillar)
     ret = {minion.opts['id']: running}
-    salt.output.display_output(ret, 'highstate', opts=__opts__)
+    __jid_event__.fire_event({'data': ret, 'outputter': 'highstate'}, 'progress')
     return ret
 
 # Aliases for orchestrate runner
-orch = orchestrate
-sls = orchestrate
+orch = orchestrate  # pylint: disable=invalid-name
+sls = orchestrate  # pylint: disable=invalid-name
+
+
+def orchestrate_single(fun, name, test=None, queue=False, pillar=None, **kwargs):
+    '''
+    Execute a single state orchestration routine
+
+    .. versionadded:: 2015.5.0
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt-run state.orchestrate_single fun=salt.wheel name=key.list_all
+    '''
+    if pillar is not None and not isinstance(pillar, dict):
+        raise SaltInvocationError(
+            'Pillar data must be formatted as a dictionary'
+        )
+    __opts__['file_client'] = 'local'
+    minion = salt.minion.MasterMinion(__opts__)
+    running = minion.functions['state.single'](
+            fun,
+            name,
+            test=None,
+            queue=False,
+            pillar=pillar,
+            **kwargs)
+    ret = {minion.opts['id']: running}
+    __jid_event__.fire_event({'data': ret, 'outputter': 'highstate'}, 'progress')
+    return ret
+
+
+def orchestrate_high(data, test=None, queue=False, pillar=None, **kwargs):
+    '''
+    Execute a single state orchestration routine
+
+    .. versionadded:: 2015.5.0
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt-run state.orchestrate_high '{
+            stage_one:
+                {salt.state: [{tgt: "db*"}, {sls: postgres_setup}]},
+            stage_two:
+                {salt.state: [{tgt: "web*"}, {sls: apache_setup}, {
+                    require: [{salt: stage_one}],
+                }]},
+            }'
+    '''
+    if pillar is not None and not isinstance(pillar, dict):
+        raise SaltInvocationError(
+            'Pillar data must be formatted as a dictionary'
+        )
+    __opts__['file_client'] = 'local'
+    minion = salt.minion.MasterMinion(__opts__)
+    running = minion.functions['state.high'](
+            data,
+            test=None,
+            queue=False,
+            pillar=pillar,
+            **kwargs)
+    ret = {minion.opts['id']: running}
+    __jid_event__.fire_event({'data': ret, 'outputter': 'highstate'}, 'progress')
+    return ret
 
 
 def show_stages(saltenv='base', os_fn=None):
@@ -141,10 +201,7 @@ def show_stages(saltenv='base', os_fn=None):
         salt-run state.show_stages saltenv=dev /root/overstate.sls
     '''
     overstate = salt.overstate.OverState(__opts__, saltenv, os_fn)
-    salt.output.display_output(
-            overstate.over,
-            'overstatestage',
-            opts=__opts__)
+    __jid_event__.fire_event({'data': overstate.over, 'outputter': 'overstatestage'}, 'progress')
     return overstate.over
 
 
@@ -300,10 +357,10 @@ def event(tagmatch='*', count=-1, quiet=False, sock_dir=None, pretty=False):
                 sys.stdout.flush()
 
             count -= 1
-            logger.debug('Remaining event matches: {0}'.format(count))
+            LOGGER.debug('Remaining event matches: {0}'.format(count))
 
             if count == 0:
                 break
         else:
-            logger.debug('Skipping event tag: {0}'.format(ret['tag']))
+            LOGGER.debug('Skipping event tag: {0}'.format(ret['tag']))
             continue

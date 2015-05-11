@@ -3,9 +3,11 @@
 Provide the service module for systemd
 '''
 # Import python libs
+from __future__ import absolute_import
 import logging
 import os
 import re
+import salt.ext.six as six
 
 log = logging.getLogger(__name__)
 
@@ -181,7 +183,7 @@ def get_enabled():
         salt '*' service.get_enabled
     '''
     ret = []
-    for name, state in _get_all_unit_files().iteritems():
+    for name, state in six.iteritems(_get_all_unit_files()):
         if state == 'enabled':
             ret.append(name)
     return sorted(ret)
@@ -198,7 +200,9 @@ def get_disabled():
         salt '*' service.get_disabled
     '''
     ret = []
-    for name, state in _get_all_unit_files().iteritems() + _get_all_legacy_init_scripts().iteritems():
+    known_services = _get_all_unit_files()
+    known_services.update(_get_all_legacy_init_scripts())
+    for name, state in six.iteritems(known_services):
         if state == 'disabled':
             ret.append(name)
     return sorted(ret)
@@ -253,6 +257,36 @@ def missing(name):
         salt '*' service.missing sshd
     '''
     return not available(name)
+
+
+def unmask(name):
+    '''
+    Unmask the specified service with systemd
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' service.unmask <service name>
+    '''
+    if _untracked_custom_unit_found(name) or _unit_file_changed(name):
+        systemctl_reload()
+    return not __salt__['cmd.retcode'](_systemctl_cmd('unmask', name))
+
+
+def mask(name):
+    '''
+    Mask the specified service with systemd
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' service.mask <service name>
+    '''
+    if _untracked_custom_unit_found(name) or _unit_file_changed(name):
+        systemctl_reload()
+    return not __salt__['cmd.retcode'](_systemctl_cmd('mask', name))
 
 
 def start(name):
@@ -400,7 +434,7 @@ def _enabled(name):
     return is_enabled or _templated_instance_enabled(name)
 
 
-def enabled(name):
+def enabled(name, **kwargs):
     '''
     Return if the named service is enabled to start on boot
 

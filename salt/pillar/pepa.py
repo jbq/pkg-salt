@@ -262,6 +262,10 @@ Links
 For more examples and information see <https://github.com/mickep76/pepa>.
 '''
 
+from __future__ import print_function
+
+from __future__ import absolute_import
+
 __author__ = 'Michael Persson <michael.ake.persson@gmail.com>'
 __copyright__ = 'Copyright (c) 2013 Michael Persson'
 __license__ = 'Apache License, Version 2.0'
@@ -275,6 +279,7 @@ import yaml
 import jinja2
 import re
 from os.path import isfile, join
+from salt.ext.six.moves import input
 
 # Import Salt libs
 import salt.utils
@@ -282,7 +287,7 @@ import salt.utils
 # Only used when called from a terminal
 log = None
 if __name__ == '__main__':
-    import argparse
+    import argparse  # pylint: disable=minimum-python-version
 
     parser = argparse.ArgumentParser()
     parser.add_argument('hostname', help='Hostname')
@@ -421,9 +426,9 @@ def ext_pillar(minion_id, pillar, resource, sequence, subkey=False, subkey_only=
                     data['pillar'] = pillar.copy()
                     results_jinja = template.render(data)
                     results = yaml.load(results_jinja)
-                except jinja2.UndefinedError, err:
+                except jinja2.UndefinedError as err:
                     log.error('Failed to parse JINJA template: {0}\n{1}'.format(fn, err))
-                except yaml.YAMLError, err:
+                except yaml.YAMLError as err:
                     log.error('Failed to parse YAML in template: {0}\n{1}'.format(fn, err))
             else:
                 log.info("Template doesn't exist: {0}".format(fn))
@@ -450,11 +455,11 @@ def ext_pillar(minion_id, pillar, resource, sequence, subkey=False, subkey_only=
                             immutable[rkey] = True
                         if rkey not in output:
                             log.error('Cant\'t merge key {0} doesn\'t exist'.format(rkey))
-                        elif type(results[key]) != type(output[rkey]):
+                        elif not isinstance(results[key], type(output[rkey])):
                             log.error('Can\'t merge different types for key {0}'.format(rkey))
-                        elif type(results[key]) is dict:
+                        elif isinstance(results[key], dict):
                             output[rkey].update(results[key])
-                        elif type(results[key]) is list:
+                        elif isinstance(results[key], list):
                             output[rkey].extend(results[key])
                         else:
                             log.error('Unsupported type need to be list or dict for key {0}'.format(rkey))
@@ -538,7 +543,7 @@ if __name__ == '__main__':
         __opts__.update(yaml.load(fh_.read()))
 
     loc = 0
-    for name in [e.iterkeys().next() for e in __opts__['ext_pillar']]:
+    for name in [next(iter(list(e.keys()))) for e in __opts__['ext_pillar']]:
         if name == 'pepa':
             break
         loc += 1
@@ -568,7 +573,7 @@ if __name__ == '__main__':
         username = args.username
         password = args.password
         if username is None:
-            username = raw_input('Username: ')
+            username = input('Username: ')
         if password is None:
             password = getpass.getpass()
 
@@ -613,8 +618,8 @@ if __name__ == '__main__':
             import pygments
             import pygments.lexers
             import pygments.formatters
-            print pygments.highlight(yaml.safe_dump(result), pygments.lexers.YamlLexer(), pygments.formatters.TerminalFormatter())
+            print(pygments.highlight(yaml.safe_dump(result), pygments.lexers.YamlLexer(), pygments.formatters.TerminalFormatter()))
         except ImportError:
-            print yaml.safe_dump(result, indent=4, default_flow_style=False)
+            print(yaml.safe_dump(result, indent=4, default_flow_style=False))
     else:
-        print yaml.safe_dump(result, indent=4, default_flow_style=False)
+        print(yaml.safe_dump(result, indent=4, default_flow_style=False))

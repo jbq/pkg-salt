@@ -20,6 +20,10 @@ add the following to the Salt master config file.
     rest_tornado:
         # can be any port
         port: 8000
+        # address to bind to (defaults to 0.0.0.0)
+        address: 0.0.0.0
+        # socket backlog
+        backlog: 128
         ssl_crt: /etc/pki/api/certs/server.crt
         # no need to specify ssl_key if cert and key
         # are in one single file
@@ -356,21 +360,11 @@ def get_batch_size(batch, num_minions):
                'of %10, 10% or 3').format(batch))
 
 
-class BaseSaltAPIHandler(tornado.web.RequestHandler, SaltClientsMixIn):
+class BaseSaltAPIHandler(tornado.web.RequestHandler, SaltClientsMixIn):  # pylint: disable=W0223
     ct_out_map = (
         ('application/json', json.dumps),
         ('application/x-yaml', yaml.safe_dump),
     )
-
-    def min_syndic_wait_done(self):
-        '''
-        Ensure that the request has been open for a minimum of syndic_wait time
-        '''
-        if not self.application.opts['order_masters']:
-            return True
-        elif time.time() > self.start + self.application.opts['syndic_wait']:
-            return True
-        return False
 
     def _verify_client(self, client):
         '''
@@ -503,7 +497,7 @@ class BaseSaltAPIHandler(tornado.web.RequestHandler, SaltClientsMixIn):
         return lowstate
 
 
-class SaltAuthHandler(BaseSaltAPIHandler):
+class SaltAuthHandler(BaseSaltAPIHandler):  # pylint: disable=W0223
     '''
     Handler for login requests
     '''
@@ -658,7 +652,7 @@ class SaltAuthHandler(BaseSaltAPIHandler):
         self.write(self.serialize(ret))
 
 
-class SaltAPIHandler(BaseSaltAPIHandler, SaltClientsMixIn):
+class SaltAPIHandler(BaseSaltAPIHandler, SaltClientsMixIn):  # pylint: disable=W0223
     '''
     Main API handler for base "/"
     '''
@@ -1009,7 +1003,7 @@ class SaltAPIHandler(BaseSaltAPIHandler, SaltClientsMixIn):
             raise tornado.gen.Return('Timeout waiting for runner to execute')
 
 
-class MinionSaltAPIHandler(SaltAPIHandler):
+class MinionSaltAPIHandler(SaltAPIHandler):  # pylint: disable=W0223
     '''
     A convenience endpoint for minion related functions
     '''
@@ -1138,7 +1132,7 @@ class MinionSaltAPIHandler(SaltAPIHandler):
         self.disbatch()
 
 
-class JobsSaltAPIHandler(SaltAPIHandler):
+class JobsSaltAPIHandler(SaltAPIHandler):  # pylint: disable=W0223
     '''
     A convenience endpoint for job cache data
     '''
@@ -1244,7 +1238,7 @@ class JobsSaltAPIHandler(SaltAPIHandler):
         self.disbatch()
 
 
-class RunSaltAPIHandler(SaltAPIHandler):
+class RunSaltAPIHandler(SaltAPIHandler):  # pylint: disable=W0223
     '''
     Endpoint to run commands without normal session handling
     '''
@@ -1308,7 +1302,7 @@ class RunSaltAPIHandler(SaltAPIHandler):
         self.disbatch()
 
 
-class EventsSaltAPIHandler(SaltAPIHandler):
+class EventsSaltAPIHandler(SaltAPIHandler):  # pylint: disable=W0223
     '''
     Expose the Salt event bus
 
@@ -1436,7 +1430,7 @@ class EventsSaltAPIHandler(SaltAPIHandler):
                 break
 
 
-class WebhookSaltAPIHandler(SaltAPIHandler):
+class WebhookSaltAPIHandler(SaltAPIHandler):  # pylint: disable=W0223
     '''
     A generic web hook entry point that fires an event on Salt's event bus
 

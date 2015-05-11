@@ -414,6 +414,11 @@ the specified commands return ``False``. The ``unless`` requisite operates
 as NOR and is useful in giving more granular control over when a state should
 execute.
 
+**NOTE**: Under the hood ``unless`` calls ``cmd.retcode`` with 
+``python_shell=True``.  This means the commands referenced by unless will be
+parsed by a shell, so beware of side-effects as this shell will be run with the
+same privileges as the salt-minion.
+
 .. code-block:: yaml
 
     vim:
@@ -429,6 +434,22 @@ exist (returns ``False``). The state will run if both commands return
 
 However, the state will not run if both commands return ``True``.
 
+Unless checks are resolved for each name to which they are associated.
+
+For example:
+
+.. code-block:: yaml
+
+    deploy_app:
+      cmd.run:
+        - names:
+          - first_deploy_cmd
+          - second_deploy_cmd
+      - unless: ls /usr/bin/vim
+
+In the above case, ``some_check`` will be run prior to _each_ name -- once for
+``first_deploy_cmd`` and a second time for ``second_deploy_cmd``.
+
 Onlyif
 ------
 
@@ -438,6 +459,11 @@ Onlyif
 return ``True``, then the state is run. If any of the specified commands
 return ``False``, the state will not run.
 
+**NOTE**: Under the hood ``onlyif`` calls ``cmd.retcode`` with 
+``python_shell=True``.  This means the commands referenced by unless will be
+parsed by a shell, so beware of side-effects as this shell will be run with the
+same privileges as the salt-minion.
+
 .. code-block:: yaml
 
     stop-volume:
@@ -445,7 +471,7 @@ return ``False``, the state will not run.
         - name: glusterfs.stop_volume
         - m_name: work
         - onlyif:
-            - gluster volume status work
+          - gluster volume status work
         - order: 1
 
     remove-volume:
@@ -453,12 +479,56 @@ return ``False``, the state will not run.
         - name: glusterfs.delete
         - m_name: work
         - onlyif:
-            - gluster volume info work
+          - gluster volume info work
         - watch:
           - cmd: stop-volume
 
 The above example ensures that the stop_volume and delete modules only run
 if the gluster commands return a 0 ret value.
+
+Listen/Listen_in
+----------------
+
+.. versionadded:: 2014.7.0
+
+listen and its counterpart listen_in trigger mod_wait functions for states,
+when those states succeed and result in changes, similar to how watch its
+counterpart watch_in. Unlike watch and watch_in, listen, and listen_in will
+not modify the order of states and can be used to ensure your states are
+executed in the order they are defined. All listen/listen_in actions will occur
+at the end of a state run, after all states have completed.
+
+.. code-block:: yaml
+
+ restart-apache2:
+   service.running:
+     - name: apache2
+     - listen:
+       - file: /etc/apache2/apache2.conf
+
+ configure-apache2:
+   file.managed:
+     - path: /etc/apache2/apache2.conf
+     - source: salt://apache2/apache2.conf
+
+This example will cause apache2 to be restarted when the apache2.conf file is
+changed, but the apache2 restart will happen at the end of the state run.
+
+.. code-block:: yaml
+
+ restart-apache2:
+   service.running:
+     - name: apache2
+
+ configure-apache2:
+   file.managed:
+     - path: /etc/apache2/apache2.conf
+     - source: salt://apache2/apache2.conf
+     - listen_in:
+       - service: apache2
+
+This example does the same as the above example, but puts the state argument
+on the file resource, rather than the service resource.
 
 check_cmd
 ---------
@@ -468,6 +538,11 @@ check_cmd
 Check Command is used for determining that a state did or did not run as
 expected.
 
+**NOTE**: Under the hood ``check_cmd`` calls ``cmd.retcode`` with 
+``python_shell=True``.  This means the commands referenced by unless will be
+parsed by a shell, so beware of side-effects as this shell will be run with the
+same privileges as the salt-minion.
+
 .. code-block:: yaml
 
     comment-repo:
@@ -476,7 +551,7 @@ expected.
         - pattern: ^enabled=0
         - repl: enabled=1
         - check_cmd:
-            - grep 'enabled=0' /etc/yum.repos.d/fedora.repo && return 1 || return 0
+          - grep 'enabled=0' /etc/yum.repos.d/fedora.repo && return 1 || return 0
 
 This will attempt to do a replace on all enabled=0 in the .repo file, and
 replace them with enabled=1.  The check_cmd is just a bash command.  It will do
@@ -491,9 +566,9 @@ Overriding Checks
 
 There are two commands used for the above checks.
 
-`mod_run_check` is used to check for onlyif and unless.  If the goal is to
-override the global check for these to variables, include a mod_run_check in the
+``mod_run_check`` is used to check for ``onlyif`` and ``unless``.  If the goal is to
+override the global check for these to variables, include a ``mod_run_check`` in the
 salt/states/ file.
 
-`mod_run_check_cmd` is used to check for the check_cmd options.  To override
-this one, include a mod_run_check_cmd in the states file for the state.
+``mod_run_check_cmd`` is used to check for the check_cmd options.  To override
+this one, include a ``mod_run_check_cmd`` in the states file for the state.

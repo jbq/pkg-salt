@@ -14,27 +14,30 @@ Support for YUM
 '''
 
 # Import python libs
+from __future__ import absolute_import
 import copy
 import logging
 import os
 import re
-from distutils.version import LooseVersion as _LooseVersion  # pylint: disable=import-error,no-name-in-module
+from distutils.version import LooseVersion as _LooseVersion  # pylint: disable=no-name-in-module,import-error
+
+# Import 3rd-party libs
+# pylint: disable=import-error,redefined-builtin
+import salt.ext.six as six
+from salt.ext.six import string_types
+from salt.ext.six.moves import shlex_quote as _cmd_quote, range
 
 try:
     import yum
     HAS_YUM = True
 except ImportError:
-    from salt._compat import configparser
+    from salt.ext.six.moves import configparser
     HAS_YUM = False
-
-try:
-    from shlex import quote as _cmd_quote  # pylint: disable=E0611
-except ImportError:
-    from pipes import quote as _cmd_quote  # pylint: disable=E0611
+# pylint: enable=import-error
 
 # Import salt libs
 import salt.utils
-from salt._compat import string_types
+import salt.utils.decorators as decorators
 from salt.exceptions import (
     CommandExecutionError, MinionError, SaltInvocationError
 )
@@ -148,11 +151,19 @@ def _repoquery(repoquery_args, query_format=__QUERYFORMAT):
     cmd = 'repoquery --plugins --queryformat {0} {1}'.format(
         _cmd_quote(query_format), repoquery_args
     )
-    out = __salt__['cmd.run_stdout'](
-            cmd,
-            output_loglevel='trace'
-            )
-    return out.splitlines()
+    call = __salt__['cmd.run_all'](cmd, output_loglevel='trace')
+    if call['retcode'] != 0:
+        comment = ''
+        if 'stderr' in call:
+            comment += call['stderr']
+        if 'stdout' in call:
+            comment += call['stdout']
+        raise CommandExecutionError(
+            '{0}'.format(comment)
+        )
+    else:
+        out = call['stdout']
+        return out.splitlines()
 
 
 def _get_repo_options(**kwargs):
@@ -228,7 +239,7 @@ def _rpm_pkginfo(name):
     Parses RPM metadata and returns a pkginfo namedtuple
     '''
     # REPOID is not a valid tag for the rpm command. Remove it and replace it
-    # with "none"
+    # with 'none'
     queryformat = __QUERYFORMAT.replace('%{REPOID}', 'none')
     output = __salt__['cmd.run_stdout'](
         'rpm -qp --queryformat {0!r} {1}'.format(_cmd_quote(queryformat), name),
@@ -430,13 +441,14 @@ def latest_version(*names, **kwargs):
             arch = __grains__['osarch']
         namearch_map[name] = arch
 
-    # Refresh before looking for the latest version available
-    if refresh:
-        refresh_db(**kwargs)
-
-    # Get updates for specified package(s)
     repo_arg = _get_repo_options(**kwargs)
     exclude_arg = _get_excludes_option(**kwargs)
+
+    # Refresh before looking for the latest version available
+    if refresh:
+        refresh_db(_get_branch_option(**kwargs), repo_arg, exclude_arg)
+
+    # Get updates for specified package(s)
     updates = _repoquery_pkginfo(
         '{0} {1} --pkgnarrow=available {2}'
         .format(repo_arg, exclude_arg, ' '.join(names))
@@ -584,7 +596,7 @@ def list_repo_pkgs(*args, **kwargs):
     except AttributeError:
         # Search in all enabled repos
         repos = tuple(
-            x for x, y in list_repos().iteritems()
+            x for x, y in six.iteritems(list_repos())
             if str(y.get('enabled', '1')) == '1'
         )
 
@@ -626,11 +638,11 @@ def list_upgrades(refresh=True, **kwargs):
 
         salt '*' pkg.list_upgrades
     '''
-    if salt.utils.is_true(refresh):
-        refresh_db(**kwargs)
-
     repo_arg = _get_repo_options(**kwargs)
     exclude_arg = _get_excludes_option(**kwargs)
+
+    if salt.utils.is_true(refresh):
+        refresh_db(_get_branch_option(**kwargs), repo_arg, exclude_arg)
     updates = _repoquery_pkginfo(
         '{0} {1} --all --pkgnarrow=updates'.format(repo_arg, exclude_arg)
     )
@@ -706,7 +718,7 @@ def check_db(*names, **kwargs):
     return ret
 
 
-def refresh_db(**kwargs):
+def refresh_db(branch_arg, repo_arg, exclude_arg):
     '''
     Check the yum repos for updated packages
 
@@ -727,11 +739,19 @@ def refresh_db(**kwargs):
         0: None,
         1: False,
     }
-    branch_arg = _get_branch_option(**kwargs)
 
-    clean_cmd = 'yum -q clean expire-cache'
+    clean_cmd = 'yum -q clean expire-cache {repo} {exclude} {branch}'.format(
+        repo=repo_arg,
+        exclude=exclude_arg,
+        branch=branch_arg
+    )
     __salt__['cmd.run'](clean_cmd)
-    update_cmd = 'yum -q check-update {0}'.format(branch_arg)
+    update_cmd = 'yum -q check-update {repo} {exclude} {branch}'.format(
+        repo=repo_arg,
+        exclude=exclude_arg,
+        branch=branch_arg
+    )
+
     ret = __salt__['cmd.retcode'](update_cmd, ignore_retcode=True)
     return retcodes.get(ret, False)
 
@@ -749,7 +769,7 @@ def clean_metadata(**kwargs):
 
         salt '*' pkg.clean_metadata
     '''
-    return refresh_db(**kwargs)
+    return refresh_db(_get_branch_option(**kwargs), _get_repo_options(**kwargs), _get_excludes_option(**kwargs))
 
 
 def group_install(name,
@@ -816,6 +836,7 @@ def group_install(name,
     elif not isinstance(groups, list):
         raise SaltInvocationError('\'groups\' must be a list')
 
+    # pylint: disable=maybe-no-member
     if isinstance(skip, string_types):
         skip = skip.split(',')
     if not isinstance(skip, (list, tuple)):
@@ -825,6 +846,7 @@ def group_install(name,
         include = include.split(',')
     if not isinstance(include, (list, tuple)):
         raise SaltInvocationError('\'include\' must be a list')
+    # pylint: enable=maybe-no-member
 
     targets = []
     for group in groups:
@@ -967,8 +989,12 @@ def install(name=None,
         {'<package>': {'old': '<old-version>',
                        'new': '<new-version>'}}
     '''
+    branch_arg = _get_branch_option(**kwargs)
+    repo_arg = _get_repo_options(fromrepo=fromrepo, **kwargs)
+    exclude_arg = _get_excludes_option(**kwargs)
+
     if salt.utils.is_true(refresh):
-        refresh_db(**kwargs)
+        refresh_db(branch_arg, repo_arg, exclude_arg)
     reinstall = salt.utils.is_true(reinstall)
 
     try:
@@ -990,16 +1016,12 @@ def install(name=None,
             log.warning('"version" parameter will be ignored for multiple '
                         'package targets')
 
-    repo_arg = _get_repo_options(fromrepo=fromrepo, **kwargs)
-    exclude_arg = _get_excludes_option(**kwargs)
-    branch_arg = _get_branch_option(**kwargs)
-
     old = list_pkgs()
     targets = []
     downgrade = []
     to_reinstall = {}
     if pkg_type == 'repository':
-        pkg_params_items = pkg_params.iteritems()
+        pkg_params_items = six.iteritems(pkg_params)
     else:
         pkg_params_items = []
         for pkg_source in pkg_params:
@@ -1071,7 +1093,7 @@ def install(name=None,
             exclude=exclude_arg,
             branch=branch_arg,
             gpgcheck='--nogpgcheck' if skip_verify else '',
-            pkg=' '.join(to_reinstall.itervalues()),
+            pkg=' '.join(six.itervalues(to_reinstall)),
         )
         __salt__['cmd.run'](cmd, output_loglevel='trace')
 
@@ -1128,12 +1150,12 @@ def upgrade(refresh=True, fromrepo=None, skip_verify=False, **kwargs):
 
         .. versionadded:: 2014.7.0
     '''
-    if salt.utils.is_true(refresh):
-        refresh_db(**kwargs)
-
     repo_arg = _get_repo_options(fromrepo=fromrepo, **kwargs)
     exclude_arg = _get_excludes_option(**kwargs)
     branch_arg = _get_branch_option(**kwargs)
+
+    if salt.utils.is_true(refresh):
+        refresh_db(branch_arg, repo_arg, exclude_arg)
 
     old = list_pkgs()
     cmd = 'yum -q -y {repo} {exclude} {branch} {gpgcheck} upgrade'.format(
@@ -1488,7 +1510,7 @@ def group_list():
     cmd = 'yum grouplist'
     out = __salt__['cmd.run_stdout'](cmd, output_loglevel='trace').splitlines()
     key = None
-    for idx in xrange(len(out)):
+    for idx in range(len(out)):
         if out[idx] == 'Installed Groups:':
             key = 'installed'
             continue
@@ -1890,9 +1912,10 @@ def _parse_repo_file(filename):
                     comps = line.strip().split('=')
                     repos[repo][comps[0].strip()] = '='.join(comps[1:])
                 except KeyError:
-                    log.error('Failed to parse line in {0}, '
-                              'offending line was "{1}"'.format(filename,
-                                                                line.rstrip()))
+                    log.error(
+                        'Failed to parse line in {0}, offending line was '
+                        '\'{1}\''.format(filename, line.rstrip())
+                    )
 
     return (header, repos)
 
@@ -1959,7 +1982,9 @@ def owner(*paths):
     If the file is not owned by a package, or is not present on the minion,
     then an empty string will be returned for that path.
 
-    CLI Example:
+    CLI Examples:
+
+    .. code-block:: bash
 
         salt '*' pkg.owner /usr/bin/apachectl
         salt '*' pkg.owner /usr/bin/apachectl /etc/httpd/conf/httpd.conf
@@ -1979,5 +2004,162 @@ def owner(*paths):
         if 'not owned' in ret[path].lower():
             ret[path] = ''
     if len(ret) == 1:
-        return ret.itervalues().next()
+        return next(ret.itervalues())
+    return ret
+
+
+def modified(*packages, **flags):
+    '''
+    List the modified files that belong to a package. Not specifying any packages
+    will return a list of _all_ modified files on the system's RPM database.
+
+    .. versionadded:: 2015.5.0
+
+    Filtering by flags (True or False):
+
+    size
+        Include only files where size changed.
+
+    mode
+        Include only files which file's mode has been changed.
+
+    checksum
+        Include only files which MD5 checksum has been changed.
+
+    device
+        Include only files which major and minor numbers has been changed.
+
+    symlink
+        Include only files which are symbolic link contents.
+
+    owner
+        Include only files where owner has been changed.
+
+    group
+        Include only files where group has been changed.
+
+    time
+        Include only files where modification time of the file has been changed.
+
+    capabilities
+        Include only files where capabilities differ or not. Note: supported only on newer RPM versions.
+
+    CLI Examples:
+
+    .. code-block:: bash
+
+        salt '*' pkg.modified
+        salt '*' pkg.modified httpd
+        salt '*' pkg.modified httpd postfix
+        salt '*' pkg.modified httpd owner=True group=False
+    '''
+
+    return __salt__['lowpkg.modified'](*packages, **flags)
+
+
+@decorators.which('yumdownloader')
+def download(*packages):
+    '''
+    .. versionadded:: 2015.5.0
+
+    Download packages to the local disk. Requires ``yumdownloader`` from
+    ``yum-utils`` package.
+
+    .. note::
+
+        ``yum-utils`` will already be installed on the minion if the package
+        was installed from the Fedora / EPEL repositories.
+
+    CLI example:
+
+    .. code-block:: bash
+
+        salt '*' pkg.download httpd
+        salt '*' pkg.download httpd postfix
+    '''
+    if not packages:
+        raise SaltInvocationError('No packages were specified')
+
+    CACHE_DIR = '/var/cache/yum/packages'
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR)
+    cached_pkgs = os.listdir(CACHE_DIR)
+    to_purge = []
+    for pkg in packages:
+        to_purge.extend([os.path.join(CACHE_DIR, x)
+                         for x in cached_pkgs
+                         if x.startswith('{0}-'.format(pkg))])
+    for purge_target in set(to_purge):
+        log.debug('Removing cached package {0}'.format(purge_target))
+        try:
+            os.unlink(purge_target)
+        except OSError as exc:
+            log.error('Unable to remove {0}: {1}'.format(purge_target, exc))
+
+    __salt__['cmd.run'](
+        'yumdownloader -q {0} --destdir={1}'.format(
+            ' '.join(packages), CACHE_DIR
+        ),
+        output_loglevel='trace'
+    )
+    ret = {}
+    for dld_result in os.listdir(CACHE_DIR):
+        if not dld_result.endswith('.rpm'):
+            continue
+        pkg_name = None
+        pkg_file = None
+        for query_pkg in packages:
+            if dld_result.startswith('{0}-'.format(query_pkg)):
+                pkg_name = query_pkg
+                pkg_file = dld_result
+                break
+        if pkg_file is not None:
+            ret[pkg_name] = os.path.join(CACHE_DIR, pkg_file)
+
+    if not ret:
+        raise CommandExecutionError(
+            'Unable to download any of the following packages: {0}'
+            .format(', '.join(packages))
+        )
+
+    failed = [x for x in packages if x not in ret]
+    if failed:
+        ret['_error'] = ('The following package(s) failed to download: {0}'
+                         .format(', '.join(failed)))
+    return ret
+
+
+def diff(*paths):
+    '''
+    Return a formatted diff between current files and original in a package.
+    NOTE: this function includes all files (configuration and not), but does
+    not work on binary content.
+
+    :param path: Full path to the installed file
+    :return: Difference string or raises and exception if examined file is binary.
+
+    CLI example:
+
+    .. code-block:: bash
+
+        salt '*' pkg.diff /etc/apache2/httpd.conf /etc/sudoers
+    '''
+    ret = {}
+
+    pkg_to_paths = {}
+    for pth in paths:
+        pth_pkg = __salt__['lowpkg.owner'](pth)
+        if not pth_pkg:
+            ret[pth] = os.path.exists(pth) and 'Not managed' or 'N/A'
+        else:
+            if pkg_to_paths.get(pth_pkg) is None:
+                pkg_to_paths[pth_pkg] = []
+            pkg_to_paths[pth_pkg].append(pth)
+
+    if pkg_to_paths:
+        local_pkgs = __salt__['pkg.download'](*pkg_to_paths.keys())
+        for pkg, files in pkg_to_paths.items():
+            for path in files:
+                ret[path] = __salt__['lowpkg.diff'](local_pkgs[pkg]['path'], path) or 'Unchanged'
+
     return ret

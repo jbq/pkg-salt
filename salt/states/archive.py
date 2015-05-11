@@ -4,6 +4,7 @@ Extract an archive
 
 .. versionadded:: 2014.1.0
 '''
+from __future__ import absolute_import
 
 import logging
 import os
@@ -27,6 +28,7 @@ def __virtual__():
 def extracted(name,
               source,
               archive_format,
+              archive_user=None,
               tar_options=None,
               source_hash=None,
               if_missing=None,
@@ -63,6 +65,7 @@ def extracted(name,
             - source: https://github.com/downloads/Graylog2/graylog2-server/graylog2-server-0.9.6p1.tar.gz
             - source_hash: md5=499ae16dcae71eeb7c3a30c75ea7a1a6
             - archive_format: tar
+            - tar_options: v
             - if_missing: /opt/graylog2-server-0.9.6p1/
 
     name
@@ -78,6 +81,9 @@ def extracted(name,
     archive_format
         tar, zip or rar
 
+    archive_user:
+        user to extract files as
+
     if_missing
         Some archives, such as tar, extract themselves in a subfolder.
         This directive can be used to validate if the archive had been
@@ -89,10 +95,11 @@ def extracted(name,
         such as 'J' for LZMA or 'v' to verbosely list files processed.
         Using this option means that the tar executable on the target will
         be used, which is less platform independent.
-        Main operators like -x, --extract, --get, -c, etc. and -f/--file are
-        **shoult not be used** here.
-        If this option is not set, then the Python tarfile module is used.
-        The tarfile module supports gzip and bz2 in Python 2.
+        Main operators like -x, --extract, --get, -c and -f/--file
+        **should not be used** here.
+        If ``archive_format`` is ``zip`` or ``rar`` and this option is not set,
+        then the Python tarfile module is used. The tarfile module supports gzip
+        and bz2 in Python 2.
 
     keep
         Keep the archive in the minion's cache
@@ -105,6 +112,9 @@ def extracted(name,
         ret['comment'] = '{0} is not supported, valid formats are: {1}'.format(
             archive_format, ','.join(valid_archives))
         return ret
+
+    if not name.endswith('/'):
+        name += '/'
 
     if if_missing is None:
         if_missing = name
@@ -130,18 +140,6 @@ def extracted(name,
             return ret
 
         log.debug('Archive file {0} is not in cache, download it'.format(source))
-        data = {
-            filename: {
-                'file': [
-                    'managed',
-                    {'name': filename},
-                    {'source': source},
-                    {'source_hash': source_hash},
-                    {'makedirs': True},
-                    {'saltenv': __env__}
-                ]
-            }
-        }
         file_result = __salt__['state.single']('file.managed',
                                                filename,
                                                source=source,
@@ -151,7 +149,7 @@ def extracted(name,
         log.debug('file.managed: {0}'.format(file_result))
         # get value of first key
         try:
-            file_result = file_result[file_result.iterkeys().next()]
+            file_result = file_result[next(file_result.iterkeys())]
         except AttributeError:
             pass
 
@@ -172,7 +170,7 @@ def extracted(name,
             source, name)
         return ret
 
-    __salt__['file.makedirs'](name)
+    __salt__['file.makedirs'](name, user=archive_user)
 
     if archive_format in ('zip', 'rar'):
         log.debug('Extract {0} in {1}'.format(filename, name))
@@ -218,6 +216,16 @@ def extracted(name,
                 files = results['stdout']
             if not files:
                 files = 'no tar output so far'
+
+    if archive_user:
+        # Recursively set the permissions after extracting as we might not have
+        # access to the cachedir
+        dir_result = __salt__['state.single']('file.directory',
+                                               name,
+                                               user=archive_user,
+                                               recurse=['user'])
+        log.debug('file.directory: {0}'.format(dir_result))
+
     if len(files) > 0:
         ret['result'] = True
         ret['changes']['directories_created'] = [name]

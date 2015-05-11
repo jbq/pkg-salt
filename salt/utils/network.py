@@ -2,15 +2,17 @@
 '''
 Define some generic socket functions for network modules
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import socket
-import subprocess
 import shlex
 import re
 import logging
 import os
 from string import ascii_letters, digits
+from salt.ext.six.moves import range
+import salt.ext.six as six
 
 # Attempt to import wmi
 try:
@@ -21,6 +23,7 @@ except ImportError:
 
 # Import salt libs
 import salt.utils
+from salt._compat import subprocess
 
 
 log = logging.getLogger(__name__)
@@ -777,7 +780,7 @@ def subnets():
     ifaces = interfaces()
     subnetworks = []
 
-    for ipv4_info in ifaces.itervalues():
+    for ipv4_info in six.itervalues(ifaces):
         for ipv4 in ipv4_info.get('inet', []):
             if ipv4['address'] == '127.0.0.1':
                 continue
@@ -820,22 +823,35 @@ def in_subnet(cidr, addrs=None):
     return False
 
 
-def ip_addrs(interface=None, include_loopback=False):
+def ip_in_subnet(ip_addr, cidr):
+    '''
+    Returns True if given IP is within specified subnet, otherwise False
+    '''
+    ipaddr = int(''.join(['%02x' % int(x) for x in ip_addr.split('.')]), 16)  # pylint: disable=E1321
+    netstr, bits = cidr.split('/')
+    netaddr = int(''.join(['%02x' % int(x) for x in netstr.split('.')]), 16)  # pylint: disable=E1321
+    mask = (0xffffffff << (32 - int(bits))) & 0xffffffff
+    return (ipaddr & mask) == (netaddr & mask)
+
+
+def ip_addrs(interface=None, include_loopback=False, interface_data=None):
     '''
     Returns a list of IPv4 addresses assigned to the host. 127.0.0.1 is
     ignored, unless 'include_loopback=True' is indicated. If 'interface' is
     provided, then only IP addresses from that interface will be returned.
     '''
     ret = set()
-    ifaces = interfaces()
+    ifaces = interface_data \
+        if isinstance(interface_data, dict) \
+        else interfaces()
     if interface is None:
         target_ifaces = ifaces
     else:
-        target_ifaces = dict([(k, v) for k, v in ifaces.iteritems()
+        target_ifaces = dict([(k, v) for k, v in six.iteritems(ifaces)
                               if k == interface])
         if not target_ifaces:
             log.error('Interface {0} not found.'.format(interface))
-    for ipv4_info in target_ifaces.itervalues():
+    for ipv4_info in six.itervalues(target_ifaces):
         for ipv4 in ipv4_info.get('inet', []):
             loopback = in_subnet('127.0.0.0/8', [ipv4.get('address')]) or ipv4.get('label') == 'lo'
             if not loopback or include_loopback:
@@ -848,22 +864,24 @@ def ip_addrs(interface=None, include_loopback=False):
     return sorted(list(ret))
 
 
-def ip_addrs6(interface=None, include_loopback=False):
+def ip_addrs6(interface=None, include_loopback=False, interface_data=None):
     '''
     Returns a list of IPv6 addresses assigned to the host. ::1 is ignored,
     unless 'include_loopback=True' is indicated. If 'interface' is provided,
     then only IP addresses from that interface will be returned.
     '''
     ret = set()
-    ifaces = interfaces()
+    ifaces = interface_data \
+        if isinstance(interface_data, dict) \
+        else interfaces()
     if interface is None:
         target_ifaces = ifaces
     else:
-        target_ifaces = dict([(k, v) for k, v in ifaces.iteritems()
+        target_ifaces = dict([(k, v) for k, v in six.iteritems(ifaces)
                               if k == interface])
         if not target_ifaces:
             log.error('Interface {0} not found.'.format(interface))
-    for ipv6_info in target_ifaces.itervalues():
+    for ipv6_info in six.itervalues(target_ifaces):
         for ipv6 in ipv6_info.get('inet6', []):
             if include_loopback or ipv6['address'] != '::1':
                 ret.add(ipv6['address'])
@@ -921,7 +939,7 @@ def local_port_tcp(port):
                 if line.strip().startswith('sl'):
                     continue
                 iret = _parse_tcp_line(line)
-                sl = iter(iret).next()
+                sl = next(iter(iret))
                 if iret[sl]['local_port'] == port:
                     ret.add(iret[sl]['remote_addr'])
         return ret
@@ -941,7 +959,7 @@ def remote_port_tcp(port):
                 if line.strip().startswith('sl'):
                     continue
                 iret = _parse_tcp_line(line)
-                sl = iter(iret).next()
+                sl = next(iter(iret))
                 if iret[sl]['remote_port'] == port:
                     ret.add(iret[sl]['remote_addr'])
         return ret
@@ -984,7 +1002,7 @@ def _sunos_remotes_on(port, which_end):
     '''
     remotes = set()
     try:
-        data = subprocess.check_output(['netstat', '-f', 'inet', '-n'])
+        data = subprocess.check_output(['netstat', '-f', 'inet', '-n'])  # pylint: disable=minimum-python-version
     except subprocess.CalledProcessError:
         log.error('Failed netstat')
         raise
@@ -1030,7 +1048,7 @@ def _freebsd_remotes_on(port, which_end):
 
     try:
         cmd = shlex.split('sockstat -4 -c -p {0}'.format(port))
-        data = subprocess.check_output(cmd)
+        data = subprocess.check_output(cmd)  # pylint: disable=minimum-python-version
     except subprocess.CalledProcessError as ex:
         log.error('Failed "sockstat" with returncode = {0}'.format(ex.returncode))
         raise
@@ -1086,7 +1104,7 @@ def remotes_on_local_tcp_port(port):
         return _freebsd_remotes_on(port, 'local_port')
 
     try:
-        data = subprocess.check_output(['lsof', '-i4TCP:{0:d}'.format(port), '-n'])
+        data = subprocess.check_output(['lsof', '-i4TCP:{0:d}'.format(port), '-n'])  # pylint: disable=minimum-python-version
     except subprocess.CalledProcessError as ex:
         log.error('Failed "lsof" with returncode = {0}'.format(ex.returncode))
         raise
@@ -1137,7 +1155,7 @@ def remotes_on_remote_tcp_port(port):
         return _freebsd_remotes_on(port, 'remote_port')
 
     try:
-        data = subprocess.check_output(['lsof', '-i4TCP:{0:d}'.format(port), '-n'])
+        data = subprocess.check_output(['lsof', '-i4TCP:{0:d}'.format(port), '-n'])  # pylint: disable=minimum-python-version
     except subprocess.CalledProcessError as ex:
         log.error('Failed "lsof" with returncode = {0}'.format(ex.returncode))
         raise
@@ -1213,3 +1231,10 @@ class IPv4Address(object):
         :return: True if the address is a loopback address. Otherwise False.
         '''
         return 127 == self.dotted_quad[0]
+
+    @property
+    def reverse_pointer(self):
+        '''
+        :return: Reversed IP address
+        '''
+        return '.'.join(reversed(self.dotted_quad)) + '.in-addr.arpa.'

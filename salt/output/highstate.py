@@ -16,26 +16,32 @@ state_verbose:
     instruct the highstate outputter to omit displaying anything in green, this
     means that nothing with a result of True and no changes will not be printed
 state_output:
-    The highstate outputter has five output modes, `full`, `terse`, `mixed`,
-    `changes` and `filter`. The default is set to full, which will display many
-    lines of detailed information for each executed chunk. If the `state_output`
-    option is set to `terse` then the output is greatly simplified and shown in
-    only one line.  If `mixed` is used, then terse output will be used unless a
-    state failed, in which case full output will be used.  If `changes` is used,
-    then terse output will be used if there was no error and no changes,
-    otherwise full output will be used. If `filter` is used, then either or both
-    of two different filters can be used: `exclude` or `terse`. These can be set
-    as such from the command line, or in the Salt config as
-    `state_output_exclude` or `state_output_terse`, respectively. The values to
-    exclude must be a comma-separated list of `True`, `False` and/or `None`.
-    Because of parsing nuances, if only one of these is used, it must still
-    contain a comma. For instance: `exclude=True,`.
+    The highstate outputter has five output modes, ``full``, ``terse``,
+    ``mixed``, ``changes`` and ``filter``.
+
+    * The default is set to ``full``, which will display many lines of detailed
+      information for each executed chunk.
+    * If ``terse`` is used, then the output is greatly simplified and shown in
+      only one line.
+    * If ``mixed`` is used, then terse output will be used unless a state
+      failed, in which case full output will be used.
+    * If ``changes`` is used, then terse output will be used if there was no
+      error and no changes, otherwise full output will be used.
+    * If ``filter`` is used, then either or both of two different filters can be
+      used: ``exclude`` or ``terse``.
+      These can be set as such from the command line, or in the Salt config as
+      `state_output_exclude` or `state_output_terse`, respectively. The values to
+      exclude must be a comma-separated list of `True`, `False` and/or `None`.
+      Because of parsing nuances, if only one of these is used, it must still
+      contain a comma. For instance: `exclude=True,`.
 state_tabular:
     If `state_output` uses the terse output, set this to `True` for an aligned
     output format.  If you wish to use a custom format, this can be set to a
     string.
 
-Example output::
+Example output:
+
+.. code-block:: text
 
     myminion:
     ----------
@@ -56,13 +62,17 @@ Example output::
     Total:     0
 '''
 
+
 # Import python libs
+from __future__ import absolute_import
 import pprint
+import textwrap
 
 # Import salt libs
 import salt.utils
 import salt.output
-from salt._compat import string_types
+import salt.ext.six as six
+from salt.ext.six import string_types
 
 
 def output(data):
@@ -70,7 +80,7 @@ def output(data):
     The HighState Outputter is only meant to be used with the state.highstate
     function, or a function that returns highstate return data.
     '''
-    for host, hostdata in data.iteritems():
+    for host, hostdata in six.iteritems(data):
         return _format_host(host, hostdata)[0]
 
 
@@ -205,6 +215,13 @@ def _format_host(host, data):
             if comps[1] != comps[2]:
                 state_lines.insert(
                     3, u'    {tcolor}    Name: {comps[2]}{colors[ENDC]}')
+            # be sure that ret['comment'] is utf-8 friendly
+            try:
+                if not isinstance(ret['comment'], six.text_type):
+                    ret['comment'] = ret['comment'].decode('utf-8')
+            except UnicodeDecodeError:
+                # but try to continue on errors
+                pass
             try:
                 comment = salt.utils.sdecode(ret['comment'])
                 comment = comment.strip().replace(
@@ -238,11 +255,26 @@ def _format_host(host, data):
             hstrs.append((u'{0}{1}{2[ENDC]}'
                           .format(tcolor, changes, colors)))
 
+            if 'warnings' in ret:
+                rcounts.setdefault('warnings', 0)
+                rcounts['warnings'] += 1
+                wrapper = textwrap.TextWrapper(
+                    width=80,
+                    initial_indent=u' ' * 14,
+                    subsequent_indent=u' ' * 14
+                )
+                hstrs.append(
+                    u'   {colors[LIGHT_RED]} Warnings: {0}{colors[ENDC]}'.format(
+                        wrapper.fill('\n'.join(ret['warnings'])).lstrip(),
+                        colors=colors
+                    )
+                )
+
         # Append result counts to end of output
         colorfmt = u'{0}{1}{2[ENDC]}'
-        rlabel = {True: u'Succeeded', False: u'Failed', None: u'Not Run'}
-        count_max_len = max([len(str(x)) for x in rcounts.itervalues()] or [0])
-        label_max_len = max([len(x) for x in rlabel.itervalues()] or [0])
+        rlabel = {True: u'Succeeded', False: u'Failed', None: u'Not Run', 'warnings': u'Warnings'}
+        count_max_len = max([len(str(x)) for x in six.itervalues(rcounts)] or [0])
+        label_max_len = max([len(x) for x in six.itervalues(rlabel)] or [0])
         line_max_len = label_max_len + count_max_len + 2  # +2 for ': '
         hstrs.append(
             colorfmt.format(
@@ -303,8 +335,18 @@ def _format_host(host, data):
             )
         )
 
+        num_warnings = rcounts.get('warnings', 0)
+        if num_warnings:
+            hstrs.append(
+                colorfmt.format(
+                    colors['LIGHT_RED'],
+                    _counts(rlabel['warnings'], num_warnings),
+                    colors
+                )
+            )
+
         totals = u'{0}\nTotal states run: {1:>{2}}'.format('-' * line_max_len,
-                                               sum(rcounts.itervalues()),
+                                               sum(six.itervalues(rcounts)) - rcounts.get('warnings', 0),
                                                line_max_len - 7)
         hstrs.append(colorfmt.format(colors['CYAN'], totals, colors))
 
@@ -330,7 +372,7 @@ def _format_changes(changes):
     if ret is not None and changes.get('out') == 'highstate':
         ctext = u''
         changed = False
-        for host, hostdata in ret.iteritems():
+        for host, hostdata in six.iteritems(ret):
             s, c = _format_host(host, hostdata)
             ctext += u'\n' + u'\n'.join((u' ' * 14 + l) for l in s.splitlines())
             changed = changed or c

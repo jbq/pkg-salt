@@ -8,6 +8,8 @@ helper script used by salt.client.ssh.Single.  It is here, in a
 separate file, for convenience of development.
 '''
 
+from __future__ import absolute_import
+
 import hashlib
 import tarfile
 import shutil
@@ -45,7 +47,7 @@ def need_deployment():
     """
     if os.path.exists(OPTIONS.saltdir):
         shutil.rmtree(OPTIONS.saltdir)
-    old_umask = os.umask(0077)
+    old_umask = os.umask(0o077)
     os.makedirs(OPTIONS.saltdir)
     os.umask(old_umask)
     # Verify perms on saltdir
@@ -64,7 +66,7 @@ def need_deployment():
         stt = os.stat(OPTIONS.saltdir)
         os.chmod(OPTIONS.saltdir, stt.st_mode | stat.S_IWGRP | stat.S_IRGRP | stat.S_IXGRP)
 
-    # Delimeter emitted on stdout *only* to indicate shim message to master.
+    # Delimiter emitted on stdout *only* to indicate shim message to master.
     sys.stdout.write("{0}\ndeploy\n".format(OPTIONS.delimiter))
     sys.exit(EX_THIN_DEPLOY)
 
