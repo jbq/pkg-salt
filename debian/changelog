@@ -1,3 +1,9 @@
+salt (2015.5.0+ds-1~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+
+ -- Joe Healy <joehealy@gmail.com>  Mon, 11 May 2015 22:17:38 +1000
+
 salt (2015.5.0+ds-1) unstable; urgency=medium
 
   * [52d8863] Imported Upstream version 2015.5.0+ds. Closes: 783300
