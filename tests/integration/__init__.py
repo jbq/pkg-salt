@@ -12,16 +12,17 @@ import sys
 import copy
 import json
 import time
-import errno
 import signal
 import shutil
 import pprint
+import atexit
 import logging
 import tempfile
 import subprocess
 import multiprocessing
 from hashlib import md5
 from datetime import datetime, timedelta
+from six import string_types
 try:
     import pwd
 except ImportError:
@@ -43,6 +44,7 @@ from salttesting import TestCase
 from salttesting.case import ShellTestCase
 from salttesting.mixins import CheckShellBinaryNameAndVersionMixIn
 from salttesting.parser import PNUM, print_header, SaltTestcaseParser
+from salttesting.helpers import requires_sshd_server
 from salttesting.helpers import ensure_in_syspath, RedirectStdStreams
 
 # Update sys.path
@@ -50,7 +52,6 @@ ensure_in_syspath(CODE_DIR, SALT_LIBS)
 
 # Import Salt libs
 import salt
-import salt._compat
 import salt.config
 import salt.minion
 import salt.runner
@@ -90,6 +91,16 @@ CONF_DIR = os.path.join(INTEGRATION_TEST_DIR, 'files', 'conf')
 RUNTIME_CONFIGS = {}
 
 log = logging.getLogger(__name__)
+
+
+def cleanup_runtime_config_instance(to_cleanup):
+    # Explicit and forced cleanup
+    for key in to_cleanup.keys():
+        instance = to_cleanup.pop(key)
+        del instance
+
+
+atexit.register(cleanup_runtime_config_instance, RUNTIME_CONFIGS)
 
 
 def run_tests(*test_cases, **kwargs):
@@ -226,7 +237,6 @@ class TestDaemon(object):
         master = salt.master.Master(self.master_opts)
         self.master_process = multiprocessing.Process(target=master.start)
         self.master_process.start()
-
         minion = salt.minion.Minion(self.minion_opts)
         self.minion_process = multiprocessing.Process(target=minion.tune_in)
         self.minion_process.start()
@@ -266,9 +276,9 @@ class TestDaemon(object):
         # Wait for the daemons to all spin up
         time.sleep(5)
 
-        #smaster = salt.daemons.flo.IofloMaster(self.syndic_master_opts)
-        #self.smaster_process = multiprocessing.Process(target=smaster.start)
-        #self.smaster_process.start()
+        # smaster = salt.daemons.flo.IofloMaster(self.syndic_master_opts)
+        # self.smaster_process = multiprocessing.Process(target=smaster.start)
+        # self.smaster_process.start()
 
         # no raet syndic daemon yet
 
@@ -416,11 +426,31 @@ class TestDaemon(object):
         _, sshd_err = self.sshd_process.communicate()
         if sshd_err:
             print('sshd had errors on startup: {0}'.format(sshd_err))
+        else:
+            os.environ['SSH_DAEMON_RUNNING'] = 'True'
         roster_path = os.path.join(FILES, 'conf/_ssh/roster')
         shutil.copy(roster_path, TMP_CONF_DIR)
         with salt.utils.fopen(os.path.join(TMP_CONF_DIR, 'roster'), 'a') as roster:
             roster.write('  user: {0}\n'.format(pwd.getpwuid(os.getuid()).pw_name))
             roster.write('  priv: {0}/{1}'.format(TMP_CONF_DIR, 'key_test'))
+
+    @classmethod
+    def config(cls, role):
+        '''
+        Return a configuration for a master/minion/syndic.
+
+        Currently these roles are:
+            * master
+            * minion
+            * syndic
+            * syndic_master
+            * sub_minion
+        '''
+        return RUNTIME_CONFIGS[role]
+
+    @classmethod
+    def config_location(cls):
+        return TMP_CONF_DIR
 
     @property
     def client(self):
@@ -475,7 +505,7 @@ class TestDaemon(object):
             minion_opts['raet_port'] = 64510
             sub_minion_opts['transport'] = 'raet'
             sub_minion_opts['raet_port'] = 64520
-            #syndic_master_opts['transport'] = 'raet'
+            # syndic_master_opts['transport'] = 'raet'
 
         # Set up config options that require internal data
         master_opts['pillar_roots'] = {
@@ -569,6 +599,7 @@ class TestDaemon(object):
         verify_env([os.path.join(master_opts['pki_dir'], 'minions'),
                     os.path.join(master_opts['pki_dir'], 'minions_pre'),
                     os.path.join(master_opts['pki_dir'], 'minions_rejected'),
+                    os.path.join(master_opts['pki_dir'], 'minions_denied'),
                     os.path.join(master_opts['cachedir'], 'jobs'),
                     os.path.join(master_opts['cachedir'], 'raet'),
                     os.path.join(master_opts['root_dir'], 'cache', 'tokens'),
@@ -665,7 +696,7 @@ class TestDaemon(object):
         sync_needed = self.parser.options.clean
         if self.parser.options.clean is False:
             def sumfile(fpath):
-                # Since we will be do'in this for small files, it should be ok
+                # Since we will be doing this for small files, it should be ok
                 fobj = fopen(fpath)
                 m = md5()
                 while True:
@@ -908,7 +939,7 @@ class TestDaemon(object):
                         syncing.remove(name)
                         continue
 
-                    if isinstance(output['ret'], salt._compat.string_types):
+                    if isinstance(output['ret'], string_types):
                         # An errors has occurred
                         print(
                             ' {RED_BOLD}*{ENDC} {0} Failed to sync {2}: '
@@ -1089,7 +1120,7 @@ class ModuleCase(TestCase, SaltClientTestCaseMixIn):
             jids = []
             # These are usually errors
             for item in ret[:]:
-                if not isinstance(item, salt._compat.string_types):
+                if not isinstance(item, string_types):
                     # We don't know how to handle this
                     continue
                 match = STATE_FUNCTION_RUNNING_RE.match(item)
@@ -1220,7 +1251,7 @@ class ShellCase(AdaptedConfigurationTestCaseMixIn, ShellTestCase):
 
 class ShellCaseCommonTestsMixIn(CheckShellBinaryNameAndVersionMixIn):
 
-    _call_binary_expected_version_ = salt.__version__
+    _call_binary_expected_version_ = salt.version.__version__
 
     def test_salt_with_git_version(self):
         if getattr(self, '_call_binary_', None) is None:
@@ -1233,13 +1264,22 @@ class ShellCaseCommonTestsMixIn(CheckShellBinaryNameAndVersionMixIn):
 
         # Let's get the output of git describe
         process = subprocess.Popen(
-            [git, 'describe', '--tags', '--match', 'v[0-9]*'],
+            [git, 'describe', '--tags', '--first-parent', '--match', 'v[0-9]*'],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             close_fds=True,
             cwd=CODE_DIR
         )
         out, err = process.communicate()
+        if process.returncode != 0:
+            process = subprocess.Popen(
+                [git, 'describe', '--tags', '--match', 'v[0-9]*'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                close_fds=True,
+                cwd=CODE_DIR
+            )
+            out, err = process.communicate()
         if not out:
             self.skipTest(
                 'Failed to get the output of \'git describe\'. '
@@ -1270,6 +1310,7 @@ class ShellCaseCommonTestsMixIn(CheckShellBinaryNameAndVersionMixIn):
         self.assertIn(parsed_version.string, out)
 
 
+@requires_sshd_server
 class SSHCase(ShellCase):
     '''
     Execute a command via salt-ssh
@@ -1405,7 +1446,7 @@ class SaltReturnAssertsMixIn(object):
     def assertSaltCommentRegexpMatches(self, ret, pattern):
         return self.assertInSaltReturnRegexpMatches(ret, pattern, 'comment')
 
-    def assertInSalStatetWarning(self, in_comment, ret):
+    def assertInSaltStateWarning(self, in_comment, ret):
         return self.assertIn(
             in_comment, self.__getWithinSaltReturn(ret, 'warnings')
         )

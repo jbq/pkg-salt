@@ -12,6 +12,7 @@ Example:
     some_plugin:
         rabbitmq_plugin.enabled: []
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import logging
@@ -63,7 +64,7 @@ def enabled(name, runas=None):
 
 def disabled(name, runas=None):
     '''
-    Ensure the RabbitMQ plugin is enabled.
+    Ensure the RabbitMQ plugin is disabled.
 
     name
         The name of the plugin

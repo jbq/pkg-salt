@@ -83,10 +83,6 @@ Using the example configuration above:
     Salt Cloud provider configurations within ``/etc/cloud.provider.d/ should not
     specify the ``providers`` starting key.
 
-To allow for a more extensible configuration, ``--providers-config``, which defaults to
-``/etc/salt/cloud.providers``, was added to the cli parser.  It allows for the providers'
-configuration to be added on a per-file basis.
-
 It is also possible to have multiple cloud configuration blocks within the same alias block.
 For example:
 
@@ -125,7 +121,6 @@ The provider alias needs to have the provider key value appended as in the follo
       image: Ubuntu 12.04 LTS
       size: 256 server
 
-
 Notice that because of the multiple entries, one has to be explicit about the provider alias and
 name, from the above example, ``production-config: aws``.
 
@@ -133,6 +128,10 @@ This data interactions with the ``salt-cloud`` binary regarding its ``--list-loc
 ``--list-images``, and ``--list-sizes`` which needs a cloud provider as an argument. The argument
 used should be the configured cloud provider alias. If the provider alias has multiple entries,
 ``<provider-alias>: <provider-name>`` should be used.
+
+To allow for a more extensible configuration, ``--providers-config``, which defaults to
+``/etc/salt/cloud.providers``, was added to the cli parser.  It allows for the providers'
+configuration to be added on a per-file basis.
 
 
 Pillar Configuration
@@ -247,9 +246,11 @@ be set:
     my-linode-config:
       apikey: asldkgfakl;sdfjsjaslfjaklsdjf;askldjfaaklsjdfhasldsadfghdkf
       password: F00barbaz
+      ssh_pubkey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKHEOLLbeXgaqRQT9NBAopVz366SdYc0KKX33vAnq+2R user@host
+      ssh_key_file: ~/.ssh/id_ed25519
       provider: linode
 
-The password needs to be 8 characters and contain lowercase, uppercase and
+The password needs to be 8 characters and contain lowercase, uppercase, and
 numbers.
 
 .. note::
@@ -356,7 +357,7 @@ password:
     ``provider`` required field would be either ``provider: my-openstack-hp-config``
     or ``provider: my-openstack-rackspace-config``.
 
-You will certainly need to configure the ``user``, ``tenant`` and either
+You will certainly need to configure the ``user``, ``tenant``, and either
 ``password`` or ``apikey``.
 
 If your OpenStack instances only have private IP addresses and a CIDR range of
@@ -388,8 +389,7 @@ under the API Access tab.
 
     my-digitalocean-config:
       provider: digital_ocean
-      client_key: wFGEwgregeqw3435gDger
-      api_key: GDE43t43REGTrkilg43934t34qT43t4dgegerGEgg
+      personal_access_token: xxx
       location: New York 1
 
 .. note::
@@ -542,7 +542,7 @@ Some example usage on how to use ``extends`` with profiles. Consider
 
     development-instances:
       provider: my-ec2-config
-      size: Micro Instance
+      size: t1.micro
       ssh_username: ec2_user
       securitygroup:
         - default
@@ -572,27 +572,27 @@ data:
       'profile': 'Fedora-17',
       'provider': 'my-ec2-config',
       'securitygroup': ['default'],
-      'size': 'Micro Instance',
+      'size': 't1.micro',
       'ssh_username': 'ec2_user'},
      {'deploy': False,
       'image': 'ami-09b61d60',
       'profile': 'CentOS-5',
       'provider': 'my-aws-config',
       'securitygroup': ['default'],
-      'size': 'Micro Instance',
+      'size': 't1.micro',
       'ssh_username': 'ec2_user'},
      {'deploy': False,
       'image': 'ami-54cf5c3d',
       'profile': 'Amazon-Linux-AMI-2012.09-64bit',
       'provider': 'my-ec2-config',
       'securitygroup': ['default'],
-      'size': 'Micro Instance',
+      'size': 't1.micro',
       'ssh_username': 'ec2_user'},
      {'deploy': False,
       'profile': 'development-instances',
       'provider': 'my-ec2-config',
       'securitygroup': ['default'],
-      'size': 'Micro Instance',
+      'size': 't1.micro',
       'ssh_username': 'ec2_user'}]
 
 Pretty cool right?
@@ -667,4 +667,3 @@ data:
             }
         ]
     }
-

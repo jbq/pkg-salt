@@ -11,7 +11,9 @@ Example:
         rabbitmq_user.present:
             - password: password
             - force: True
-            - tags: administrator
+            - tags:
+                - monitoring
+                - user
             - perms:
               - '/':
                 - '.*'
@@ -19,6 +21,7 @@ Example:
                 - '.*'
             - runas: rabbitmq
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import logging
@@ -52,7 +55,7 @@ def present(name,
     force
         If user exists, forcibly change the password
     tags
-        Optionally set user tags for user
+        Optional list of tags for the user
     perms
         A list of dicts with vhost keys and 3-tuple values
     runas
@@ -88,6 +91,8 @@ def present(name,
         # Get it into the correct format
         if tags and isinstance(tags, (list, tuple)):
             tags = ' '.join(tags)
+        if not tags:
+            tags = ''
 
         def _set_tags_and_perms(tags, perms):
             if tags:

@@ -4,7 +4,7 @@ Forwarded: no
 
 --- a/salt/netapi/rest_cherrypy/app.py
 +++ b/salt/netapi/rest_cherrypy/app.py
-@@ -670,7 +670,7 @@
+@@ -715,7 +715,7 @@
  
              curl -i localhost:8000
  
@@ -13,7 +13,7 @@ Forwarded: no
  
              GET / HTTP/1.1
              Host: localhost:8000
-@@ -678,7 +678,7 @@
+@@ -723,7 +723,7 @@
  
          **Example response:**
  
@@ -22,7 +22,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Type: application/json
-@@ -727,7 +727,7 @@
+@@ -772,7 +772,7 @@
                      -d tgt='*' \\
                      -d fun='test.ping' \\
  
@@ -31,7 +31,7 @@ Forwarded: no
  
              POST / HTTP/1.1
              Host: localhost:8000
-@@ -740,7 +740,7 @@
+@@ -785,7 +785,7 @@
  
          **Example response:**
  
@@ -40,7 +40,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Length: 200
-@@ -834,7 +834,7 @@
+@@ -879,7 +879,7 @@
  
              curl -i localhost:8000/minions/ms-3
  
@@ -49,7 +49,7 @@ Forwarded: no
  
              GET /minions/ms-3 HTTP/1.1
              Host: localhost:8000
-@@ -842,7 +842,7 @@
+@@ -887,7 +887,7 @@
  
          **Example response:**
  
@@ -58,7 +58,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Length: 129005
-@@ -890,7 +890,7 @@
+@@ -935,7 +935,7 @@
                  -d tgt='*' \\
                  -d fun='status.diskusage'
  
@@ -67,7 +67,7 @@ Forwarded: no
  
              POST /minions HTTP/1.1
              Host: localhost:8000
-@@ -902,7 +902,7 @@
+@@ -947,7 +947,7 @@
  
          **Example response:**
  
@@ -76,7 +76,7 @@ Forwarded: no
  
              HTTP/1.1 202 Accepted
              Content-Length: 86
-@@ -953,7 +953,7 @@
+@@ -998,7 +998,7 @@
  
              curl -i localhost:8000/jobs
  
@@ -85,7 +85,7 @@ Forwarded: no
  
              GET /jobs HTTP/1.1
              Host: localhost:8000
-@@ -961,7 +961,7 @@
+@@ -1006,7 +1006,7 @@
  
          **Example response:**
  
@@ -94,7 +94,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Length: 165
-@@ -982,7 +982,7 @@
+@@ -1027,7 +1027,7 @@
  
              curl -i localhost:8000/jobs/20121130104633606931
  
@@ -103,7 +103,7 @@ Forwarded: no
  
              GET /jobs/20121130104633606931 HTTP/1.1
              Host: localhost:8000
-@@ -990,7 +990,7 @@
+@@ -1035,7 +1035,7 @@
  
          **Example response:**
  
@@ -112,7 +112,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Length: 73
-@@ -1073,7 +1073,7 @@
+@@ -1118,7 +1118,7 @@
  
              curl -i localhost:8000/keys
  
@@ -121,7 +121,7 @@ Forwarded: no
  
              GET /keys HTTP/1.1
              Host: localhost:8000
-@@ -1081,7 +1081,7 @@
+@@ -1126,7 +1126,7 @@
  
          **Example response:**
  
@@ -130,7 +130,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Length: 165
-@@ -1102,7 +1102,7 @@
+@@ -1147,7 +1147,7 @@
  
              curl -i localhost:8000/keys/jerry
  
@@ -139,7 +139,7 @@ Forwarded: no
  
              GET /keys/jerry HTTP/1.1
              Host: localhost:8000
-@@ -1110,7 +1110,7 @@
+@@ -1155,7 +1155,7 @@
  
          **Example response:**
  
@@ -148,7 +148,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Length: 73
-@@ -1183,14 +1183,14 @@
+@@ -1228,14 +1228,14 @@
                      -d eauth=pam \
                      -o jerry-salt-keys.tar
  
@@ -165,7 +165,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Length: 10240
-@@ -1274,7 +1274,7 @@
+@@ -1319,7 +1319,7 @@
  
              curl -i localhost:8000/login
  
@@ -174,7 +174,7 @@ Forwarded: no
  
              GET /login HTTP/1.1
              Host: localhost:8000
-@@ -1282,7 +1282,7 @@
+@@ -1327,7 +1327,7 @@
  
          **Example response:**
  
@@ -183,7 +183,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Type: text/html
-@@ -1322,7 +1322,7 @@
+@@ -1367,7 +1367,7 @@
                      -d password='saltpass' \\
                      -d eauth='pam'
  
@@ -192,7 +192,7 @@ Forwarded: no
  
              POST / HTTP/1.1
              Host: localhost:8000
-@@ -1334,7 +1334,7 @@
+@@ -1379,7 +1379,7 @@
  
          **Example response:**
  
@@ -201,7 +201,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Type: application/json
-@@ -1455,7 +1455,7 @@
+@@ -1515,7 +1515,7 @@
                  -d password='saltdev' \\
                  -d eauth='pam'
  
@@ -210,7 +210,7 @@ Forwarded: no
  
              POST /run HTTP/1.1
              Host: localhost:8000
-@@ -1467,7 +1467,7 @@
+@@ -1527,7 +1527,7 @@
  
          **Example response:**
  
@@ -219,7 +219,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Content-Length: 73
-@@ -1533,7 +1533,7 @@
+@@ -1671,7 +1671,7 @@
  
              curl -NsS localhost:8000/events
  
@@ -228,7 +228,7 @@ Forwarded: no
  
              GET /events HTTP/1.1
              Host: localhost:8000
-@@ -1545,7 +1545,7 @@
+@@ -1683,7 +1683,7 @@
          clients to only watch for certain tags without having to deserialze the
          JSON object each time.
  
@@ -237,7 +237,7 @@ Forwarded: no
  
              HTTP/1.1 200 OK
              Connection: keep-alive
-@@ -1724,7 +1724,7 @@
+@@ -1848,7 +1848,7 @@
                  -H 'Sec-WebSocket-Key: '"$(echo -n $RANDOM | base64)" \\
                  localhost:8000/ws
  
@@ -246,7 +246,7 @@ Forwarded: no
  
              GET /ws HTTP/1.1
              Connection: Upgrade
-@@ -1737,7 +1737,7 @@
+@@ -1861,7 +1861,7 @@
  
          **Example response**:
  
@@ -255,7 +255,7 @@ Forwarded: no
  
              HTTP/1.1 101 Switching Protocols
              Upgrade: websocket
-@@ -1932,7 +1932,7 @@
+@@ -2056,7 +2056,7 @@
  
              curl -sS localhost:8000/hook -d foo='Foo!' -d bar='Bar!'
  
@@ -264,7 +264,7 @@ Forwarded: no
  
              POST /hook HTTP/1.1
              Host: localhost:8000
-@@ -1943,7 +1943,7 @@
+@@ -2067,7 +2067,7 @@
  
          **Example response**:
  

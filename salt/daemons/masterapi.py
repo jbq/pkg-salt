@@ -3,6 +3,7 @@
 This module contains all of the routines needed to set up a master server, this
 involves preparing the three listeners and the workers needed by the master.
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import fnmatch
@@ -38,6 +39,7 @@ import salt.utils.event
 import salt.utils.verify
 import salt.utils.minions
 import salt.utils.gzip_util
+import salt.utils.jid
 from salt.pillar import git_pillar
 from salt.utils.event import tagify
 from salt.exceptions import SaltMasterError
@@ -680,7 +682,8 @@ class RemoteFuncs(object):
                 load['id'],
                 load.get('saltenv', load.get('env')),
                 load.get('ext'),
-                self.mminion.functions)
+                self.mminion.functions,
+                pillar=load.get('pillar_override', {}))
         pillar_dirs = {}
         data = pillar.compile_pillar(pillar_dirs=pillar_dirs)
         if self.opts.get('minion_data_cache', False):
@@ -713,9 +716,9 @@ class RemoteFuncs(object):
                 self.event.fire_event(event, event['tag'])  # old dup event
                 if load.get('pretag') is not None:
                     if 'data' in event:
-                        self.fire_event(event['data'], tagify(event['tag'], base=load['pretag']))
+                        self.event.fire_event(event['data'], tagify(event['tag'], base=load['pretag']))
                     else:
-                        self.fire_event(event, tagify(event['tag'], base=load['pretag']))
+                        self.event.fire_event(event, tagify(event['tag'], base=load['pretag']))
         else:
             tag = load['tag']
             self.event.fire_event(load, tag)
@@ -881,7 +884,7 @@ class RemoteFuncs(object):
             fp_.write(load['id'])
         return ret
 
-    def minion_publish(self, load, skip_verify=False):
+    def minion_publish(self, load):
         '''
         Publish a command initiated from a minion, this method executes minion
         restrictions so that the minion publication will only work if it is
@@ -962,7 +965,9 @@ class RemoteFuncs(object):
         if 'id' not in load:
             return False
         keyapi = salt.key.Key(self.opts)
-        keyapi.delete_key(load['id'])
+        keyapi.delete_key(load['id'],
+                          preserve_minions=load.get('preserve_minion_cache',
+                                                         False))
         return True
 
 
@@ -1143,7 +1148,7 @@ class LocalFuncs(object):
                 return dict(error=dict(name='TokenAuthenticationError',
                                        message=msg))
 
-            jid = salt.utils.gen_jid()
+            jid = salt.utils.jid.gen_jid()
             fun = load.pop('fun')
             tag = tagify(jid, prefix='wheel')
             data = {'fun': "wheel.{0}".format(fun),
@@ -1213,7 +1218,7 @@ class LocalFuncs(object):
                 return dict(error=dict(name='EauthAuthenticationError',
                                        message=msg))
 
-            jid = salt.utils.gen_jid()
+            jid = salt.utils.jid.gen_jid()
             fun = load.pop('fun')
             tag = tagify(jid, prefix='wheel')
             data = {'fun': "wheel.{0}".format(fun),
@@ -1302,7 +1307,7 @@ class LocalFuncs(object):
         # check if the cmd is blacklisted
         for module_re in self.opts['client_acl_blacklist'].get('modules', []):
             # if this is a regular command, its a single function
-            if type(load['fun']) == str:
+            if isinstance(load['fun'], str):
                 funs_to_check = [load['fun']]
             # if this a compound function
             else:

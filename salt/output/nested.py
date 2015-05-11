@@ -23,13 +23,14 @@ Example output::
                 - Hello
                 - World
 '''
+from __future__ import absolute_import
 # Import python libs
 from numbers import Number
 
 # Import salt libs
 import salt.output
+from salt.ext.six import string_types
 from salt.utils import get_colors, sdecode
-from salt._compat import string_types
 
 
 class NestDisplay(object):
@@ -37,7 +38,7 @@ class NestDisplay(object):
     Manage the nested display contents
     '''
     def __init__(self):
-        self.colors = salt.utils.get_colors(__opts__.get('color'))
+        self.colors = get_colors(__opts__.get('color'))
         self.__dict__.update(
             get_colors(
                 __opts__.get('color')

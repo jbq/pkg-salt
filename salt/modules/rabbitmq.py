@@ -4,6 +4,7 @@ Module to provide RabbitMQ compatibility to Salt.
 Todo: A lot, need to add cluster support, logging, and minion configuration
 data.
 '''
+from __future__ import absolute_import
 
 # Import salt libs
 import salt.utils
@@ -12,6 +13,7 @@ import salt.utils
 import logging
 import random
 import string
+from salt.ext.six.moves import range
 
 log = logging.getLogger(__name__)
 
@@ -390,7 +392,7 @@ def cluster_status(runas=None):
     return res
 
 
-def join_cluster(host, user='rabbit', runas=None):
+def join_cluster(host, user='rabbit', ram_node=None, runas=None):
     '''
     Join a rabbit cluster
 
@@ -398,15 +400,17 @@ def join_cluster(host, user='rabbit', runas=None):
 
     .. code-block:: bash
 
-        salt '*' rabbitmq.join_cluster 'rabbit' 'rabbit.example.com'
+        salt '*' rabbitmq.join_cluster 'rabbit.example.com' 'rabbit'
     '''
+    if ram_node:
+        cmd = 'rabbitmqctl join_cluster --ram {0}@{1}'.format(user, host)
+    else:
+        cmd = 'rabbitmqctl join_cluster {0}@{1}'.format(user, host)
+
     if runas is None:
         runas = salt.utils.get_user()
     stop_app(runas)
-    res = __salt__['cmd.run'](
-        'rabbitmqctl join_cluster {0}@{1}'.format(user, host),
-        python_shell=False,
-        runas=runas)
+    res = __salt__['cmd.run'](cmd, runas=runas, python_shell=False)
     start_app(runas)
 
     return _format_response(res, 'Join')
@@ -555,17 +559,21 @@ def list_policies(runas=None):
     for line in res.splitlines():
         if '...' not in line and line != '\n':
             parts = line.split('\t')
-            if len(parts) != 6:
+            if len(parts) not in (5, 6):
                 continue
             vhost, name = parts[0], parts[1]
             if vhost not in ret:
                 ret[vhost] = {}
-            ret[vhost][name] = {
-                'apply_to': parts[2],
-                'pattern': parts[3],
-                'definition': parts[4],
-                'priority': parts[5]
-            }
+            ret[vhost][name] = {}
+            # How many fields are there? - 'apply_to' was inserted in position 2 at somepoint
+            offset = len(parts) - 5
+            if len(parts) == 6:
+                ret[vhost][name]['apply_to'] = parts[2]
+            ret[vhost][name].update({
+                'pattern': parts[offset+2],
+                'definition': parts[offset+3],
+                'priority': parts[offset+4]
+            })
     log.debug('Listing policies: {0}'.format(ret))
     return ret
 

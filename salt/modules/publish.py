@@ -2,6 +2,7 @@
 '''
 Publish a command from a minion to a target
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import time
@@ -85,9 +86,9 @@ def _publish(
             'form': form,
             'id': __opts__['id']}
 
-    sreq = salt.transport.Channel.factory(__opts__)
+    channel = salt.transport.Channel.factory(__opts__)
     try:
-        peer_data = sreq.send(load)
+        peer_data = channel.send(load)
     except SaltReqTimeoutError:
         return '{0!r} publish timed out'.format(fun)
     if not peer_data:
@@ -103,7 +104,7 @@ def _publish(
                     'id': __opts__['id'],
                     'tok': tok,
                     'jid': peer_data['jid']}
-            ret = sreq.send(load)
+            ret = channel.send(load)
             returned_minions = set(ret.keys())
 
             end_loop = False
@@ -131,7 +132,7 @@ def _publish(
                 'id': __opts__['id'],
                 'tok': tok,
                 'jid': peer_data['jid']}
-        ret = sreq.send(load)
+        ret = channel.send(load)
         if form == 'clean':
             cret = {}
             for host in ret:
@@ -159,6 +160,7 @@ def publish(tgt, fun, arg=None, expr_form='glob', returner='', timeout=5):
     - grain
     - grain_pcre
     - pillar
+    - pillar_pcre
     - ipcidr
     - range
     - compound
@@ -191,6 +193,13 @@ def publish(tgt, fun, arg=None, expr_form='glob', returner='', timeout=5):
         .. code-block:: bash
 
             salt '*' publish.publish test.kwarg arg='cheese=spam'
+
+        Multiple keyword arguments should be passed as a list.
+
+        .. code-block:: bash
+
+            salt '*' publish.publish test.kwarg arg="['cheese=spam','spam=cheese']"
+
 
 
     '''
@@ -261,8 +270,8 @@ def runner(fun, arg=None, timeout=5):
             'tmo': timeout,
             'id': __opts__['id']}
 
-    sreq = salt.transport.Channel.factory(__opts__)
+    channel = salt.transport.Channel.factory(__opts__)
     try:
-        return sreq.send(load)
+        return channel.send(load)
     except SaltReqTimeoutError:
         return '{0!r} runner publish timed out'.format(fun)

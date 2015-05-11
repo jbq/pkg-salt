@@ -44,6 +44,7 @@ to use a YAML 'explicit key', as demonstrated in the second example below.
           - option3="value3" ssh-dss AAAAB3NzaC1kcQ9J5bYTEyY== other@testdomain
           - AAAAB3NzaC1kcQ9fJFF435bYTEyY== newcomment
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import re
@@ -156,6 +157,27 @@ def present(
            'result': True,
            'comment': ''}
 
+    if source == '':
+        # check if this is of form {options} {enc} {key} {comment}
+        sshre = re.compile(r'^(.*?)\s?((?:ssh\-|ecds)[\w-]+\s.+)$')
+        fullkey = sshre.search(name)
+        # if it is {key} [comment]
+        if not fullkey:
+            key_and_comment = name.split()
+            name = key_and_comment[0]
+            if len(key_and_comment) == 2:
+                comment = key_and_comment[1]
+        else:
+            # if there are options, set them
+            if fullkey.group(1):
+                options = fullkey.group(1).split(',')
+            # key is of format: {enc} {key} [comment]
+            comps = fullkey.group(2).split()
+            enc = comps[0]
+            name = comps[1]
+            if len(comps) == 3:
+                comment = comps[2]
+
     if __opts__['test']:
         ret['result'], ret['comment'] = _present_test(
                 user,
@@ -198,26 +220,6 @@ def present(
                         options or [],
                         config)
     else:
-        # check if this is of form {options} {enc} {key} {comment}
-        sshre = re.compile(r'^(.*?)\s?((?:ssh\-|ecds)[\w-]+\s.+)$')
-        fullkey = sshre.search(name)
-        # if it is {key} [comment]
-        if not fullkey:
-            key_and_comment = name.split(None, 1)
-            name = key_and_comment[0]
-            if len(key_and_comment) == 2:
-                comment = key_and_comment[1]
-        else:
-            # if there are options, set them
-            if fullkey.group(1):
-                options = fullkey.group(1).split(',')
-            # key is of format: {enc} {key} [comment]
-            comps = fullkey.group(2).split(None, 2)
-            enc = comps[0]
-            name = comps[1]
-            if len(comps) == 3:
-                comment = comps[2]
-
         data = __salt__['ssh.set_auth_key'](
                 user,
                 name,

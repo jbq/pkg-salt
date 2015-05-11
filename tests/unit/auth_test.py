@@ -43,7 +43,7 @@ class LoadAuthTestCase(TestCase):
                 'test_password': '',
                 'show_timeout': False,
                 'eauth': 'pam'
-            })
+            }, expected_extra_kws=auth.AUTH_INTERNAL_KEYWORDS)
             ret = self.lauth.load_name(valid_eauth_load)
             format_call_mock.assert_has_calls(expected_ret)
 
@@ -58,7 +58,7 @@ class LoadAuthTestCase(TestCase):
                 'test_password': '',
                 'show_timeout': False,
                 'eauth': 'pam'
-                })
+                }, expected_extra_kws=auth.AUTH_INTERNAL_KEYWORDS)
             self.lauth.get_groups(valid_eauth_load)
             format_call_mock.assert_has_calls(expected_ret)
 
@@ -79,6 +79,7 @@ class MasterACLTestCase(integration.ModuleCase):
         opts['client_acl_blacklist'] = {}
         opts['master_job_cache'] = ''
         opts['sign_pub_messages'] = False
+        opts['con_cache'] = ''
         opts['external_auth'] = {'pam': {'test_user': [{'*': ['test.ping']},
                                                        {'minion_glob*': ['foo.bar']},
                                                        {'minion_func_test': ['func_test.*']}],
