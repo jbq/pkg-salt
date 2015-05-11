@@ -2,6 +2,7 @@
 '''
 Work with cron
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import os
@@ -9,6 +10,8 @@ import random
 
 # Import salt libs
 import salt.utils
+import salt.ext.six as six
+from salt.ext.six.moves import range
 
 
 TAG = '# Lines below here are managed by Salt, do not edit\n'
@@ -17,7 +20,7 @@ SALT_CRON_NO_IDENTIFIER = 'NO ID SET'
 
 
 def _encode(string):
-    if isinstance(string, unicode):
+    if isinstance(string, six.text_type):
         string = string.encode('utf-8')
     elif not string:
         string = ''
@@ -41,7 +44,7 @@ def _cron_matched(cron, cmd, identifier=None):
       - but also be smart enough to remove states changed crons where we do
         not removed priorly by a cron.absent by matching on the provided
         identifier.
-        We assure retrocompatiblity by only checking on identifier if
+        We assure retrocompatibility by only checking on identifier if
         and only if an identifier was set on the serialized crontab
     '''
     ret, id_matched = False, None
@@ -329,10 +332,10 @@ def _get_cron_date_time(**kwargs):
     '''
     # Define ranges (except daymonth, as it depends on the month)
     range_max = {
-        'minute': range(60),
-        'hour': range(24),
-        'month': range(1, 13),
-        'dayweek': range(7)
+        'minute': list(list(range(60))),
+        'hour': list(list(range(24))),
+        'month': list(list(range(1, 13))),
+        'dayweek': list(list(range(7)))
     }
 
     ret = {}
@@ -354,7 +357,7 @@ def _get_cron_date_time(**kwargs):
     daymonth = str(kwargs.get('daymonth', '1')).lower()
     if daymonth == 'random':
         ret['daymonth'] = \
-            str(random.sample(range(1, (daymonth_max + 1)), 1)[0])
+            str(random.sample(list(list(range(1, (daymonth_max + 1)))), 1)[0])
     else:
         ret['daymonth'] = daymonth
 

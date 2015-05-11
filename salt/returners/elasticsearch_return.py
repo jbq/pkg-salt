@@ -4,7 +4,7 @@ Return data to an elasticsearch server for indexing.
 
 :maintainer:    Jurnell Cockhren <jurnell.cockhren@sophicware.com>
 :maturity:      New
-:depends:       `elasticsearch-py <http://elasticsearch-py.readthedocs.org/en/latest/>`_
+:depends:       `elasticsearch-py <http://elasticsearch-py.readthedocs.org/en/latest/>`_,  `jsonpickle <https://pypi.python.org/pypi/jsonpickle>`_
 :platform:      all
 
 To enable this returner the elasticsearch python client must be installed
@@ -12,29 +12,49 @@ on the desired minions (all or some subset).
 
 The required configuration is as follows:
 
+.. code-block:: yaml
+
     elasticsearch:
-        host: 'somehost.example.com:9200'
-        index: 'salt'
-        number_of_shards: 1 (optional)
-        number_of_replicas: 0 (optional)
+      host: 'somehost.example.com:9200'
+      index: 'salt'
+      number_of_shards: 1 (optional)
+      number_of_replicas: 0 (optional)
+
+or to specify multiple elasticsearch hosts for resiliency:
+
+.. code-block:: yaml
+
+    elasticsearch:
+      host:
+        - 'somehost.example.com:9200'
+        - 'anotherhost.example.com:9200'
+        - 'yetanotherhost.example.com:9200'
+      index: 'salt'
+      number_of_shards: 1 (optional)
+      number_of_replicas: 0 (optional)
 
 The above configuration can be placed in a targeted pillar, minion or
 master configurations.
 
 To use the returner per salt call:
 
+.. code-block:: bash
+
     salt '*' test.ping --return elasticsearch
 
 In order to have the returner apply to all minions:
 
+.. code-block:: yaml
+
     ext_job_cache: elasticsearch
 '''
+from __future__ import absolute_import
 
 # Import Python libs
 import datetime
 
 # Import Salt libs
-import salt.utils
+import salt.utils.jid
 
 __virtualname__ = 'elasticsearch'
 
@@ -108,7 +128,11 @@ def _get_instance():
     '''
     Return the elasticsearch instance
     '''
-    return elasticsearch.Elasticsearch([__salt__['config.get']('elasticsearch:host')])
+    # Check whether we have a single elasticsearch host string, or a list of host strings.
+    if isinstance(__salt__['config.get']('elasticsearch:host'), list):
+        return elasticsearch.Elasticsearch(__salt__['config.get']('elasticsearch:host'))
+    else:
+        return elasticsearch.Elasticsearch([__salt__['config.get']('elasticsearch:host')])
 
 
 def returner(ret):
@@ -125,8 +149,8 @@ def returner(ret):
              )
 
 
-def prep_jid(nocache, passed_jid=None):  # pylint: disable=unused-argument
+def prep_jid(nocache=False, passed_jid=None):  # pylint: disable=unused-argument
     '''
     Do any work necessary to prepare a JID, including sending a custom id
     '''
-    return passed_jid if passed_jid is not None else salt.utils.gen_jid()
+    return passed_jid if passed_jid is not None else salt.utils.jid.gen_jid()

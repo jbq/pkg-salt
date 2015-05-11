@@ -4,8 +4,10 @@ The service module for OpenBSD
 '''
 
 # Import python libs
+from __future__ import absolute_import
 import os
 import logging
+from salt.ext.six.moves import map
 
 # Import Salt libs
 import salt.utils
@@ -27,11 +29,13 @@ def __virtual__():
     Only work on OpenBSD
     '''
     if __grains__['os'] == 'OpenBSD' and os.path.exists('/etc/rc.d/rc.subr'):
-        krel = map(int, __grains__['kernelrelease'].split('.'))
+        krel = list(list(map(int, __grains__['kernelrelease'].split('.'))))
         # The -f flag, used to force a script to run even if disabled,
         # was added after the 5.0 release.
+        # the rcctl(8) command is the preferred way to manage services.
         if krel[0] > 5 or (krel[0] == 5 and krel[1] > 0):
-            return __virtualname__
+            if not os.path.exists('/usr/sbin/rcctl'):
+                return __virtualname__
     return False
 
 
@@ -247,7 +251,7 @@ def get_enabled():
     return sorted(set(get_all()) & set(services))
 
 
-def enabled(name):
+def enabled(name, **kwargs):
     '''
     .. versionadded:: 2014.7.0
 

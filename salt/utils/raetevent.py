@@ -4,6 +4,7 @@ Manage events
 
 This module is used to manage events via RAET
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import os
@@ -16,6 +17,8 @@ import salt.payload
 import salt.loader
 import salt.state
 import salt.utils.event
+from salt import transport
+from salt.utils import kinds
 from salt import syspaths
 from raet import raeting, nacling
 from raet.lane.stacking import LaneStack
@@ -24,7 +27,7 @@ from raet.lane.yarding import RemoteYard
 log = logging.getLogger(__name__)
 
 
-class SaltEvent(object):
+class RAETEvent(object):
     '''
     The base class used to manage salt events
     '''
@@ -32,59 +35,75 @@ class SaltEvent(object):
         '''
         Set up the stack and remote yard
         '''
-        self.node = node  # application kind 'master', 'minion', 'syndic', 'call' etc
+        self.node = node  # application kind see kinds.APPL_KIND_NAMES
         self.sock_dir = sock_dir
         self.listen = listen
         if opts is None:
             opts = {}
         self.opts = opts
+        self.stack = None
+        self.ryn = 'manor'  # remote yard name
+        self.connected = False
         self.__prep_stack()
 
     def __prep_stack(self):
-        if self.node == 'master':
+        '''
+        Prepare the stack objects
+        '''
+        if not self.stack:
+            if transport.jobber_stack:
+                self.stack = transport.jobber_stack
+            else:
+                self.stack = transport.jobber_stack = self._setup_stack(ryn=self.ryn)
+        log.debug("RAETEvent Using Jobber Stack at = {0}\n".format(self.stack.ha))
+        self.connect_pub()
+
+    def _setup_stack(self, ryn='manor'):
+        kind = self.opts.get('__role', '')  # opts optional for master
+        if kind:  # not all uses of Raet SaltEvent has opts defined
+            if kind not in kinds.APPL_KINDS:
+                emsg = ("Invalid application kind = '{0}' for RAET SaltEvent.".format(kind))
+                log.error(emsg + "\n")
+                raise ValueError(emsg)
+            if kind != self.node:
+                emsg = ("Mismatch between node = '{0}' and kind = '{1}' in "
+                        "RAET SaltEvent.".format(self.node, kind))
+                log.error(emsg + '\n')
+                raise ValueError(emsg)
+
+        if self.node in [kinds.APPL_KIND_NAMES[kinds.applKinds.master],
+                         kinds.APPL_KIND_NAMES[kinds.applKinds.syndic]]:  # []'master', 'syndic']
             lanename = 'master'
-            if self.opts:
-                kind = self.opts.get('__role', '')  # opts optional for master
-                if kind and kind != self.node:
-                    emsg = ("Mismatch between node '{0}' and kind '{1}' in setup "
-                            "of SaltEvent on Raet.".format(self.node, kind))
-                    log.error(emsg + '\n')
-                    raise ValueError(emsg)
-        elif self.node == 'minion':
+        elif self.node in [kinds.APPL_KIND_NAMES[kinds.applKinds.minion],
+                           kinds.APPL_KIND_NAMES[kinds.applKinds.caller]]:  # ['minion', 'caller']
             role = self.opts.get('id', '')  # opts required for minion
             if not role:
-                emsg = ("Missing opts['id'] required by SaltEvent on Raet with "
-                       "node kind {0}.".format(self.node))
+                emsg = ("Missing role required to setup RAET SaltEvent.")
+                log.error(emsg + "\n")
+                raise ValueError(emsg)
+            if not kind:
+                emsg = "Missing kind required to setup RAET SaltEvent."
                 log.error(emsg + '\n')
                 raise ValueError(emsg)
-            kind = self.opts.get('__role', '')
-            if kind != self.node:
-                emsg = ("Mismatch between node '{0}' and kind '{1}' in setup "
-                       "of SaltEvent on Raet.".format(self.node, kind))
-                log.error(emsg + '\n')
-                raise ValueError(emsg)
-            lanename = role  # add '_minion'
+            lanename = "{0}_{1}".format(role, kind)
         else:
-            emsg = ("Unsupported application node kind '{0}' for SaltEvent "
-                    "Raet.".format(self.node))
+            emsg = ("Unsupported application node kind '{0}' for RAET SaltEvent.".format(self.node))
             log.error(emsg + '\n')
             raise ValueError(emsg)
 
         name = 'event' + nacling.uuid(size=18)
         cachedir = self.opts.get('cachedir', os.path.join(syspaths.CACHE_DIR, self.node))
-        self.connected = False
-        self.stack = LaneStack(
+
+        stack = LaneStack(
                 name=name,
                 lanename=lanename,
                 sockdirpath=self.sock_dir)
-        self.stack.Pk = raeting.packKinds.pack
-        self.router_yard = RemoteYard(
-                stack=self.stack,
-                lanename=lanename,
-                name='manor',
-                dirpath=self.sock_dir)
-        self.stack.addRemote(self.router_yard)
-        self.connect_pub()
+        stack.Pk = raeting.PackKind.pack.value
+        stack.addRemote(RemoteYard(stack=stack,
+                                   lanename=lanename,
+                                   name=ryn,
+                                   dirpath=self.sock_dir))
+        return stack
 
     def subscribe(self, tag=None):
         '''
@@ -104,10 +123,10 @@ class SaltEvent(object):
         '''
         if not self.connected and self.listen:
             try:
-                route = {'dst': (None, self.router_yard.name, 'event_req'),
+                route = {'dst': (None, self.ryn, 'event_req'),
                          'src': (None, self.stack.local.name, None)}
                 msg = {'route': route}
-                self.stack.transmit(msg, self.router_yard.uid)
+                self.stack.transmit(msg, self.stack.nameRemotes[self.ryn].uid)
                 self.stack.serviceAll()
                 self.connected = True
             except Exception:
@@ -189,10 +208,10 @@ class SaltEvent(object):
 
         if not isinstance(data, MutableMapping):  # data must be dict
             raise ValueError('Dict object expected, not "{0!r}".'.format(data))
-        route = {'dst': (None, self.router_yard.name, 'event_fire'),
+        route = {'dst': (None, self.ryn, 'event_fire'),
                  'src': (None, self.stack.local.name, None)}
         msg = {'route': route, 'tag': tag, 'data': data}
-        self.stack.transmit(msg, self.router_yard.uid)
+        self.stack.transmit(msg, self.stack.nameRemotes[self.ryn].uid)
         self.stack.serviceAll()
 
     def fire_ret_load(self, load):
@@ -231,5 +250,28 @@ class SaltEvent(object):
         if hasattr(self, 'stack'):
             self.stack.server.close()
 
-    def __del__(self):
-        self.destroy()
+
+class MasterEvent(RAETEvent):
+    '''
+    Create a master event management object
+    '''
+    def __init__(self, opts, sock_dir, listen=True):
+        super(MasterEvent, self).__init__('master', opts=opts, sock_dir=sock_dir, listen=listen)
+
+
+class PresenceEvent(MasterEvent):
+
+    def connect_pub(self):
+        '''
+        Establish the publish connection
+        '''
+        if not self.connected and self.listen:
+            try:
+                route = {'dst': (None, self.ryn, 'presence_req'),
+                         'src': (None, self.stack.local.name, None)}
+                msg = {'route': route}
+                self.stack.transmit(msg, self.stack.nameRemotes[self.ryn].uid)
+                self.stack.serviceAll()
+                self.connected = True
+            except Exception:
+                pass

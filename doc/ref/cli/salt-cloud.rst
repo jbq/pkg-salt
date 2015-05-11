@@ -11,6 +11,10 @@ Synopsis
 
     salt-cloud -m /etc/salt/cloud.map
 
+    salt-cloud -m /etc/salt/cloud.map NAME
+
+    salt-cloud -m /etc/salt/cloud.map NAME1 NAME2
+
     salt-cloud -p PROFILE NAME
 
     salt-cloud -p PROFILE NAME1 NAME2 NAME3 NAME4 NAME5 NAME6
@@ -132,6 +136,15 @@ Query Options
 
     Display a list of configured providers.
 
+.. option:: --list-profiles
+
+    .. versionadded:: 2014.7.0
+
+    Display a list of configured profiles. Pass in a cloud provider to view
+    the provider's associated profiles, such as ``digital_ocean``, or pass in
+    ``all`` to list all the configured profiles.
+
+
 Cloud Providers Listings
 ------------------------
 
@@ -169,7 +182,7 @@ Cloud Credentials
 Examples
 ========
 
-To create 4 VMs named web1, web2, db1 and db2 from specified profiles:
+To create 4 VMs named web1, web2, db1, and db2 from specified profiles:
 
 .. code-block:: bash
 

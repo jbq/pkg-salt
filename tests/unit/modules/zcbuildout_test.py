@@ -3,9 +3,14 @@
 # Import python libs
 import os
 import tempfile
-import urllib2
 import logging
 import shutil
+
+# Import 3rd-party libs
+# pylint: disable=import-error,no-name-in-module,redefined-builtin
+from salt.ext.six.moves.urllib.error import URLError
+from salt.ext.six.moves.urllib.request import urlopen
+# pylint: enable=import-error,no-name-in-module,redefined-builtin
 
 # Import Salt Testing libs
 from salttesting import TestCase, skipIf
@@ -14,10 +19,10 @@ from salttesting.helpers import (
     requires_network,
     skip_if_binaries_missing
 )
-ensure_in_syspath('../../')
+ensure_in_syspath('../..')
 
 # Import Salt libs
-import integration
+import integration  # pylint: disable=import-error
 import salt.utils
 from salt.modules import zcbuildout as buildout
 from salt.modules import cmdmod as cmd
@@ -51,9 +56,7 @@ log = logging.getLogger(__name__)
 
 def download_to(url, dest):
     with salt.utils.fopen(dest, 'w') as fic:
-        fic.write(
-            urllib2.urlopen(url, timeout=10).read()
-        )
+        fic.write(urlopen(url, timeout=10).read())
 
 
 @skipIf(True, 'These tests are not running reliably')
@@ -71,7 +74,7 @@ class Base(TestCase):
             )
             try:
                 download_to(url, dest)
-            except urllib2.URLError:
+            except URLError:
                 log.debug('Failed to download {0}'.format(url))
         # creating a new setuptools install
         cls.ppy_st = os.path.join(cls.rdir, 'psetuptools')
@@ -145,28 +148,28 @@ class BuildoutTestCase(Base):
         #self.assertEqual(ret1['status'], True)
         #self.assertEqual(ret1['logs_by_level']['warn'], ['wbar'])
         #self.assertEqual(ret1['comment'], '')
-        self.assertTrue(
-            u''
-            u'OUTPUT:\n'
-            u'foo\n'
-            u''
-            # These lines are throwing pylint errors - disabling for now since we are skipping
-            # these tests
-            #in ret1['outlog']
-        )
+        # These lines are throwing pylint errors - disabling for now since we are skipping
+        # these tests
+        #self.assertTrue(
+        #     u''
+        #     u'OUTPUT:\n'
+        #     u'foo\n'
+        #     u''
+        #    in ret1['outlog']
+        #)
 
         # These lines are throwing pylint errors - disabling for now since we are skipping
         # these tests
         #self.assertTrue(u'Log summary:\n' in ret1['outlog'])
-        self.assertTrue(
-            u'INFO: ibar\n'
-            u'WARN: wbar\n'
-            u'DEBUG: dbar\n'
-            u'ERROR: ebar\n'
-            # These lines are throwing pylint errors - disabling for now since we are skipping
-            # these tests
-            #in ret1['outlog']
-        )
+        # These lines are throwing pylint errors - disabling for now since we are skipping
+        # these tests
+        # self.assertTrue(
+        #     u'INFO: ibar\n'
+        #     u'WARN: wbar\n'
+        #     u'DEBUG: dbar\n'
+        #     u'ERROR: ebar\n'
+        #    in ret1['outlog']
+        #)
         # These lines are throwing pylint errors - disabling for now since we are skipping
         # these tests
         #self.assertTrue('by level' in ret1['outlog_by_level'])
@@ -502,7 +505,7 @@ class BuildoutAPITestCase(TestCase):
 
 
 if __name__ == '__main__':
-    from integration import run_tests
+    from integration import run_tests  # pylint: disable=import-error
     run_tests(
         BuildoutAPITestCase,
         BuildoutTestCase,

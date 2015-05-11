@@ -2,46 +2,79 @@
 '''
 Take data from salt and "return" it into a carbon receiver
 
-Add the following configuration to the minion configuration files::
+Add the following configuration to the minion configuration file:
+
+.. code-block:: yaml
 
     carbon.host: <server ip address>
     carbon.port: 2003
 
 Errors when trying to convert data to numbers may be ignored by setting
-``carbon.skip_on_error`` to `True`::
+``carbon.skip_on_error`` to `True`:
+
+.. code-block:: yaml
 
     carbon.skip_on_error: True
 
 By default, data will be sent to carbon using the plaintext protocol. To use
-the pickle protocol, set ``carbon.mode`` to ``pickle``::
+the pickle protocol, set ``carbon.mode`` to ``pickle``:
+
+.. code-block:: yaml
 
     carbon.mode: pickle
 
-Carbon settings may also be configured as::
+Carbon settings may also be configured as:
+
+.. code-block:: yaml
 
     carbon:
-        host: <server IP or hostname>
-        port: <carbon port>
-        skip_on_error: True
-        mode: (pickle|text)
+      host: <server IP or hostname>
+      port: <carbon port>
+      skip_on_error: True
+      mode: (pickle|text)
 
-  To use the carbon returner, append '--return carbon' to the salt command. ex:
+Alternative configuration values can be used by prefacing the configuration.
+Any values not found in the alternative configuration will be pulled from
+the default location:
+
+.. code-block:: yaml
+
+    alternative.carbon:
+      host: <server IP or hostname>
+      port: <carbon port>
+      skip_on_error: True
+      mode: (pickle|text)
+
+To use the carbon returner, append '--return carbon' to the salt command.
+
+.. code-block:: bash
 
     salt '*' test.ping --return carbon
+
+To use the alternative configuration, append '--return_config alternative' to the salt command.
+
+.. versionadded:: 2015.5.0
+
+.. code-block:: bash
+
+    salt '*' test.ping --return carbon --return_config alternative
 '''
+from __future__ import absolute_import
 
 
 # Import python libs
 from contextlib import contextmanager
 import collections
 import logging
-import cPickle as pickle
+import salt.ext.six.moves.cPickle as pickle  # pylint: disable=E0611
 import socket
 import struct
 import time
 
 # Import salt libs
-import salt.utils
+import salt.utils.jid
+import salt.returners
+from salt.ext.six.moves import map
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +84,23 @@ __virtualname__ = 'carbon'
 
 def __virtual__():
     return __virtualname__
+
+
+def _get_options(ret):
+    '''
+    Returns options used for the carbon returner.
+    '''
+    attrs = {'host': 'host',
+             'port': 'port',
+             'skip': 'skip_on_error',
+             'mode': 'mode'}
+
+    _options = salt.returners.get_returner_options(__virtualname__,
+                                                   ret,
+                                                   attrs,
+                                                   __salt__=__salt__,
+                                                   __opts__=__opts__)
+    return _options
 
 
 @contextmanager
@@ -154,21 +204,13 @@ def returner(ret):
         [module].[function].[minion_id].[metric path [...]].[metric name]
 
     '''
+    _options = _get_options(ret)
 
-    if 'config.option' in __salt__:
-        cfg = __salt__['config.option']
-        c_cfg = cfg('carbon', {})
-
-        host = c_cfg.get('host', cfg('carbon.host', None))
-        port = c_cfg.get('port', cfg('carbon.port', None))
-        skip = c_cfg.get('skip_on_error', cfg('carbon.skip_on_error', False))
-        mode = c_cfg.get('mode', cfg('carbon.mode', 'text')).lower()
-    else:
-        cfg = __opts__
-        host = cfg.get('cabon.host', None)
-        port = cfg.get('cabon.port', None)
-        skip = cfg.get('carbon.skip_on_error', False)
-        mode = cfg.get('carbon.mode', 'text').lower()
+    host = _options.get('host')
+    port = _options.get('port')
+    skip = _options.get('skip')
+    if 'mode' in _options:
+        mode = _options.get('mode').lower()
 
     log.debug('Carbon minion configured with host: {0}:{1}'.format(host, port))
     log.debug('Using carbon protocol: {0}'.format(mode))
@@ -208,8 +250,8 @@ def returner(ret):
             total_sent_bytes += sent_bytes
 
 
-def prep_jid(nocache, passed_jid=None):  # pylint: disable=unused-argument
+def prep_jid(nocache=False, passed_jid=None):  # pylint: disable=unused-argument
     '''
     Do any work necessary to prepare a JID, including sending a custom id
     '''
-    return passed_jid if passed_jid is not None else salt.utils.gen_jid()
+    return passed_jid if passed_jid is not None else salt.utils.jid.gen_jid()

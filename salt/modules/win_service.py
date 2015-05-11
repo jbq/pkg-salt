@@ -4,9 +4,13 @@ Windows Service module.
 '''
 
 # Import python libs
+from __future__ import absolute_import
 import salt.utils
 import time
 import logging
+from subprocess import list2cmdline
+from salt.ext.six.moves import zip
+from salt.ext.six.moves import range
 try:
     from shlex import quote as _cmd_quote  # pylint: disable=E0611
 except ImportError:
@@ -56,29 +60,7 @@ def get_enabled():
 
         salt '*' service.get_enabled
     '''
-
-    if has_powershell():
-        cmd = 'Get-WmiObject win32_service | where {$_.startmode -eq "Auto"} | select-object name'
-        lines = __salt__['cmd.run'](cmd, shell='POWERSHELL', python_shell=True).splitlines()
-        return sorted([line.strip() for line in lines[3:]])
-    else:
-        ret = set()
-        services = []
-        cmd = ['sc', 'query', 'type=', 'service', 'state=', 'all', 'bufsize=', str(BUFFSIZE)]
-        lines = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
-        for line in lines:
-            if 'SERVICE_NAME:' in line:
-                comps = line.split(':', 1)
-                if not len(comps) > 1:
-                    continue
-                services.append(comps[1].strip())
-        for service in services:
-            cmd2 = ['sc', 'qc', service, str(BUFFSIZE)]
-            lines = __salt__['cmd.run'](cmd2, python_shell=False).splitlines()
-            for line in lines:
-                if 'AUTO_START' in line:
-                    ret.add(service)
-        return sorted(ret)
+    return sorted([service for service in get_all() if enabled(service)])
 
 
 def get_disabled():
@@ -91,30 +73,7 @@ def get_disabled():
 
         salt '*' service.get_disabled
     '''
-    if has_powershell():
-        cmd = 'Get-WmiObject win32_service | where {$_.startmode -ne "Auto"} | select-object name'
-        lines = __salt__['cmd.run'](cmd, shell='POWERSHELL', python_shell=True).splitlines()
-        return sorted([line.strip() for line in lines[3:]])
-    else:
-        ret = set()
-        services = []
-        cmd = ['sc', 'query', 'type=', 'service', 'state=', 'all', 'bufsize=', str(BUFFSIZE)]
-        lines = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
-        for line in lines:
-            if 'SERVICE_NAME:' in line:
-                comps = line.split(':', 1)
-                if not len(comps) > 1:
-                    continue
-                services.append(comps[1].strip())
-        for service in services:
-            cmd2 = ['sc', 'qc', service, BUFFSIZE]
-            lines = __salt__['cmd.run'](cmd2, python_shell=False).splitlines()
-            for line in lines:
-                if 'DEMAND_START' in line:
-                    ret.add(service)
-                elif 'DISABLED' in line:
-                    ret.add(service)
-        return sorted(ret)
+    return sorted([service for service in get_all() if disabled(service)])
 
 
 def available(name):
@@ -156,7 +115,16 @@ def get_all():
 
         salt '*' service.get_all
     '''
-    return sorted(get_enabled() + get_disabled())
+    ret = set()
+    cmd = list2cmdline(['sc', 'query', 'type=', 'service', 'state=', 'all', 'bufsize=', str(BUFFSIZE)])
+    lines = __salt__['cmd.run'](cmd).splitlines()
+    for line in lines:
+        if 'SERVICE_NAME:' in line:
+            comps = line.split(':', 1)
+            if not len(comps) > 1:
+                continue
+            ret.add(comps[1].strip())
+    return sorted(ret)
 
 
 def get_service_name(*args):
@@ -372,7 +340,7 @@ def disable(name, **kwargs):
     return not __salt__['cmd.retcode'](cmd, python_shell=False)
 
 
-def enabled(name):
+def enabled(name, **kwargs):
     '''
     Check to see if the named service is enabled to start on boot
 
@@ -382,7 +350,12 @@ def enabled(name):
 
         salt '*' service.enabled <service name>
     '''
-    return name in get_enabled()
+    cmd = list2cmdline(['sc', 'qc', name])
+    lines = __salt__['cmd.run'](cmd).splitlines()
+    for line in lines:
+        if 'AUTO_START' in line:
+            return True
+    return False
 
 
 def disabled(name):
@@ -395,4 +368,11 @@ def disabled(name):
 
         salt '*' service.disabled <service name>
     '''
-    return name in get_disabled()
+    cmd = list2cmdline(['sc', 'qc', name])
+    lines = __salt__['cmd.run'](cmd).splitlines()
+    for line in lines:
+        if 'DEMAND_START' in line:
+            return True
+        elif 'DISABLED' in line:
+            return True
+    return False

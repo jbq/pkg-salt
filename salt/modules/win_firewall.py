@@ -2,6 +2,7 @@
 '''
 Module for configuring Windows Firewall
 '''
+from __future__ import absolute_import
 
 # Import python libs
 import re
@@ -48,7 +49,7 @@ def get_config():
     return profiles
 
 
-def disable():
+def disable(profile='allprofiles'):
     '''
     Disable all the firewall profiles
 
@@ -62,8 +63,27 @@ def disable():
     return __salt__['cmd.run'](cmd, python_shell=False) == 'Ok.'
 
 
+def enable(profile='allprofiles'):
+    '''
+    Enable firewall profile :param profile: (default: allprofiles)
+
+    .. versionadded:: 2015.5.0
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' firewall.enable
+    '''
+    return __salt__['cmd.run'](
+            'netsh advfirewall set {0} state on'.format(profile)
+            ) == 'Ok.'
+
+
 def get_rule(name="all"):
     '''
+    .. versionadded:: 2015.5.0
+
     Get firewall rule(s) info
 
     CLI Example:
@@ -84,6 +104,8 @@ def get_rule(name="all"):
 
 def add_rule(name, localport, protocol="tcp", action="allow", dir="in"):
     '''
+    .. versionadded:: 2015.5.0
+
     Add a new firewall rule
 
     CLI Example:
