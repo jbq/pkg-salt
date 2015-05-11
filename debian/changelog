@@ -1,3 +1,9 @@
+salt (2015.5.0+ds-1utopic1) utopic; urgency=medium
+
+  * Rebuild for utopic
+
+ -- Joe Healy <joehealy@gmail.com>  Mon, 11 May 2015 22:42:00 +1000
+
 salt (2015.5.0+ds-1) unstable; urgency=medium
 
   * [52d8863] Imported Upstream version 2015.5.0+ds. Closes: 783300
