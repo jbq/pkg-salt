@@ -1,3 +1,9 @@
+salt (2015.5.0+ds-1dts1) stable; urgency=medium
+
+  * Fix enabling a service on Ubuntu #24012
+
+ -- Jean-Baptiste Quenot <jbq@caraldi.com>  Thu, 21 May 2015 13:40:19 +0000
+
 salt (2015.5.0+ds-1) unstable; urgency=medium
 
   * [52d8863] Imported Upstream version 2015.5.0+ds. Closes: 783300
